@@ -11,6 +11,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { createLinguistCatTools } from '@linguist/cat-tools'
 import { LinguistProjectService } from '@linguist/domain-service'
+import type { LinguistTurnContextV1 } from './host/automation-context'
 import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
 import { createCatDeps } from './host/cat-deps'
 import { LinguistDelegationControl } from './host/delegation-control'
@@ -27,7 +28,7 @@ import { loadLinguistRoleResources } from './host/role-resources'
 import { ScheduleContextManager } from './host/schedule-context'
 import { ensureStageEvidenceForSession } from './host/stage-evidence'
 import { adaptCatTool } from './host/tool-adapter'
-import { addPreparedTurnContext, TurnContextReceipts } from './host/turn-context'
+import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from './host/turn-context'
 import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
@@ -76,6 +77,7 @@ export function apply(ctx: Context, config: Config): void {
     if (binding.projectId && bindings.projectWorkspace(binding.projectId) !== workspace.id) {
       throw new Error(`Linguist project binding changed for Session ${agent.id}`)
     }
+    const turnContextProvenance = binding.projectId && binding.workMode === 'cat' ? new TurnContextCallProvenance() : undefined
     const disposers: Array<() => void> = []
     try {
       disposers.push(agent.ctx.systemPrompt.section({
@@ -83,15 +85,24 @@ export function apply(ctx: Context, config: Config): void {
         text: () => buildLinguistPromptSection(service, roleText, binding, workspace.path).prompt,
         interpolate: false,
       }))
-      if (binding.projectId && binding.workMode === 'cat') {
-        disposers.push(agent.ctx.on('agent/pre-step', async ({ messages: _messages }, next) => addPreparedTurnContext({
-          sessionId: agent.id,
-          decision: await next(),
-          receipts: turnContextReceipts,
-          service,
-          bindings,
-          assertProjectSession,
-        })))
+      if (turnContextProvenance) {
+        disposers.push(agent.ctx.on('session/event', (session, event) => {
+          if (session === agent.session) turnContextProvenance.observe(event)
+        }))
+        disposers.push(agent.ctx.on('agent/pre-step', async ({ turn }, next) => {
+          const matched: Array<{ requestId: string; context: LinguistTurnContextV1 }> = []
+          const decision = await addPreparedTurnContext({
+            sessionId: agent.id,
+            decision: await next(),
+            receipts: turnContextReceipts,
+            service,
+            bindings,
+            assertProjectSession,
+            onAdmitted: (requestId, context) => { matched.push({ requestId, context }) },
+          })
+          turnContextProvenance.admitStep(turn, decision, matched)
+          return decision
+        }))
       }
       disposers.push(agent.ctx.tools.register(createWorkingCopyTool(() => {
         const current = bindings.session(agent.id)
@@ -166,14 +177,14 @@ export function apply(ctx: Context, config: Config): void {
             })
           },
           onEvidencePrepared: (receipt) => evidence.prepare(projectId, receipt),
-          generationProvenance: toolCallId => ({ sessionId, toolCallId, runId: `dsh:${sessionId}:${toolCallId}`, modelProvider: agent.options.provider, modelId: agent.options.model, runtime: 'dsh-native' }),
+          generationProvenance: toolCallId => ({ sessionId, toolCallId, runId: `dsh:${sessionId}:${toolCallId}`, modelProvider: agent.options.provider, modelId: agent.options.model, runtime: 'dsh-native', ...(turnContextProvenance?.forCall(toolCallId) ?? {}) }),
           stageEvidenceRunId: () => stage?.stageRunId,
           reviewScopeSegmentIds: () => stage?.plan.segmentIds,
           delegatedScopeSegmentIds: () => delegatedScope,
           ...(agent.options.model === undefined ? {} : { modelId: agent.options.model }),
         })
         for (const source of createLinguistCatTools(deps)) {
-          disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments, (callId, content) => evidence.presented(sessionId, callId, content))))
+          disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments, (callId, content) => evidence.presented(sessionId, callId, content), (callId, rootCallId) => turnContextProvenance?.associateNestedCall(callId, rootCallId))))
         }
       }
       registered.set(agent.id, () => { for (const dispose of disposers.reverse()) dispose() })

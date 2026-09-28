@@ -6,6 +6,7 @@ import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, r
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+import { Readable } from 'node:stream'
 import test from 'node:test'
 import { LinguistProjectService, convertOfficePreviewToHtml } from '../../packages/linguist-domain-service/src/index.ts'
 import { createDefaultCatFormatRegistry } from '../../packages/linguist-domain-service/src/format-registry.ts'
@@ -22,19 +23,156 @@ import { dispatchOperation } from '../../packages/dsh-linguist/src/host/operatio
 import { invokeError, registerHttpRoutes } from '../../packages/dsh-linguist/src/host/http.ts'
 import { loadLinguistRoleResources } from '../../packages/dsh-linguist/src/host/role-resources.ts'
 import { createWorkingCopyTool } from '../../packages/dsh-linguist/src/host/working-copy-tool.ts'
+import { adaptCatTool } from '../../packages/dsh-linguist/src/host/tool-adapter.ts'
 import { captureAutomationLinguistContext, revalidateAutomationLinguistContext } from '../../packages/dsh-linguist/src/host/automation-context.ts'
 import { freezeLinguistDelegation, linguistDelegationOutcome } from '../../packages/dsh-linguist/src/host/delegation.ts'
 import { LinguistDelegationControl } from '../../packages/dsh-linguist/src/host/delegation-control.ts'
 import { deliverDelegationInputs, preflightDelegationInputs } from '../../packages/dsh-linguist/src/host/delegation-inputs.ts'
 import { createLinguistDelegationTool } from '../../packages/dsh-linguist/src/host/delegation-tool.ts'
 import { copyLinguistSessionToProject, sessionCopyEligibility } from '../../packages/dsh-linguist/src/host/session-copy.ts'
-import { addPreparedTurnContext, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
+import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
 import { ScheduleContextManager } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
 import { ScheduleId, createAfterScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
 
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
+const requireDsh = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
 const JSZip = requireFormats('jszip')
+const { Type } = requireDsh('typebox')
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+
+test('native CAT tool adapter preserves required fields, unions, limits, cancellation and errors', async () => {
+  const calls = []
+  const presented = []
+  const source = {
+    name: 'synthetic_schema_boundary', description: 'Synthetic schema boundary',
+    parameters: Type.Object({
+      mode: Type.Union([Type.Literal('read'), Type.Literal('write')]),
+      entries: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 2 }),
+    }, { additionalProperties: false }),
+    async execute(callId, args, signal) {
+      calls.push({ callId, args, signal })
+      if (signal.aborted) throw new Error('cancelled')
+      if (args.mode === 'write') throw new Error('domain write failed')
+      return { content: [{ type: 'text', text: 'Synthetic result' }], details: { count: args.entries.length } }
+    },
+  }
+  const tool = adaptCatTool(source, { saveImage: () => { throw new Error('No image expected') } }, (callId, content) => presented.push({ callId, content }))
+  assert.deepEqual(tool.parameters, JSON.parse(JSON.stringify(source.parameters)))
+  const signal = new AbortController().signal
+  const exec = { callId: 'synthetic-call', signal }
+  for (const args of [{ entries: ['one'] }, { mode: 'other', entries: ['one'] },
+    { mode: 'read', entries: [] }, { mode: 'read', entries: ['one', 'two', 'three'] },
+    { mode: 'read', entries: ['one'], unexpected: true }]) {
+    await assert.rejects(tool.execute(args, exec), /Invalid synthetic_schema_boundary arguments/)
+  }
+  assert.equal(calls.length, 0)
+  const output = await tool.execute({ mode: 'read', entries: ['one'] }, exec)
+  assert.deepEqual(output, { content: [{ type: 'text', text: 'Synthetic result' }], details: { count: 1 } })
+  assert.deepEqual(tool.output.render({}, output), output.content)
+  assert.equal(calls[0].signal, signal)
+  assert.deepEqual(presented, [{ callId: 'synthetic-call', content: output.content }])
+  await assert.rejects(tool.execute({ mode: 'write', entries: ['one'] }, exec), /domain write failed/)
+  const cancelled = new AbortController()
+  cancelled.abort()
+  await assert.rejects(tool.execute({ mode: 'read', entries: ['one'] }, { ...exec, signal: cancelled.signal }), /cancelled/)
+  assert.equal(presented.length, 1, 'failed or cancelled calls must not present model evidence')
+})
+
+test('native CAT image results carry actual bytes into the DSH attachment and presented content', async () => {
+  const pixels = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR3sAAAAASUVORK5CYII=', 'base64')
+  const saved = []
+  const presented = []
+  const tool = adaptCatTool({
+    name: 'synthetic_image', description: 'Synthetic image', parameters: Type.Object({}),
+    async execute() { return { content: [{ type: 'image', mimeType: 'image/png', data: pixels.toString('base64') }] } },
+  }, { async saveImage(image) { saved.push(image); return { id: 'synthetic-attachment' } } }, (callId, content) => presented.push({ callId, content }))
+  const result = await tool.execute({}, { callId: 'image-call', signal: new AbortController().signal })
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].mediaType, 'image/png')
+  assert.deepEqual(saved[0].data, pixels)
+  assert.deepEqual(result.content, [{ type: 'image', attachment: { id: 'synthetic-attachment' } }])
+  assert.deepEqual(presented, [{ callId: 'image-call', content: result.content }])
+})
+
+test('import preview rejects mapping.json and malformed XML, keeps Phrase recovery across extensions and writes nothing', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-intake-boundary-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic intake', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    writeFileSync(join(root, 'mapping.json'), '{"sourceColumn":"A","targetColumn":"B"}')
+    writeFileSync(join(root, 'broken.xliff'), '<xliff version="1.2"><file><body><trans-unit id="a"><source>Open</source></file></xliff>')
+    const split = '<xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="one"><source>Open {0}</source><target>打开 {0}</target></trans-unit></body></file></xliff>'
+    for (const extension of ['mxliff', 'xlf', 'xliff']) writeFileSync(join(root, `split.${extension}`), split)
+    const report = await service.importResourcesFromPaths(project.id, root, {
+      paths: ['mapping.json', 'broken.xliff', 'split.mxliff', 'split.xlf', 'split.xliff'],
+      recursive: false, kind: 'auto', dryRun: true,
+    })
+    const byName = Object.fromEntries(report.items.map(item => [item.filename, item]))
+    assert.notEqual(byName['mapping.json'].status, 'ready', 'mapping configuration must not be accepted as a translation batch')
+    assert.notEqual(byName['broken.xliff'].status, 'ready')
+    assert.deepEqual(['mxliff', 'xlf', 'xliff'].map(extension => byName[`split.${extension}`].status),
+      ['needs-input', 'needs-input', 'needs-input'])
+    assert.equal(service.openProject(project.id).assets.listByProject().length, 0)
+    assert.equal(service.openProject(project.id).contextDocs.count(), 0)
+    assert.equal(readFileSync(join(root, 'split.mxliff'), 'utf8'), split)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('local HTTP rejects cross-site access and unsafe files while SSE replays only until disconnect', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-http-boundary-'))
+  try {
+    const mutations = new MutationBus()
+    let handler
+    const service = { getStatus: () => ({ state: 'ready' }), getProject: id => ({ id }) }
+    registerHttpRoutes({
+      ctx: { webServer: { register: route => { handler = route.handler; return () => {} } } },
+      service,
+      bindings: new BindingStore(root), files: new ManagedFiles(root), mutations,
+      installationId: 'synthetic-installation', rebindAgent: () => {},
+      dispatch: async () => { throw new Error('synthetic dispatch failure') },
+    })
+    const send = async (url, headers = { host: '127.0.0.1:19387' }, method = 'GET', body = '') => {
+      const request = Object.assign(body ? Readable.from([Buffer.from(body)]) : new EventEmitter(), { method, url, headers })
+      const chunks = []
+      const response = {
+        headersSent: false, statusCode: 0,
+        writeHead(status, responseHeaders) { this.statusCode = status; this.headers = responseHeaders; this.headersSent = true },
+        write(chunk) { chunks.push(chunk) },
+        end(chunk) { if (chunk) chunks.push(chunk) },
+      }
+      await handler(request, response)
+      return { request, response, chunks, json: () => JSON.parse(chunks.join('')) }
+    }
+    assert.equal((await send('/la/v1/status', { host: 'example.com' })).response.statusCode, 403)
+    assert.equal((await send('/la/v1/status', { host: '127.0.0.1:19387', origin: 'https://evil.example' })).response.statusCode, 403)
+    assert.equal((await send('/la/v1/status', { host: '127.0.0.1:19387', 'sec-fetch-site': 'cross-site' })).response.statusCode, 403)
+    assert.equal((await send('/la/v1/files/../../private')).response.statusCode, 404)
+    assert.equal((await send('/la/v1/files/not-a-token')).response.statusCode, 404)
+    const status = await send('/la/v1/status')
+    assert.equal(status.response.statusCode, 200)
+    assert.equal(status.json().installationId, 'synthetic-installation')
+    assert.equal(status.response.headers['Cache-Control'], 'no-store')
+    service.getStatus = () => { throw new Error('/private/customer/secret') }
+    const failedStatus = await send('/la/v1/status')
+    assert.equal(failedStatus.response.statusCode, 500)
+    assert.deepEqual(failedStatus.json(), { error: 'Unexpected internal error.' })
+    const failure = await send('/la/v1/invoke', { host: '127.0.0.1:19387', origin: 'http://127.0.0.1:19387', 'content-type': 'application/json' },
+      'POST', JSON.stringify({ operation: 'synthetic', input: {} }))
+    assert.deepEqual(failure.json(), { ok: false, error: { code: 'INTERNAL', message: 'Unexpected internal error.' } })
+    const prior = mutations.publish('synthetic-project', { kind: 'prior' })
+    const sse = await send('/la/v1/events?projectId=synthetic-project&afterSequence=0')
+    assert.equal(sse.response.statusCode, 200)
+    assert.match(sse.chunks[0], /event: snapshot/)
+    assert.match(sse.chunks[0], new RegExp(mutations.epoch))
+    assert.match(sse.chunks[1], new RegExp(String(prior.revision)))
+    mutations.publish('synthetic-project', { kind: 'live' })
+    assert.equal(sse.chunks.length, 3)
+    sse.request.emit('close')
+    mutations.publish('synthetic-project', { kind: 'late' })
+    assert.equal(sse.chunks.length, 3)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('packaged role resources fail with stable path-free errors when missing or oversized', () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-role-resources-'))
@@ -50,6 +188,13 @@ test('packaged role resources fail with stable path-free errors when missing or 
 })
 
 test('invoke error preserves only safe typed counts and format classification', () => {
+  assert.deepEqual(invokeError(new TypeError('input /private/customer/secret')), { code: 'INVALID_INPUT', message: 'Invalid Linguist input.' })
+  assert.deepEqual(invokeError(Object.assign(new Error('/private/customer/secret'), { code: 'STORE_READ_ONLY' })),
+    { code: 'STORE_READ_ONLY', message: 'Linguist request failed.' })
+  assert.deepEqual(invokeError(Object.assign(new Error('/private/customer/secret'), { code: 'STORE_DATABASE_IDENTITY' })),
+    { code: 'INTERNAL', message: 'Unexpected internal error.' })
+  assert.deepEqual(invokeError({ code: 'INVALID_INPUT', message: '/private/customer/secret' }),
+    { code: 'INTERNAL', message: 'Unexpected internal error.' })
   const countError = Object.assign(new Error('Downstream references block import undo'), {
     code: 'IMPORT_UNDO_BLOCKED', details: { proposals: 2, jobs: 1 },
   })
@@ -262,6 +407,33 @@ test('native DSH prompt requestId admits the prepared CAT selection exactly in i
     assert.match(admitted.messages[0].content[0].text, new RegExp(segment.id))
     assert.equal(admitted.messages[1], original)
     assert.equal((await addPreparedTurnContext({ sessionId: 'session-turn', decision: { kind: 'enter', messages: [{ ...original, source: { kind: 'user', rpcId: randomUUID() } }] }, receipts: reopened, service, bindings, assertProjectSession })).messages.length, 1)
+
+    const provenance = new TurnContextCallProvenance()
+    const matched = []
+    const modelStep = await addPreparedTurnContext({
+      sessionId: 'session-turn', decision: { kind: 'enter', messages: [original] }, receipts: reopened, service, bindings, assertProjectSession,
+      onAdmitted: (acceptedRequestId, acceptedContext) => matched.push({ requestId: acceptedRequestId, context: acceptedContext }),
+    })
+    provenance.admitStep(7, modelStep, matched)
+    provenance.observe({ type: 'tool/call', data: { turn: 7, step: 0, callId: 'root-call', name: 'run_code', arguments: '{}' } })
+    const snapshot = JSON.stringify(context)
+    assert.deepEqual(provenance.forCall('root-call'), {
+      turnContextVersion: 1, turnContextSnapshot: snapshot, turnContextHash: sha256(snapshot),
+    })
+    let nestedProvenance
+    const nested = adaptCatTool({
+      name: 'synthetic_provenance', description: 'Synthetic provenance', parameters: Type.Object({}),
+      async execute(callId) { nestedProvenance = provenance.forCall(callId); return { content: [{ type: 'text', text: 'done' }] } },
+    }, { saveImage: () => { throw new Error('No image expected') } }, undefined,
+    (callId, rootCallId) => provenance.associateNestedCall(callId, rootCallId))
+    await nested.execute({}, { callId: 'nested-call', rootCallId: 'root-call', signal: new AbortController().signal })
+    assert.deepEqual(nestedProvenance, provenance.forCall('root-call'))
+    provenance.admitStep(7, { kind: 'enter', messages: [{ ...original, source: { kind: 'user', rpcId: randomUUID() } }] }, [])
+    provenance.observe({ type: 'tool/call', data: { turn: 7, step: 1, callId: 'unprepared-call', name: 'synthetic_provenance', arguments: '{}' } })
+    assert.equal(provenance.forCall('unprepared-call'), undefined)
+    provenance.observe({ type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
+    assert.equal(provenance.forCall('root-call'), undefined)
+    assert.equal(provenance.forCall('nested-call'), undefined)
 
     bindings.bindSession('session-turn', { ...binding, workMode: 'browser' })
     await assert.rejects(addPreparedTurnContext({ sessionId: 'session-turn', decision: { kind: 'enter', messages: [original] }, receipts: reopened, service, bindings, assertProjectSession }), /binding changed/)

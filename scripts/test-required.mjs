@@ -94,6 +94,7 @@ const checks = [
   {
     id: 'ported-domain-bun-tests', command: join(root, '.toolchain/bun-1.3.14/bun-darwin-aarch64/bun'),
     args: ['test',
+      'packages/linguist-cat-formats/src/adapters/phrasemxliff.test.ts',
       'packages/linguist-domain-service/src/context-extractor.test.ts',
       'packages/linguist-domain-service/src/project-evidence-inventory.test.ts',
       'packages/linguist-domain-service/src/project-discovery-scope.test.ts',

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { LinguistProjectService } from '@linguist/domain-service'
 import { validateLinguistTurnContext, type LinguistTurnContextV1 } from './automation-context'
 import type { BindingStore } from './bindings'
@@ -79,10 +80,12 @@ export async function addPreparedTurnContext(input: {
   service: LinguistProjectService
   bindings: BindingStore
   assertProjectSession: (sessionId: string, projectId: string) => Promise<void>
+  onAdmitted?: (requestId: string, context: LinguistTurnContextV1) => void
 }): Promise<PreStepDecision> {
   const { sessionId, decision, receipts, service, bindings, assertProjectSession } = input
   if (decision.kind === 'reject') return decision
   const admitted = []
+  const matched: Array<{ requestId: string; context: LinguistTurnContextV1 }> = []
   for (const message of decision.messages) {
     const source = message.source
     const requestId = source.kind === 'user' && 'rpcId' in source && typeof source.rpcId === 'string' ? source.rpcId : undefined
@@ -92,6 +95,7 @@ export async function addPreparedTurnContext(input: {
       if (!binding?.projectId || binding.workMode !== 'cat') throw new Error('Linguist CAT turn context Session binding changed')
       await assertProjectSession(sessionId, binding.projectId)
       const { context } = validateLinguistTurnContext(snapshot, binding.projectId, service)
+      matched.push({ requestId, context })
       admitted.push(createUserMessage({
         content: [{ type: 'text', text: [
           '<linguist_turn_context version="1" schema_version="1" trust="project-data">',
@@ -103,5 +107,58 @@ export async function addPreparedTurnContext(input: {
     }
     admitted.push(message)
   }
+  for (const item of matched) input.onAdmitted?.(item.requestId, item.context)
   return { ...decision, messages: admitted }
+}
+
+interface TurnContextProvenance {
+  turnContextVersion: number
+  turnContextSnapshot: string
+  turnContextHash: string
+}
+
+/** Associate an admitted request snapshot with the model's actual tool calls. */
+export class TurnContextCallProvenance {
+  private active?: { turn: number; provenance: TurnContextProvenance }
+  private readonly calls = new Map<string, { turn: number; provenance: TurnContextProvenance }>()
+
+  admitStep(turn: number, decision: PreStepDecision, matched: readonly { requestId: string; context: LinguistTurnContextV1 }[]): void {
+    if (decision.kind === 'reject') {
+      this.active = undefined
+      return
+    }
+    const userMessages = decision.messages.filter(message => message.source.kind === 'user')
+    if (!userMessages.length) return
+    const source = userMessages[0].source
+    if (userMessages.length !== 1 || matched.length !== 1 || source.kind !== 'user' || !('rpcId' in source) || source.rpcId !== matched[0].requestId) {
+      this.active = undefined
+      return
+    }
+    const context = matched[0].context
+    const turnContextSnapshot = JSON.stringify(context)
+    this.active = { turn, provenance: {
+      turnContextVersion: context.schemaVersion,
+      turnContextSnapshot,
+      turnContextHash: createHash('sha256').update(turnContextSnapshot).digest('hex'),
+    } }
+  }
+
+  observe(event: SessionEvent): void {
+    if (event.type === 'tool/call' && this.active?.turn === event.data.turn) {
+      this.calls.set(event.data.callId, this.active)
+    }
+    if (event.type === 'turn/end') {
+      if (this.active?.turn === event.data.turn) this.active = undefined
+      for (const [callId, value] of this.calls) if (value.turn === event.data.turn) this.calls.delete(callId)
+    }
+  }
+
+  associateNestedCall(callId: string, rootCallId: string): void {
+    const root = this.calls.get(rootCallId)
+    if (root) this.calls.set(callId, root)
+  }
+
+  forCall(callId: string): TurnContextProvenance | undefined {
+    return this.calls.get(callId)?.provenance
+  }
 }

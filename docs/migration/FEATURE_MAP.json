@@ -499,7 +499,7 @@
       "tests": [
         "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts"
       ],
-      "remainingVerification": "Native one-shot Linguist delegation is wired with role/scope/input fencing and synthetic tests. Installed DSH child execution plus continuation/message/cancel and Session-copy UI remain to verify; cross-Workspace history fork is unsupported by native API."
+      "remainingVerification": "Native continuable Linguist delegation, frozen role/scope/input fencing, and list/message/prompt/current-turn interruption are wired and synthetically checked. Installed DSH child execution, continuation/cancellation, and Session-copy UI remain to verify; cross-Workspace history fork is unsupported by the fixed native API."
     },
     {
       "id": "FEATURE-18",
@@ -527,7 +527,7 @@
       "tests": [
         "apps/electron/src/main/lib/automation-scheduler-linguist.test.ts"
       ],
-      "remainingVerification": "Host context capture/revalidation is synthetically tested. Fixed DSH 0.1.7-rc.2 Schedule is a same-Session reminder service; no public due-execution hook exists for the source independent automation task semantics."
+      "remainingVerification": "Host context capture/revalidation and manual same-Session Agent followup are synthetically checked; accepted delivery is not task completion. Installed due execution remains unverified. Fixed DSH 0.1.7-rc.2 Schedule lacks public independent child-Session execution and completion callbacks required by the source task semantics."
     },
     {
       "id": "FEATURE-19",
@@ -1984,7 +1984,7 @@
           "FEATURE-17"
         ],
         "status": "pending",
-        "auditNote": "Native DSH subagents and linguist_delegate cover bounded one-shot execution. Installed Desktop continuation, messaging/cancellation and UI evidence remain pending.",
+        "auditNote": "Native startContinuable delegation and frozen scope are implemented; list/sendMessage/prompt/current-turn interrupt use DSH SubagentRuntime and passed synthetic checks. Installed Desktop child execution, continuation, cancellation and UI evidence remain pending.",
         "targetEntry": "packages/dsh-linguist/src/host/delegation-tool.ts"
       },
       {
@@ -2017,7 +2017,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native DSH Schedule sends untrusted reminder text into the original Session and offers no autonomous child-execution hook; do not claim source task execution is migrated.",
+        "auditNote": "Native DSH Schedule sends reminder text into the original Session; manual runNow uses Agent.followup and returns accepted delivery only. Fixed RC has no public independent child-execution/completion hook, so source task execution remains pending.",
         "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
       },
       {
@@ -2082,7 +2082,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Host capture and execution revalidation are implemented and synthetically tested, but DSH 0.1.7-rc.2 Schedule exposes reminders only and no safe autonomous execution hook.",
+        "auditNote": "Host capture, execution revalidation and manual same-Session followup are implemented and synthetically checked; installed due execution and business completion remain unverified. DSH 0.1.7-rc.2 has no public independent child-execution/completion hook.",
         "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
       },
       {
@@ -2841,8 +2841,8 @@
           "FEATURE-12"
         ],
         "status": "pending",
-        "auditNote": "V1 structural and CAT ownership validation is ported for captured automation context. General Agent-turn pre-step context snapshot injection is not yet wired.",
-        "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
+        "auditNote": "V1 structural/CAT ownership validation and requestId-bound prepared snapshot injection are wired through Host agent/pre-step and synthetically checked. Ordinary Composer sends have no public pre-submit snapshot hook; installed Provider request content remains unverified.",
+        "targetEntry": "packages/dsh-linguist/src/host/turn-context.ts"
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/working-copy-tool.ts",
@@ -2892,7 +2892,8 @@
           "FEATURE-19"
         ],
         "status": "pending",
-        "auditNote": "No verified target implementation or replacement was found for this source file."
+        "targetEntry": "packages/dsh-linguist/src/client/api.ts",
+        "auditNote": "Electron preload IPC is replaced by Client /la/v1 HTTP/SSE/file-token calls and Host http.ts. tests/copied-renderer/AUDIT.md maps the 90 source methods; installed Desktop operation coverage and behavior parity remain pending."
       },
       {
         "sourcePath": "apps/electron/src/renderer/components/automation/AutomationFormView.tsx",
@@ -2903,7 +2904,7 @@
         ],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/RunPanel.tsx",
-        "auditNote": "已接专用创建；原生 Schedule 列表/编辑/取消/运行历史及到期执行尚需核验，源独立任务配置未逐项等价。",
+        "auditNote": "已接专用创建、原生 Schedule 列表/编辑/取消/历史与手动投递；安装态到期执行和业务完成尚未核验，源独立任务配置未逐项等价。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -2912,8 +2913,8 @@
         "targetPath": "packages/dsh-linguist/src/client/composer/ComposerContextChips.tsx",
         "featureIds": [],
         "status": "pending",
-        "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "工作台显式 Agent 快捷任务附 V1 快照；普通 DSH Composer 没有公开提交前快照接缝，Composer 内 chips 未实现。",
+        "targetEntry": "packages/dsh-linguist/src/client/ComposerContextChips.tsx",
+        "auditNote": "原生 conversation.input.dock 已接项目/批次/引用/选区 chips 和清除动作；显式 Agent 任务附 V1 快照。普通 Composer 没有公开提交前快照接缝，显示 chips 不等于模型收到上下文；安装态 Slot/发送仍待核验。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -3103,7 +3104,7 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
-        "auditNote": "DSH 原生能力存在；项目设置内状态摘要和直达 Skills/MCP/AGENTS.md/Memory 的公开 Client 导航接缝未证实。",
+        "auditNote": "项目设置已接原生 Files 入口；Skills/MCP/AGENTS.md/Memory 状态摘要及直达入口仍无已核实的公开 Client 导航接缝。Files 点击须在当前安装包核验。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -3563,8 +3564,8 @@
         "targetPath": "packages/dsh-linguist/src/client/projects/project-composer-context.ts",
         "featureIds": [],
         "status": "pending",
-        "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "工作台显式引用/选区展示存在；原生 Composer 内项目/批次/选区 chips 与默认轮次快照缺失。",
+        "targetEntry": "packages/dsh-linguist/src/client/composer-context.ts",
+        "auditNote": "工作台状态已按 Session 推送至原生 Composer dock chips；专用 Agent 任务有 requestId 绑定的 V1 快照。普通 Composer 每轮选区快照缺公开提交前接缝，安装态 chips/模型请求证据未完成。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -3630,7 +3631,7 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
-        "auditNote": "列表/健康/输入处理已迁；源格式错误分类、稳定错误码中文说明和撤销引用计数说明未完整迁。",
+        "auditNote": "列表与健康展示已接线；project-errors.ts 已实现格式分类、稳定错误码中文说明和撤销引用计数。源排序、输入预校验、时间/SHA 展示语义及安装态错误交互仍须逐项核对。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {

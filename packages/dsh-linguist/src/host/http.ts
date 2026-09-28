@@ -10,7 +10,7 @@ import fileType from 'file-type'
 import { FormatAmbiguousError, FormatExportError, FormatParseError, FormatSegmentLostError, FormatUnsupportedError,
   MQXLIFF_ADAPTER_ID, PHRASE_DOCX_ADAPTER_ID, PHRASE_MXLIFF_ADAPTER_ID, SDLXLIFF_ADAPTER_ID } from '@linguist/cat-formats'
 import type { LinguistProjectService } from '@linguist/domain-service'
-import type { LinguistIpcError } from '@linguist/domain-service/contracts'
+import { LINGUIST_IPC_ERROR_CODES, type LinguistIpcError } from '@linguist/domain-service/contracts'
 import { BindingStore, type LinguistRole, type LinguistWorkMode, type SessionBinding } from './bindings'
 import { ManagedFiles } from './files'
 import { MutationBus } from './mutations'
@@ -114,7 +114,11 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
     }
   } catch (error) {
     if (response.headersSent) { response.destroy(error instanceof Error ? error : undefined); return }
-    sendJson(response, error instanceof RequestError ? error.status : 500, { error: errorMessage(error) })
+    if (error instanceof RequestError) sendJson(response, error.status, { error: error.message })
+    else {
+      console.error('[Linguist HTTP] unexpected request error')
+      sendJson(response, 500, { error: 'Unexpected internal error.' })
+    }
   }
 }
 
@@ -165,12 +169,15 @@ function stringField(value: Record<string, unknown>, key: string): string {
 }
 function isRole(value: string): value is LinguistRole { return ['general', 'translator', 'reviewer', 'proofreader'].includes(value) }
 function isWorkMode(value: string): value is LinguistWorkMode { return ['cat', 'working-copy', 'browser'].includes(value) }
-function errorCode(error: unknown): string { return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : 'LINGUIST_ERROR' }
-function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error) }
-
 /** Preserve only machine counts and format classification from typed domain errors. */
-export function invokeError(error: unknown): { code: string; message: string; details?: Record<string, number>; formatDetails?: LinguistIpcError['formatDetails'] } {
-  const code = errorCode(error)
+export function invokeError(error: unknown): LinguistIpcError {
+  const candidate = error instanceof Error && 'code' in error ? error.code : undefined
+  const code = error instanceof TypeError ? LINGUIST_IPC_ERROR_CODES.INVALID_INPUT
+    : Object.values(LINGUIST_IPC_ERROR_CODES).find(value => value === candidate) ?? LINGUIST_IPC_ERROR_CODES.INTERNAL
+  if (code === LINGUIST_IPC_ERROR_CODES.INTERNAL) {
+    console.error('[Linguist HTTP] untyped invoke error')
+    return { code, message: 'Unexpected internal error.' }
+  }
   const source = error && typeof error === 'object' && 'details' in error ? error.details : undefined
   const allowed = code === 'IMPORT_UNDO_BLOCKED'
     ? ['proposals', 'qaFindings', 'legacyCriticArtifacts', 'exports', 'editedSegments', 'jobs']
@@ -197,7 +204,7 @@ export function invokeError(error: unknown): { code: string; message: string; de
   } else if (error instanceof FormatAmbiguousError) {
     formatDetails = { code: 'FORMAT_AMBIGUOUS', category: 'format_ambiguous', filename: basename(error.filename.replaceAll('\\', '/')), score: error.score, adapterIds: [...error.adapterIds] }
   }
-  let message = errorMessage(error)
+  let message = code === LINGUIST_IPC_ERROR_CODES.INVALID_INPUT ? 'Invalid Linguist input.' : 'Linguist request failed.'
   if (formatDetails) {
     switch (formatDetails.code) {
       case 'FORMAT_PARSE_ERROR': message = `Could not parse ${formatDetails.filename} with ${formatDetails.adapterId}.`; break

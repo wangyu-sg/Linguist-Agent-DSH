@@ -6,7 +6,7 @@ import { Value } from 'typebox/value'
 import type { LinguistToolDefinition } from '@linguist/cat-tools'
 
 /** Preserve the original TypeBox validation at the model-input boundary. */
-export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => void): ToolDefinition {
+export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => void, onExecuting?: (callId: string, rootCallId: string) => void): ToolDefinition {
   const parameters = JSON.parse(JSON.stringify(source.parameters)) as Record<string, unknown>
   return {
     name: source.name,
@@ -33,6 +33,7 @@ export function adaptCatTool(source: LinguistToolDefinition, attachments: Attach
         const first = Value.Errors(source.parameters, args)[0]
         throw new Error(`Invalid ${source.name} arguments: ${first?.message ?? ''}`)
       }
+      onExecuting?.(exec.callId, exec.rootCallId ?? exec.callId)
       const result = await source.execute(exec.callId, args as never, exec.signal)
       const content: ContentBlock[] = []
       for (const item of result.content) {

@@ -88,7 +88,7 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "official_0.1.7-rc.2_desktop_verified; current native install a3260da726fe and BrowserSkill ba6d99c6 active; new LA ed21c0a83ae6 packaged and staged, native manager update pending action-time confirmation and reopen",
+      "status": "official_0.1.7-rc.2_desktop_verified; current native install a3260da726fe and BrowserSkill ba6d99c6 active; new LA 8ca040bebfa6 packaged and staged, native manager update pending action-time confirmation and reopen",
       "external": false
     },
     {
@@ -133,11 +133,15 @@
     "项目私有固定工具链 prepare:local 核验通过，回执在 artifacts/evidence/toolchain.json；Scope 发现算法已集中到 domain-service，DSH Workspace 附件公开接缝待进一步核对。",
     "2026-09-29 新 LA 包 ed21c0a83ae6 已按官方 Desktop RC 构建并暂存；打包后 8 项 typecheck、169 Node、11 Bun、隔离源与目标 CAT 各 151 项通过。当前官方 Desktop 仍安装 a3260da726fe，ed21 原生更新/重开/UI/Provider 证据尚未发生。",
     "新包代码已接原生 continuable 子任务、手动 Schedule 投递、Composer 范围提示和 CAT 网格焦点修复；固定 RC 的普通 Composer 提交前 hook、跨 Workspace 历史 fork、自动任务独立到期执行及完成回调仍缺公开接口，不能标 READY。",
-    "BrowserSkill 两种 localhost 合成 runner 实测固定 CLI/daemon/fixture PASS，扩展连接 0，均返回 BLOCKED_ENV；扩展源码包身份与运行连接实例属于不同证据层。"
+    "BrowserSkill 两种 localhost 合成 runner 实测固定 CLI/daemon/fixture PASS，扩展连接 0，均返回 BLOCKED_ENV；扩展源码包身份与运行连接实例属于不同证据层。",
+    "2026-09-29 修复列映射 JSON 被误判 batch ready、HTTP 未分类异常原文泄露、专用 CAT requestId 到真实 toolCall 的 V1 生成来源缺失。中间包 ab706955141e 已暂存；其后补齐 HTTP 外层路由异常固定响应。最终候选 8ca040bebfa6 已暂存且摘要核对，打包后 8/8 typecheck、173 Node、21 Bun、源与目标 CAT 各 151/151 通过；正式 Desktop 仍为旧 a3260da726fe，READY=FAILED。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,
-  "readyReceipt": null,
+  "readyReceipt": {
+    "path": "artifacts/READY.json",
+    "status": "FAILED"
+  },
   "sourceSnapshot": {
     "path": ".migration/source-snapshot",
     "manifest": ".migration/source-snapshot-manifest.json",

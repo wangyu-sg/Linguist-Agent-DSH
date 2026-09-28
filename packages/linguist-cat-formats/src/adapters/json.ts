@@ -469,10 +469,14 @@ export class JsonAdapter implements CatFormatAdapter {
       return 0
     }
     if (!this.looksLikeI18n(template.root)) return 0
-    if (
-      template.root.kind === 'object'
-      && template.root.entries.some(({ key }) => CONFIG_ROOT_KEYS.has(key))
-    ) return 0
+    if (template.root.kind === 'object') {
+      const keys = new Set(template.root.entries.map(({ key }) => key))
+      if (
+        [...keys].some((key) => CONFIG_ROOT_KEYS.has(key))
+        || (keys.has('sourceColumn') && keys.has('targetColumn'))
+        || (keys.has('sheetName') && keys.has('columns'))
+      ) return 0
+    }
     return 0.8
   }
 

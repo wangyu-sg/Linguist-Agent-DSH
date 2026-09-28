@@ -327,7 +327,7 @@
       "urls": [
         "https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/README.md",
         "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/plugin-manager/README.md",
-        "https://github.com/deepseek-ai/deepseek-harness/releases/tag/v0.1.7-rc.2"
+        "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.7-rc.2"
       ],
       "supports": "Official Desktop is a signed shell with exact matching runtime and owns its desktop profile and package-manager operations; plugin management is native to the application. Release 0.1.7-rc.2 is published.",
       "evidenceLevel": "official_document_plus_local_artifact",
