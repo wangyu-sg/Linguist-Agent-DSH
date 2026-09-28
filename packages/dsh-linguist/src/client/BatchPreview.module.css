@@ -1,0 +1,11 @@
+.preview { display: grid; gap: 8px; min-width: 0; color: var(--dsw-alias-label-primary); }
+.preview p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.toolbar strong { min-width: 0; overflow-wrap: anywhere; margin-right: auto; }
+.warning { padding: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: color-mix(in srgb, var(--dsw-alias-label-warning) 8%, transparent); }
+.rows { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; max-height: 450px; overflow: auto; }
+.heading, .row { display: grid; grid-template-columns: 84px minmax(180px, 1fr) minmax(180px, 1fr) 130px; gap: 6px; min-width: 640px; padding: 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.heading { position: sticky; top: 0; background: var(--dsw-alias-bg-base); font-weight: 600; }
+.row:last-child { border-bottom: 0; }
+.row > span { white-space: pre-wrap; overflow-wrap: anywhere; }
+.token { border-radius: 3px; padding: 0 2px; background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); color: var(--dsw-alias-brand-primary); font-family: ui-monospace, monospace; }

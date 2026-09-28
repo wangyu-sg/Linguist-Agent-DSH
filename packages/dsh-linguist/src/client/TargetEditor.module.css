@@ -1,0 +1,20 @@
+.editor { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.textarea { width: 100%; min-height: 76px; resize: none; overflow-y: hidden; border: 1px solid var(--dsw-alias-border-focus); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 6px 8px; font: inherit; line-height: 1.5; outline: none; }
+.textarea:read-only { cursor: not-allowed; opacity: .6; }
+.tokens, .actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.token, .suspected { max-width: 100%; padding: 2px 4px; border-radius: 3px; font: 11px/1.2 ui-monospace, monospace; overflow-wrap: anywhere; }
+.token { color: var(--dsw-alias-brand-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); }
+.suspected, .warning, .warningText { color: var(--dsw-alias-label-error); }
+.suspected, .warning { background: color-mix(in srgb, var(--dsw-alias-label-error) 9%, transparent); }
+.meta, .toolbar { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.warningText { font-size: 11px; font-weight: 600; }
+.warning, .hint { display: block; padding: 6px 8px; border-radius: 5px; font-size: 11px; }
+.hint { color: var(--dsw-alias-brand-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); }
+.messageTitle { display: block; font-weight: 600; }
+.toolbar { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.button, .primaryButton { appearance: none; border: 0; border-radius: 4px; padding: 3px 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+.button:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent); }
+.primaryButton { background: var(--dsw-alias-brand-primary); color: white; font-weight: 600; }
+.button:disabled, .primaryButton:disabled { opacity: .4; cursor: not-allowed; }
+.button:focus-visible, .primaryButton:focus-visible, .textarea:focus-visible { outline: 2px solid var(--dsw-alias-border-focus); outline-offset: 2px; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

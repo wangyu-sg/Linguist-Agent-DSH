@@ -1,0 +1,29 @@
+{
+  "name": "linguist-agent-dsh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "prepare:local": "node scripts/prepare.mjs",
+    "typecheck": "pnpm --recursive --if-present typecheck",
+    "test:domain": "pnpm --filter @linguist/cat-core typecheck && pnpm --filter @linguist/cat-formats typecheck && pnpm --filter @linguist/cat-store test && pnpm --filter @linguist/cat-tools test && pnpm --filter @linguist/domain-service test",
+    "test:copied-domain": "node scripts/test-copied-domain.mjs",
+    "test:required": "node scripts/test-required.mjs",
+    "test:ui": "node scripts/test-ui.mjs",
+    "build": "node scripts/build.mjs",
+    "pack:plugin": "node scripts/pack.mjs",
+    "install:local": "node scripts/install-local.mjs",
+    "smoke:installed": "node scripts/smoke-installed.mjs",
+    "launch": "node scripts/launch.mjs",
+    "stop": "node scripts/stop.mjs",
+    "verify:ready": "node scripts/verify-ready.mjs",
+    "notify:result": "node scripts/notify.mjs",
+    "deliver:local": "node scripts/deliver-local.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.0",
+    "tsdown": "0.22.14",
+    "typescript": "5.8.3"
+  }
+}

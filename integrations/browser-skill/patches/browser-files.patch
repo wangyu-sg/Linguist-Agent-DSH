@@ -1,0 +1,752 @@
+diff --git a/packages/dsh-plugin-browserskill/README.md b/packages/dsh-plugin-browserskill/README.md
+index 114b6d6..dff2d18 100644
+--- a/packages/dsh-plugin-browserskill/README.md
++++ b/packages/dsh-plugin-browserskill/README.md
+@@ -57,6 +57,7 @@ the `bsk` CLI and browser extension separately when a release requires it.
+ | `browser_page` | `navigate`, `back`, `forward`, `reload`, `wait` | Navigate the active tab and wait for page lifecycle events. |
+ | `browser_inspect` | `observe`, `snapshot`, `html`, `screenshot`, `console`, `network` | Read semantic or diagnostic page state and capture screenshots. |
+ | `browser_interact` | `click`, `hover`, `wheel`, `scroll-to`, `focus`, `blur`, `fill`, `select`, `press` | Interact with controls using fresh refs or selectors. |
++| `browser_files` | `download`, `upload`, `status` | Transfer files through the same owned session; inspect uncertain results without replay. |
+ | `browser_tabs` | `list`, `create`, `select`, `close`, `borrow`, `return` | Manage Agent Window tabs and temporarily borrow user tabs. |
+ | `browser_assist` | `resize`, `emulate`, `request-help` | Resize or emulate the browser and pause for human-only steps. |
+ 
+@@ -136,6 +137,7 @@ All fields are optional; omitted fields use the defaults below:
+ | Option | Default | Purpose |
+ | --- | --- | --- |
+ | `bskPath` | `bsk` | Path to the CLI binary. |
++| `fileStagingDirectory` | unset | Additional product staging directory allowed for file transfers; the current DSH session workspace is also allowed. |
+ | `sessionStateDirectory` | Scoped under `$BSK_HOME/dsh-starts` (or `~/.bsk/dsh-starts`) | Durable recovery records; optionally isolate by host/profile. |
+ | `defaultTimeoutMs` | `120000` | Default command execution timeout in milliseconds; output collection after exit has a separate 2-second limit. |
+ | `maxSessions` | `5` | Maximum concurrent sessions started by this plugin. |
+@@ -145,7 +147,7 @@ All fields are optional; omitted fields use the defaults below:
+ | `lazyTools` | `true` | Reveal the browser tools when the skill is invoked. Set `false` to register them at startup. |
+ 
+ With `lazyTools: true`, only the skill's catalog entry is initially advertised to
+-the model. The six `browser_*` tool schemas are added to the system prompt after
++the model. The `browser_*` tool schemas are added to the system prompt after
+ the `browser-skill` skill is successfully invoked, either by the model or through
+ `/browser-skill`. Set `lazyTools: false` to make the tools available immediately.
+ 
+diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin-browserskill/package.json
+index 28f4017..4e29057 100644
+--- a/packages/dsh-plugin-browserskill/package.json
++++ b/packages/dsh-plugin-browserskill/package.json
+@@ -1,7 +1,8 @@
+ {
+   "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
+   "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (browser_* tools) to the model",
+-  "version": "0.3.1",
++  "version": "0.3.1-la-dsh.1",
++  "private": true,
+   "license": "MIT",
+   "publishConfig": {
+     "access": "public",
+@@ -67,11 +68,11 @@
+   },
+   "peerDependencies": {
+     "@deepseek-ai/cordis": "^4.0.2",
+-    "@deepseek-ai/dsh-attachment": "^0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-tool": "^0.1.5-rc.3",
+-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.3",
+-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.3",
++    "@deepseek-ai/dsh-attachment": "0.1.7-rc.2",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
++    "@deepseek-ai/dsh-client-ui-tool": "0.1.7-rc.2",
++    "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
++    "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
+     "@deepseek-ai/schemastery": "^3.18.2",
+     "react": "^18.2.0"
+   },
+diff --git a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
+index dc55950..2bbdcbb 100644
+--- a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
++++ b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
+@@ -34,7 +34,7 @@ if (themeBlock === undefined) throw new Error("canonical @theme inline block not
+ writeFileSync(
+   input,
+   [
+-    '@import "tailwindcss";',
++    '@import "tailwindcss" source(none);',
+     "@custom-variant dark (&:is(.dark *));",
+     themeBlock,
+     '@source "../ui/src";',
+diff --git a/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs b/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
+index f66bde1..44b000e 100644
+--- a/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
++++ b/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
+@@ -80,4 +80,5 @@ export const DSH_BROWSER_TOOLS = [
+   "browser_interact",
+   "browser_tabs",
+   "browser_assist",
++  "browser_files",
+ ];
+diff --git a/packages/dsh-plugin-browserskill/skill/SKILL.md b/packages/dsh-plugin-browserskill/skill/SKILL.md
+index 1f561a4..7cc5735 100644
+--- a/packages/dsh-plugin-browserskill/skill/SKILL.md
++++ b/packages/dsh-plugin-browserskill/skill/SKILL.md
+@@ -77,4 +77,5 @@ the working directory. Read the matching file before acting; do not preload all
+ | Required profile, borrowing/returning user tabs with `browser_tabs`, or remote tab ownership | [Tabs and profiles](references/tabs-and-profiles.md) |
+ | Hover menus, scrolling, `nextCursor`, console/network, or window/device settings with `browser_assist` | [Interaction details](references/interaction-details.md) |
+ | Screenshot or `[visual:screenshot]`/Canvas interaction | [Screenshots and Canvas](references/screenshots-and-canvas.md) |
++| File download or upload with `browser_files` | [File transfers](references/file-transfers.md) |
+ | Login/CAPTCHA/OTP/consent/payment confirmation, disabled help, failed operations, or interrupted cleanup | [Human help and recovery](references/help-and-recovery.md) |
+diff --git a/packages/dsh-plugin-browserskill/skill/references/file-transfers.md b/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
+new file mode 100644
+index 0000000..ce392d3
+--- /dev/null
++++ b/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
+@@ -0,0 +1,17 @@
++# Browser file transfers
++
++Use `browser_files` in an owned session with a fresh observed target. File actions need
++a local BrowserSkill connection; remote connections cannot transfer files.
++
++- For `download`, choose a new `out` inside the current DSH session workspace or
++  configured product staging directory. The tool registers capture before clicking
++  and the CLI commits the file atomically. It never overwrites an existing path.
++- For `upload`, supply one to twenty approved local files in the same allowed roots.
++  `input` requires an actual file chooser/input target; `drop` uses a drop target.
++  Attaching files does not submit a form or prove that the server saved anything.
++- Use a unique `requestId` for each new transfer. On `pending` or `unknown`, call
++  `browser_files` with `action: "status"` and the same ID. A repeated ID never
++  triggers another click. Inspect the original destination and page before deciding
++  whether a separate new action is appropriate. Receipts persist under the
++  BrowserSkill session-state directory for restart recovery; a missing receipt
++  is unknown, not a successful transfer.
+diff --git a/packages/dsh-plugin-browserskill/src/browser-tools.ts b/packages/dsh-plugin-browserskill/src/browser-tools.ts
+index 1c947de..8ab295e 100644
+--- a/packages/dsh-plugin-browserskill/src/browser-tools.ts
++++ b/packages/dsh-plugin-browserskill/src/browser-tools.ts
+@@ -1,6 +1,6 @@
+ /**
+- * The six model-facing BrowserSkill tools. Each action dispatches to a private
+- * operation handler, so the model receives only six schemas while every action
++ * The model-facing BrowserSkill tools. Each action dispatches to a private
++ * operation handler, so the model receives grouped schemas while every action
+  * retains the existing ownership, cancellation, queuing, observation,
+  * screenshot, and presentation behavior.
+  */
+@@ -243,6 +243,30 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
+       holdMs: { type: "integer", description: "Key hold duration for press." },
+     },
+   },
++  {
++    name: "browser_files",
++    description:
++      "Transfer files through the owned BrowserSkill session. download captures a browser download " +
++      "from target before clicking and atomically writes to out without overwriting; upload attaches " +
++      "approved local files to target (it does not submit or save the form). Supply a unique requestId " +
++      "for each operation; repeat it or use status to inspect the same operation without retriggering. " +
++      "A cancelled or timed-out transfer may be unknown; inspect status before any new action.",
++    actions: {
++      download: "files.download",
++      upload: "files.upload",
++      status: "files.status",
++    },
++    parameters: {
++      session: SESSION_PARAM,
++      tabId: TAB_ID_PARAM,
++      requestId: { type: "string", description: "Unique caller-chosen ID for idempotent transfer lookup." },
++      target: TARGET_PARAM,
++      out: { type: "string", description: "Download destination inside the current workspace or configured staging directory." },
++      files: { type: "array", items: { type: "string" }, description: "One to twenty approved local upload files." },
++      mode: { type: "string", enum: ["input", "drop"], description: "Upload mechanism (default input)." },
++      timeoutMs: TIMEOUT_MS_PARAM,
++    },
++  },
+   {
+     name: "browser_tabs",
+     description:
+@@ -373,7 +397,7 @@ function indexOperations(definitions: ToolDefinition[]): ReadonlyMap<string, Too
+   return indexed;
+ }
+ 
+-/** Register the complete six-tool browser suite; returns its combined disposer. */
++/** Register the complete browser suite; returns its combined disposer. */
+ export function registerBrowserTools(deps: ToolDeps): () => void {
+   const definitions = indexOperations(createBrowserOperationDefinitions(deps));
+   const disposers = BROWSER_TOOL_SPECS.map((spec) =>
+diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-plugin-browserskill/src/file-tools.ts
+new file mode 100644
+index 0000000..ce839e3
+--- /dev/null
++++ b/packages/dsh-plugin-browserskill/src/file-tools.ts
+@@ -0,0 +1,318 @@
++/** BrowserSkill file transfers through the existing session, runner and queues. */
++
++import { createHash, randomUUID } from "node:crypto";
++import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
++import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { defineTool, type ToolDefinition, type ToolResult, type ToolRunContext } from "@deepseek-ai/dsh-tools";
++import type { ToolDeps } from "./tools";
++import { defaultStartJournalDirectory } from "./start-journal";
++import { SESSION_PARAM, TAB_ID_PARAM, TIMEOUT_MS_PARAM } from "./tool-params";
++
++type TransferStatus = "pending" | "unknown" | "failed" | "downloaded" | "attached";
++interface TransferReceipt {
++  session: string;
++  requestId: string;
++  status: TransferStatus;
++  out?: string;
++  tabId?: number;
++  fileNames?: string[];
++  byteSize?: number;
++  message?: string;
++}
++interface StoredReceipt {
++  action: "download" | "upload";
++  fingerprint: string;
++  value: TransferReceipt;
++}
++
++interface FileToolHelpers {
++  run(exec: ToolRunContext, args: string[], label: string, session: string): Promise<unknown>;
++  commandLine(args: string[]): string;
++  presentTerminalResult(args: never, result: ToolResult): { card: "terminal"; output: string; exitCode: number } | undefined;
++}
++
++const BROWSER_DOWNLOAD_QUEUE = "__browser_skill_global_download__";
++const RESULT_SCHEMA = {
++  type: "object",
++  additionalProperties: false,
++  properties: {
++    session: { type: "string", required: true },
++    requestId: { type: "string", required: true },
++    status: { type: "string", enum: ["pending", "unknown", "failed", "downloaded", "attached"], required: true },
++    out: { type: "string" },
++    tabId: { type: "integer" },
++    fileNames: { type: "array", items: { type: "string" } },
++    byteSize: { type: "integer" },
++    message: { type: "string" },
++  },
++} as const;
++
++function verifyRequestId(requestId: string): void {
++  if (!/^[A-Za-z0-9._-]{1,128}$/.test(requestId)) {
++    throw new Error("requestId must be 1–128 ASCII letters, digits, dot, underscore or hyphen");
++  }
++}
++
++function inside(root: string, path: string): boolean {
++  const suffix = relative(root, path);
++  return suffix === "" || (suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix));
++}
++
++async function transferPath(
++  deps: ToolDeps,
++  exec: ToolRunContext,
++  input: string,
++  kind: "upload" | "download",
++): Promise<string> {
++  if (input.trim() === "") throw new Error("file path must be non-empty");
++  const sessions = deps.ctx.get("sessions") as
++    | { get(id: string): { header: { cwd?: string } } | undefined }
++    | undefined;
++  const workspace = exec.agent?.id === undefined ? undefined : sessions?.get(exec.agent.id)?.header.cwd;
++  if (!isAbsolute(input) && workspace === undefined) {
++    throw new Error("relative file path requires a DSH session working directory");
++  }
++  const roots = await Promise.all(
++    [workspace, deps.config.fileStagingDirectory]
++      .filter((path): path is string => path !== undefined)
++      .map((path) => realpath(path)),
++  );
++  if (roots.length === 0) throw new Error("no allowed browser file directory is configured");
++  const path = resolve(workspace ?? "/", input);
++  if (kind === "upload") {
++    const actual = await realpath(path);
++    if (!roots.some((root) => inside(root, actual))) throw new Error("upload path is outside the workspace and staging directory");
++    if (!(await stat(actual)).isFile()) throw new Error("upload source must be a regular file");
++    return actual;
++  }
++  const parent = await realpath(dirname(path));
++  if (!roots.some((root) => inside(root, parent))) throw new Error("download destination is outside the workspace and staging directory");
++  const out = join(parent, basename(path));
++  try {
++    await lstat(out);
++    throw new Error(`download destination already exists: ${out}`);
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
++  }
++  return out;
++}
++
++function receiptText(value: TransferReceipt): string {
++  const location = value.out ?? value.fileNames?.join(", ") ?? "";
++  return `[session ${value.session}] ${value.status} ${location}`.trim() +
++    (value.message === undefined ? "" : `: ${value.message}`);
++}
++
++/** Register three private actions in the same BrowserSkill instance. */
++export function registerFileTools(
++  deps: ToolDeps,
++  register: (definition: ToolDefinition) => void,
++  helpers: FileToolHelpers,
++): void {
++  const receipts = new Map<string, StoredReceipt>();
++  const active = new Set<string>();
++  const directory = join(
++    deps.config.sessionStateDirectory ?? defaultStartJournalDirectory(deps.config.bskPath),
++    "file-receipts",
++  );
++  const output = {
++    schema: RESULT_SCHEMA,
++    render: (_args: never, value: TransferReceipt) => [{ type: "text" as const, text: receiptText(value) }],
++  };
++  const keyFor = (session: string, requestId: string) => `${session}\0${requestId}`;
++  const pathFor = (key: string) => join(directory, `${createHash("sha256").update(key).digest("hex")}.json`);
++  const load = async (key: string): Promise<StoredReceipt | undefined> => {
++    try {
++      return JSON.parse(await readFile(pathFor(key), "utf8")) as StoredReceipt;
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
++      throw error;
++    }
++  };
++  const save = async (key: string, stored: StoredReceipt, create = false): Promise<void> => {
++    await mkdir(directory, { recursive: true, mode: 0o700 });
++    const temp = join(directory, `${randomUUID()}.tmp`);
++    try {
++      await writeFile(temp, JSON.stringify(stored), { flag: "wx", mode: 0o600 });
++      if (create) await link(temp, pathFor(key));
++      else await rename(temp, pathFor(key));
++    } finally {
++      await rm(temp, { force: true });
++    }
++  };
++  const refresh = async (key: string, stored: StoredReceipt): Promise<TransferReceipt> => {
++    if ((stored.value.status === "pending" || stored.value.status === "unknown") && stored.action === "download" && stored.value.out !== undefined) {
++      try {
++        const file = await stat(stored.value.out);
++        if (file.isFile()) {
++          stored.value = { ...stored.value, status: "downloaded", byteSize: file.size };
++          await save(key, stored);
++        }
++      } catch (error) {
++        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
++      }
++    }
++    return stored.value.status === "pending" && !active.has(key)
++      ? { ...stored.value, status: "unknown", message: "original process ended before the transfer was confirmed" }
++      : stored.value;
++  };
++  const existingOrNew = async (session: string, requestId: string, action: "download" | "upload", fingerprint: string) => {
++    const key = keyFor(session, requestId);
++    const old = receipts.get(key);
++    if (old !== undefined) {
++      if (old.fingerprint !== fingerprint) throw new Error("requestId already names a different file operation");
++      return { key, stored: old, repeated: true };
++    }
++    const stored: StoredReceipt = { action, fingerprint, value: { session, requestId, status: "pending" } };
++    receipts.set(key, stored);
++    const previous = await load(key);
++    if (previous !== undefined) {
++      if (previous.fingerprint !== fingerprint) throw new Error("requestId already names a different file operation");
++      receipts.set(key, previous);
++      return { key, stored: previous, repeated: true };
++    }
++    try {
++      await save(key, stored, true);
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
++      const previous = (await load(key))!;
++      if (previous.fingerprint !== fingerprint) throw new Error("requestId already names a different file operation");
++      receipts.set(key, previous);
++      return { key, stored: previous, repeated: true };
++    }
++    return { key, stored, repeated: false };
++  };
++
++  register(defineTool({
++    name: "files.download",
++    description: "Capture a download from an owned Agent Window target before clicking and atomically write one new local file.",
++    parameters: {
++      session: SESSION_PARAM,
++      tabId: TAB_ID_PARAM,
++      requestId: { type: "string", required: true },
++      target: { type: "string", required: true },
++      out: { type: "string", required: true },
++      timeoutMs: TIMEOUT_MS_PARAM,
++    },
++    output,
++    async execute(args, exec) {
++      verifyRequestId(args.requestId);
++      if (args.target.trim() === "") throw new Error("target must be non-empty");
++      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
++      const session = deps.registry.resolve(args.session, "browser_files(action=download)");
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "download", JSON.stringify({ action: "download", ...args }));
++      if (repeated) return refresh(key, stored);
++      active.add(key);
++      let dispatched = false;
++      try {
++        const out = await transferPath(deps, exec, args.out, "download");
++        stored.value = { ...stored.value, out };
++        await save(key, stored);
++        const command = ["download", args.target, "--session", session, "--out", out];
++        if (args.tabId !== undefined) command.push("--tab-id", String(args.tabId));
++        if (args.timeoutMs !== undefined) command.push("--timeout", `${args.timeoutMs}ms`);
++        const reply = await deps.queue.run(BROWSER_DOWNLOAD_QUEUE, () => {
++          dispatched = true;
++          return helpers.run(exec, command, "download", session);
++        }, exec.signal) as { tab_id: number; path: string; byte_size?: number };
++        if (resolve(reply.path) !== out) throw new Error("bsk returned a different download path");
++        const file = await stat(out);
++        if (!file.isFile()) throw new Error("bsk download output is not a regular file");
++        stored.value = { ...stored.value, status: "downloaded", tabId: reply.tab_id, byteSize: file.size };
++        await save(key, stored);
++      } catch (error) {
++        const message = error instanceof Error ? error.message : String(error);
++        // The CLI commits atomically; a present file proves success even if its JSON reply was lost.
++        if (dispatched && stored.value.out !== undefined) {
++          try {
++            const file = await stat(stored.value.out);
++            if (file.isFile()) {
++              stored.value = { ...stored.value, status: "downloaded", byteSize: file.size };
++              await save(key, stored);
++              return stored.value;
++            }
++          } catch (readError) {
++            if ((readError as NodeJS.ErrnoException).code !== "ENOENT") throw readError;
++          }
++        }
++        stored.value = { ...stored.value, status: dispatched ? "unknown" : "failed", message };
++        await save(key, stored);
++      } finally {
++        active.delete(key);
++      }
++      return stored.value;
++    },
++    presentCall: (args) => ({ card: "terminal", title: helpers.commandLine(["download", args.target, "--out", args.out]), description: "Capture browser download" }),
++    presentResult: helpers.presentTerminalResult,
++  }));
++
++  register(defineTool({
++    name: "files.upload",
++    description: "Stage approved local files and attach them to an owned Agent Window target; this does not submit or save a form.",
++    parameters: {
++      session: SESSION_PARAM,
++      tabId: TAB_ID_PARAM,
++      requestId: { type: "string", required: true },
++      target: { type: "string", required: true },
++      files: { type: "array", items: { type: "string" }, required: true },
++      mode: { type: "string", enum: ["input", "drop"] },
++      timeoutMs: TIMEOUT_MS_PARAM,
++    },
++    output,
++    async execute(args, exec) {
++      verifyRequestId(args.requestId);
++      if (args.target.trim() === "") throw new Error("target must be non-empty");
++      if (args.files.length < 1 || args.files.length > 20) throw new Error("upload requires 1..20 files");
++      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
++      const session = deps.registry.resolve(args.session, "browser_files(action=upload)");
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "upload", JSON.stringify({ action: "upload", ...args }));
++      if (repeated) return refresh(key, stored);
++      active.add(key);
++      let dispatched = false;
++      try {
++        const paths = await Promise.all(args.files.map((path) => transferPath(deps, exec, path, "upload")));
++        const command = ["upload", args.target, "--session", session];
++        for (const path of paths) command.push("--file", path);
++        if (args.tabId !== undefined) command.push("--tab-id", String(args.tabId));
++        if (args.mode !== undefined) command.push("--mode", args.mode);
++        if (args.timeoutMs !== undefined) command.push("--timeout", `${args.timeoutMs}ms`);
++        dispatched = true;
++        const reply = await helpers.run(exec, command, "upload", session) as { tab_id: number; file_names: string[] };
++        stored.value = { ...stored.value, status: "attached", tabId: reply.tab_id, fileNames: reply.file_names };
++        await save(key, stored);
++      } catch (error) {
++        stored.value = {
++          ...stored.value,
++          status: dispatched ? "unknown" : "failed",
++          message: error instanceof Error ? error.message : String(error),
++        };
++        await save(key, stored);
++      } finally {
++        active.delete(key);
++      }
++      return stored.value;
++    },
++    presentCall: (args) => ({ card: "terminal", title: helpers.commandLine(["upload", args.target]), description: "Attach local files in browser" }),
++    presentResult: helpers.presentTerminalResult,
++  }));
++
++  register(defineTool({
++    name: "files.status",
++    description: "Read the last known result for a file requestId without starting another browser action.",
++    parameters: { session: SESSION_PARAM, requestId: { type: "string", required: true } },
++    output,
++    isConcurrencySafe: () => true,
++    async execute(args) {
++      verifyRequestId(args.requestId);
++      const session = deps.registry.resolve(args.session, "browser_files(action=status)");
++      const key = keyFor(session, args.requestId);
++      const stored = receipts.get(key) ?? await load(key);
++      return stored === undefined ? {
++        session, requestId: args.requestId, status: "unknown" as const,
++        message: "no record in this plugin instance; inspect the original destination before any new action",
++      } : refresh(key, stored);
++    },
++    presentCall: (args) => ({ card: "terminal", title: `browser file request ${args.requestId}`, description: "Read file transfer status" }),
++    presentResult: helpers.presentTerminalResult,
++  }));
++}
+diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin-browserskill/src/index.ts
+index 5095238..6a8af40 100644
+--- a/packages/dsh-plugin-browserskill/src/index.ts
++++ b/packages/dsh-plugin-browserskill/src/index.ts
+@@ -33,6 +33,9 @@ export const Config = Schema.object({
+   bskPath: Schema.string()
+     .default("bsk")
+     .description("Path to the bsk CLI binary (defaults to resolving `bsk` from PATH)."),
++  fileStagingDirectory: Schema.string().description(
++    "Additional LA staging directory allowed for browser file transfers; the current DSH session working directory is also allowed.",
++  ),
+   sessionStateDirectory: Schema.string().description(
+     "Directory for durable browser start recovery records; defaults to BSK_HOME/dsh-starts scoped by working directory and CLI.",
+   ),
+@@ -76,6 +79,7 @@ export function apply(
+ ): void {
+   const resolved: PluginConfig = {
+     bskPath: config.bskPath ?? "bsk",
++    fileStagingDirectory: config.fileStagingDirectory,
+     sessionStateDirectory: config.sessionStateDirectory,
+     defaultTimeoutMs: config.defaultTimeoutMs ?? 120_000,
+     maxSessions: config.maxSessions ?? 5,
+diff --git a/packages/dsh-plugin-browserskill/src/lazy-tools.ts b/packages/dsh-plugin-browserskill/src/lazy-tools.ts
+index 7590a25..5b08246 100644
+--- a/packages/dsh-plugin-browserskill/src/lazy-tools.ts
++++ b/packages/dsh-plugin-browserskill/src/lazy-tools.ts
+@@ -1,6 +1,6 @@
+ /**
+  * Lazy tool-schema injection ("progressive disclosure", final stage): with
+- * `lazyTools` on (the default), the six browser tool schemas stay OUT of the
++ * `lazyTools` on (the default), the browser tool schemas stay OUT of the
+  * system prompt until the `browser-skill` skill has actually been invoked —
+  * the skill catalog entry is the only advertisement. One successful
+  * invocation (model tool call, or a user's `/browser-skill` gesture) reveals
+@@ -147,7 +147,7 @@ export function hasSuccessfulSkillInvocation(events: readonly SessionEventLike[]
+ /**
+  * Arm the lazy reveal. Returns a disposer tearing down listeners and — when
+  * the reveal already happened — the tool suite itself.
+- * @param registerSuite - registers the six browser tools and returns their disposer.
++ * @param registerSuite - registers the browser tools and returns their disposer.
+  */
+ export function armLazyTools(ctx: Context, registerSuite: () => () => void): () => void {
+   let disposed = false;
+diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin-browserskill/src/tools.ts
+index 5f9835e..18400f7 100644
+--- a/packages/dsh-plugin-browserskill/src/tools.ts
++++ b/packages/dsh-plugin-browserskill/src/tools.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Internal browser operation definitions shared by the six model-facing tools.
++ * Internal browser operation definitions shared by the model-facing tools.
+  * These definitions are never registered with `ctx.tools`: they provide the
+  * action-level validation, execution, rendering, and UI presentation reused by
+  * the domain tools without exposing one schema per operation to the model.
+@@ -17,6 +17,7 @@ import {
+   type ToolRunContext,
+ } from "@deepseek-ai/dsh-tools";
+ import { ownerSessionIds } from "./archive-cleanup";
++import { registerFileTools } from "./file-tools";
+ import { trySaveScreenshot } from "./image";
+ import { actionForLabel, type ObservationService } from "./observation";
+ import { registerPhaseOneTools } from "./phase-one-tools";
+@@ -35,6 +36,8 @@ import { BROWSER_PARAM, SESSION_PARAM, SESSION_STOP_PARAMS } from "./tool-params
+ /** Plugin configuration resolved from the Schemastery schema in index.ts. */
+ export interface PluginConfig {
+   bskPath: string;
++  /** Additional product staging directory allowed for browser file transfer. */
++  fileStagingDirectory?: string;
+   /** Optional durable start journal directory (isolated by host/profile when configured). */
+   sessionStateDirectory?: string;
+   defaultTimeoutMs: number;
+@@ -1050,11 +1053,16 @@ function defineBrowserOperations(deps: ToolDeps, register: DefinitionRegistrar):
+     commandLine: (args) => cmdline(deps, args),
+     presentTerminalResult,
+   });
++  registerFileTools(deps, register, {
++    run: (exec, args, label, session) => runBsk(deps, exec, args, label, session, 0),
++    commandLine: (args) => cmdline(deps, args),
++    presentTerminalResult,
++  });
+ }
+ 
+ /**
+  * Build the private action handlers without publishing them to the model. The
+- * six browser tools dispatch through these handlers, preserving validation,
++ * browser tools dispatch through these handlers, preserving validation,
+  * rendering, cancellation, ownership, UI presentation, and attachments.
+  */
+ export function createBrowserOperationDefinitions(deps: ToolDeps): ToolDefinition[] {
+diff --git a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
+new file mode 100644
+index 0000000..9e638e6
+--- /dev/null
++++ b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
+@@ -0,0 +1,102 @@
++import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type { ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
++import { afterEach, expect, it } from "vitest";
++import { registerBrowserTools } from "../src/browser-tools";
++import { KeyedExecutor } from "../src/queue";
++import type { BskRunResult } from "../src/runner";
++import { SessionRegistry } from "../src/sessions";
++import type { PluginConfig } from "../src/tools";
++
++const created: string[] = [];
++afterEach(() => {
++  for (const path of created.splice(0)) rmSync(path, { recursive: true, force: true });
++});
++
++function fixture(reply: (args: string[]) => Promise<BskRunResult> | BskRunResult, existingWorkspace?: string) {
++  const workspace = existingWorkspace ?? mkdtempSync(join(tmpdir(), "la-dsh-bsk-files-"));
++  if (existingWorkspace === undefined) created.push(workspace);
++  const staging = join(workspace, "staging");
++  if (existingWorkspace === undefined) mkdirSync(staging);
++  const tools = new Map<string, ToolDefinition>();
++  const calls: string[][] = [];
++  const ctx = {
++    tools: { register: (tool: ToolDefinition) => tools.set(tool.name, tool) },
++    get: (name: string) => name === "sessions" ? { get: () => ({ header: { cwd: workspace } }) } : undefined,
++  };
++  const registry = new SessionRegistry(3);
++  for (const sessionId of ["s1", "s2"]) {
++    registry.trackStart({ sessionId, browserInstanceId: "chrome-1", startedAtMs: 0 });
++    registry.activate(sessionId);
++  }
++  const runner = {
++    async run(args: string[]) { calls.push(args); return reply(args); },
++    killAll() {}, killFor: () => 0,
++  };
++  const config: PluginConfig = {
++    bskPath: "bsk", fileStagingDirectory: staging, sessionStateDirectory: join(workspace, "bsk-journal"),
++    defaultTimeoutMs: 120_000,
++    maxSessions: 3, observationEnabled: false, thumbnailIntervalMs: 1500,
++    idleIntervalMs: 8000, lazyTools: false,
++  };
++  registerBrowserTools({
++    ctx: ctx as never, registry, runner, config, queue: new KeyedExecutor(),
++    observation: {
++      acquireForeground: () => () => {}, beginAction() {}, endAction() {},
++    } as never,
++  });
++  const tool = tools.get("browser_files")!;
++  const exec = { callId: "file-call", name: "browser_files", agent: { id: "dsh-session" }, signal: new AbortController().signal } as ToolRunContext;
++  const call = (args: Record<string, unknown>) => tool.execute(args as never, exec) as Promise<Record<string, unknown>>;
++  return { workspace, staging, calls, call };
++}
++
++it("downloads atomically once, reports conflicts, and attaches only approved local files", async () => {
++  const { workspace, staging, calls, call } = fixture((args) => {
++    if (args[0] === "download") {
++      const out = args[args.indexOf("--out") + 1];
++      writeFileSync(out, "synthetic export");
++      return { code: 0, stdout: JSON.stringify({ tab_id: 7, path: out }), stderr: "", timedOut: false, aborted: false };
++    }
++    return { code: 0, stdout: JSON.stringify({ tab_id: 7, file_names: ["upload.txt"] }), stderr: "", timedOut: false, aborted: false };
++  });
++  const download = { action: "download", session: "s1", requestId: "download-1", target: "#export", out: "export.txt" };
++  expect(await call(download)).toMatchObject({ status: "downloaded", out: join(realpathSync(workspace), "export.txt") });
++  expect(await call(download)).toMatchObject({ status: "downloaded" });
++  expect(await call({ action: "status", session: "s1", requestId: "download-1" })).toMatchObject({ status: "downloaded" });
++  expect(calls).toHaveLength(1);
++  expect(await call({ ...download, requestId: "download-2" })).toMatchObject({ status: "failed", message: expect.stringMatching(/already exists/) });
++  expect(calls).toHaveLength(1);
++
++  writeFileSync(join(staging, "upload.txt"), "synthetic input");
++  expect(await call({ action: "upload", session: "s1", requestId: "upload-1", target: "#file", files: [join(staging, "upload.txt")] }))
++    .toMatchObject({ status: "attached", fileNames: ["upload.txt"] });
++  expect(calls).toHaveLength(2);
++});
++
++it("rejects paths outside workspace/staging and never replays an uncertain transfer", async () => {
++  const outside = mkdtempSync(join(tmpdir(), "la-dsh-bsk-outside-"));
++  created.push(outside);
++  writeFileSync(join(outside, "outside.txt"), "synthetic outside");
++  const { calls, call } = fixture(() => ({ code: null, stdout: "", stderr: "", timedOut: false, aborted: true }));
++  expect(await call({ action: "upload", session: "s1", requestId: "outside-1", target: "#file", files: [join(outside, "outside.txt")] }))
++    .toMatchObject({ status: "failed", message: expect.stringMatching(/outside/) });
++  expect(calls).toHaveLength(0);
++  const download = { action: "download", session: "s1", requestId: "unknown-1", target: "#export", out: "unknown.txt" };
++  expect(await call(download)).toMatchObject({ status: "unknown" });
++  expect(await call(download)).toMatchObject({ status: "unknown" });
++  expect(await call({ action: "status", session: "s1", requestId: "unknown-1" })).toMatchObject({ status: "unknown" });
++  expect(calls).toHaveLength(1);
++});
++
++it("recovers the original requestId after plugin restart without another click", async () => {
++  const cancelled = { code: null, stdout: "", stderr: "", timedOut: false, aborted: true };
++  const first = fixture(() => cancelled);
++  const download = { action: "download", session: "s1", requestId: "restart-1", target: "#export", out: "restart.txt" };
++  expect(await first.call(download)).toMatchObject({ status: "unknown" });
++  const reopened = fixture(() => { throw new Error("should not execute again"); }, first.workspace);
++  expect(await reopened.call({ action: "status", session: "s1", requestId: "restart-1" })).toMatchObject({ status: "unknown" });
++  expect(await reopened.call(download)).toMatchObject({ status: "unknown" });
++  expect(reopened.calls).toHaveLength(0);
++});
+diff --git a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
+index 138cf2a..2fdf19b 100644
+--- a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
+@@ -599,6 +599,7 @@ describe("lazyTools wiring in apply()", () => {
+     const { tools } = applyHarness({ lazyTools: false });
+     expect([...tools.keys()].sort()).toEqual([
+       "browser_assist",
++      "browser_files",
+       "browser_inspect",
+       "browser_interact",
+       "browser_page",
+diff --git a/packages/dsh-plugin-browserskill/tests/skill.test.ts b/packages/dsh-plugin-browserskill/tests/skill.test.ts
+index 99ee214..293d792 100644
+--- a/packages/dsh-plugin-browserskill/tests/skill.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/skill.test.ts
+@@ -35,6 +35,7 @@ describe("registerBskSkill", () => {
+     const mentionedTools = [...new Set(content.match(/\bbrowser_[a-z][a-z_]*\b/g) ?? [])].sort();
+     expect(mentionedTools).toEqual([
+       "browser_assist",
++      "browser_files",
+       "browser_inspect",
+       "browser_interact",
+       "browser_page",
+@@ -59,6 +60,7 @@ describe("registerBskSkill", () => {
+     const references = [...content.matchAll(/\]\((references\/[^)]+)\)/g)].map((match) => match[1]);
+     expect([...new Set(references)].sort()).toEqual([
+       "references/debugging.md",
++      "references/file-transfers.md",
+       "references/help-and-recovery.md",
+       "references/interaction-details.md",
+       "references/screenshots-and-canvas.md",
+diff --git a/packages/dsh-plugin-browserskill/tests/tools.test.ts b/packages/dsh-plugin-browserskill/tests/tools.test.ts
+index 911b5ee..a1fbf00 100644
+--- a/packages/dsh-plugin-browserskill/tests/tools.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/tools.test.ts
+@@ -241,10 +241,11 @@ const EXPECTED_ACTIONS = {
+   ],
+   browser_tabs: ["list", "create", "select", "close", "borrow", "return"],
+   browser_assist: ["resize", "emulate", "request-help"],
++  browser_files: ["download", "upload", "status"],
+ } as const;
+ 
+ describe("tool registration", () => {
+-  it("registers exactly six public schemas with the complete action contract", () => {
++  it("registers the public schemas with the complete action contract", () => {
+     const { tools } = setup({});
+     expect([...tools.keys()].sort()).toEqual(Object.keys(EXPECTED_ACTIONS).sort());
+     for (const [name, actions] of Object.entries(EXPECTED_ACTIONS)) {
+diff --git a/packages/dsh-plugin-browserskill/tsdown.config.ts b/packages/dsh-plugin-browserskill/tsdown.config.ts
+index 2808edb..448a45b 100644
+--- a/packages/dsh-plugin-browserskill/tsdown.config.ts
++++ b/packages/dsh-plugin-browserskill/tsdown.config.ts
+@@ -93,7 +93,7 @@ const client: UserConfig = {
+           minify: true,
+         });
+         const classMap: Record<string, string> = {};
+-        for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name;
++        for (const [local, exp] of Object.entries(cssExports ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) classMap[local] = exp.name;
+         return [
+           `const css = ${JSON.stringify(code.toString())};`,
+           `const tagId = ${JSON.stringify(`${CLIENT_ID}/${basename(fileId)}`)};`,

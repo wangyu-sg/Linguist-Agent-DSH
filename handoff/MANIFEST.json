@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "packageKind": "zero_context_complete_migration_specification",
+  "productAlreadyMigrated": false,
+  "created": "2026-09-28",
+  "files": [
+    {
+      "path": "00-新会话启动指令.md",
+      "bytes": 6134,
+      "sha256": "9c74ff860d1b365651424cf17e208374aa036ea1f69ade31c4854511d972357a"
+    },
+    {
+      "path": "01-完整实施规范.md",
+      "bytes": 96914,
+      "sha256": "1c2ea8a81b2fdb26adb1c0ded458d6a3ad1f3bcfef0de08da8daf5bd0f21f392"
+    },
+    {
+      "path": "02-AGENTS.md",
+      "bytes": 6332,
+      "sha256": "e75aaadcc4016c3c0ed1b042430cb962346233a0586531c555d6bc634e8c6677"
+    },
+    {
+      "path": "03-迁移与验收矩阵.json",
+      "bytes": 33918,
+      "sha256": "a5d52fb7eaba8d5479a0be6802ca94b7e0fc17f94462e783b2a9db21974051d7"
+    },
+    {
+      "path": "04-来源与基线.json",
+      "bytes": 15986,
+      "sha256": "eab131dfb5d38e9e9dd35a58f9749a239984312dd67fb13971578c5cbf3acbf8"
+    },
+    {
+      "path": "05-离线阅读版.html",
+      "bytes": 131992,
+      "sha256": "36776356032b19c5f68e18f130dbce1d858a2798ea3f602f6467a45a35432933"
+    }
+  ]
+}

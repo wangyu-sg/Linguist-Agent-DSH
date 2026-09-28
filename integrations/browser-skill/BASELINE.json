@@ -1,0 +1,35 @@
+{
+  "upstreamRepository": "https://github.com/Tencent/BrowserSkill",
+  "upstreamCommit": "f62e283cbb848118096491d1926d8714ebf05b8f",
+  "upstreamPlugin": {
+    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
+    "version": "0.3.1",
+    "npmIntegrity": "sha512-iYZFvXebovk25EVcE9tHmAroP40bz2fMwXKGjvaGGTtWU++yoFUoWiWNKzO6hadMg6iJiarc1H6myGXzMe+ERQ==",
+    "license": "MIT"
+  },
+  "adaptedPluginVersion": "0.3.1-la-dsh.1",
+  "dshVersion": "0.1.7-rc.2",
+  "pnpmVersion": "10.17.0",
+  "upstreamPluginTreeSha256": "c1c6a6ee4a82460bef494860f6e40fbc02d6d7730d944ad398631876f97831c1",
+  "upstreamUiTreeSha256": "34c462dfe4db17b30447974e249b3504e3825f5aa908b67c04375475fbdecbd8",
+  "upstreamLockSha256": "0b8a862165ef7d5fc27ae1378066d3ce998f7a51641aecbe72774f52d649c2cd",
+  "upstreamRootPackageSha256": "10c251044fb6c558f014db0274b07927deae3267d0f66220ee15d96e986a856c",
+  "upstreamWorkspaceSha256": "4a961a61ba41b508649ffeaf552bcfaeacd0b6418c5b539756419308ce141a0e",
+  "patchSha256": "17a4d34d77d36e96e96e6f35caa19de9037116bb1a23a6a00d12a2b03283de87",
+  "adaptedTarballSha256": "ba6d99c6c943f0ae343bbf1bed951d485286e42015411267655859afe0e9a1c1",
+  "cliRelease": {
+    "tag": "cli-v0.3.1",
+    "commit": "da6bf4eed2dd7256567e152df8c903c87f6598c3",
+    "archive": "bsk-v0.3.1-aarch64-apple-darwin.tar.gz",
+    "archiveSha256": "78f1651215b1ce95e40fb886985d1476e2cd2fb089beb146e6ecc6fa4a4aab89",
+    "binarySha256": "bba24de58d403625268ffd6bbef31cdedb2d06eb031e9d0d1773120f4c0578bc",
+    "versionManifestSha256": "9964197a4c89648635f6d5d6b3c9848b3260ffaf093e64141c81ae3ea7a868ac"
+  },
+  "extensionRelease": {
+    "tag": "ext-v0.3.1",
+    "commit": "da6bf4eed2dd7256567e152df8c903c87f6598c3",
+    "archive": "browser-skill-extension-v0.3.1-chrome.zip",
+    "archiveSha256": "9d41a8450653dbdcea365b611a163d9ddbbf0c0078bff42dbe8e2cf5910cbb8e",
+    "manifestVersion": "0.3.1"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@linguist/cat-tools",
+  "version": "0.0.42",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Session-bound Linguist CAT tool handlers for project reads, Proposal-only translation suggestions, and deterministic QA. Host-neutral; the DSH bundle injects project and session context.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --import ../linguist-cat-store/test/register-ts-loader.mjs --test src/tools.nodetest.ts"
+  },
+  "dependencies": {
+    "@linguist/cat-core": "workspace:*",
+    "@linguist/cat-store": "workspace:*",
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

@@ -1,0 +1,1069 @@
+{
+  "schemaVersion": 1,
+  "kind": "implementation_requirements_not_execution_evidence",
+  "specVersion": "3.1",
+  "preparedAt": "2026-09-28",
+  "paths": {
+    "sourceReadOnly": "/Users/wangyu/Desktop/linguist-agent-next",
+    "target": "/Users/wangyu/Desktop/Linguist-Agent-DSH",
+    "productData": "/Users/wangyu/Library/Application Support/Linguist-Agent-DSH",
+    "launcher": "/Users/wangyu/Desktop/Linguist Agent DSH.app",
+    "carrier": "official DSH Desktop 0.1.7-rc.2 mac-arm64",
+    "profile": "desktop"
+  },
+  "localSourceOverridesPublicSeed": true,
+  "publicToolCountIsNotUpperBound": true,
+  "sourceInventoryRule": "Expand from the actual local tool factory, services, UI/IPC and tests. Every valid additional local domain capability is required unless the user explicitly excludes it. This seed cannot mark any test passed.",
+  "featureSurfaces": [
+    {
+      "id": "FEATURE-01",
+      "title": "项目生命周期",
+      "requiredBehavior": "创建、列表、打开、重命名、归档、删除及已有恢复；语言与工作流设置、只读/损坏状态",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-02",
+      "title": "多文件/文件夹导入",
+      "requiredBehavior": "真实格式识别、prepare/commit、去重、needs-input、supporting master、逐文件结果",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-03",
+      "title": "XLSX 映射",
+      "requiredBehavior": "Sheet/列预览、保存、匹配、锁/上下文列与错误诊断",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-04",
+      "title": "CAT 导航/网格",
+      "requiredBehavior": "批次统计、句段定位、过滤/搜索、分页/虚拟化、选择、当前版本",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-05",
+      "title": "编辑器",
+      "requiredBehavior": "CJK IME、撤销重做、Tag 原子编辑、锁、换行、快捷键、草稿和 CAS 冲突",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-06",
+      "title": "直接写回/Proposal",
+      "requiredBehavior": "两条路径都保留；接受、拒绝、已有撤销、来源、版本与冲突",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-07",
+      "title": "QA",
+      "requiredBehavior": "确定性规则、范围与新鲜性、错误/警告/豁免、定位、处置与实际记录",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-08",
+      "title": "TM/TB",
+      "requiredBehavior": "导入、查询、管理、来源/适用范围、冲突与 required/forbidden evaluator",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-09",
+      "title": "句式/风格/Voice",
+      "requiredBehavior": "确认状态、项目规范、角色口吻、批准范例及证据引用",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-10",
+      "title": "Context",
+      "requiredBehavior": "文本/图像、锚点/范围、版本、全文分页、关联、必要证据和缺失提示",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-11",
+      "title": "Tag Profile",
+      "requiredBehavior": "未知模式、软保护、候选与用户批准激活、统一 Scanner",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-12",
+      "title": "专业 Stage",
+      "requiredBehavior": "四岗位身份、完整范围、本轮本人决定、必要证据、接续与显式重审",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-13",
+      "title": "交付",
+      "requiredBehavior": "只读预检、verified/as-is、原生往返、文件写入、导出历史与覆盖确认",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-14",
+      "title": "维护",
+      "requiredBehavior": "通用备份/验证/恢复、健康检查、完整性、保留引用的撤销资格",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-15",
+      "title": "工作副本",
+      "requiredBehavior": "prepare/assemble、原件及前版 hash、T/E/P 接续、完整 coverage、差异",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-16",
+      "title": "网页业务",
+      "requiredBehavior": "BrowserSkill 会话、定位、读写、保存验证、上传/下载、用户接管、错误恢复",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-17",
+      "title": "专业子任务",
+      "requiredBehavior": "原生 DSH 执行、冻结角色/范围、明确文件交付、接续/消息/取消与真实完成",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-18",
+      "title": "自动任务",
+      "requiredBehavior": "复用 DSH scheduler，保存项目/岗位/范围快照及授权，不另建调度器",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-19",
+      "title": "宿主能力",
+      "requiredBehavior": "DSH 原生文件、工具、Skills、MCP、模型/权限、Queue/Steer、通用对话均可用",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "FEATURE-20",
+      "title": "产品体验",
+      "requiredBehavior": "原生入口、主题/中英界面、右区/全屏、工具结果跳转、首次使用及诊断",
+      "required": true,
+      "status": "not_started",
+      "sourcePaths": [],
+      "targetPaths": [],
+      "evidencePaths": []
+    }
+  ],
+  "tools": [
+    {
+      "id": "TOOL-01",
+      "name": "cat_project_summary",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/project-tools.ts",
+      "requiredBehavior": "项目/批次只读概览与交付预检；不自动QA/Stage/export",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-02",
+      "name": "cat_list_batches",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/project-tools.ts",
+      "requiredBehavior": "批次身份、原件摘要、分页",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-03",
+      "name": "cat_get_segments",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/project-tools.ts",
+      "requiredBehavior": "当前Source/Target/revision/锁，稳定ID；index不冒充已读",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-04",
+      "name": "cat_import_resources",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/intake-tools.ts",
+      "requiredBehavior": "真实prepare、内容规则、逐文件结果、受管路径",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-05",
+      "name": "cat_refresh_project_inventory",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/intake-tools.ts",
+      "requiredBehavior": "inventory事实/缺口不是正文已读，当前有效时复用",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-06",
+      "name": "cat_preview_workbook_mapping",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/workbook-tools.ts",
+      "requiredBehavior": "Sheet/列真实预览与诊断",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-07",
+      "name": "cat_save_workbook_mapping",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/workbook-tools.ts",
+      "requiredBehavior": "经选择的映射及来源版本",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-08",
+      "name": "cat_upsert_voice_profile",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/voice-tools.ts",
+      "requiredBehavior": "角色口吻/项目范围与版本",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-09",
+      "name": "cat_add_approved_exemplar",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/voice-tools.ts",
+      "requiredBehavior": "认可范例与来源，不能自动批准未知样本",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-10",
+      "name": "cat_get_voice_context",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/voice-tools.ts",
+      "requiredBehavior": "实际口吻依据与引用",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-11",
+      "name": "cat_scan_unknown_tag_patterns",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/tag-tools.ts",
+      "requiredBehavior": "确定性扫描/有界样例，不自动激活",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-12",
+      "name": "cat_save_tag_profile_candidate",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/tag-tools.ts",
+      "requiredBehavior": "候选验证、软保护与批准区别",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-13",
+      "name": "cat_export_batch",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/delivery-tools.ts",
+      "requiredBehavior": "verified/as-is、原生round-trip、不默认覆盖",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-14",
+      "name": "cat_get_translation_context",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/reference-tools.ts",
+      "requiredBehavior": "全文/必要证据、自含分页、readOnly/Stage区别",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-15",
+      "name": "cat_get_proposal_snapshot",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "当前版本提案快照",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-16",
+      "name": "cat_apply_translations",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "生产级直接写回、CAS/锁/结构/术语",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-17",
+      "name": "cat_confirm_segments",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/stage-tools.ts",
+      "requiredBehavior": "当前actor/version的unchanged/corrected/blocked",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-18",
+      "name": "cat_search_tm",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/reference-tools.ts",
+      "requiredBehavior": "真实TM命中、来源及适用资格",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-19",
+      "name": "cat_search_terms",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/reference-tools.ts",
+      "requiredBehavior": "作用域术语与必要冲突",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-20",
+      "name": "cat_upsert_terms",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/terminology-tools.ts",
+      "requiredBehavior": "创建/更新范围、来源和责任",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-21",
+      "name": "cat_delete_terms",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/terminology-tools.ts",
+      "requiredBehavior": "原删除权限与准确范围",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-22",
+      "name": "cat_list_term_conflicts",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/terminology-tools.ts",
+      "requiredBehavior": "真实冲突与数量，分页不掩盖",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-23",
+      "name": "cat_validate_terms",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/terminology-tools.ts",
+      "requiredBehavior": "同一scope-aware evaluator",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-24",
+      "name": "cat_propose_translations",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "正式建议、来源和版本",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-25",
+      "name": "cat_accept_proposals",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "事务/CAS接受，不覆盖新Target",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-26",
+      "name": "cat_run_qa",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/qa-tools.ts",
+      "requiredBehavior": "真正运行，范围/版本/worker和记录",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-27",
+      "name": "cat_get_qa_findings",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/qa-tools.ts",
+      "requiredBehavior": "真实结果/分页/处置/定位",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-28",
+      "name": "cat_plan_consistency_repairs",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "有依据的一致性诊断，不盲全局替换",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-29",
+      "name": "cat_create_consistency_proposals",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/proposal-tools.ts",
+      "requiredBehavior": "复用一致性计划与提案责任",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-30",
+      "name": "cat_search_sentence_patterns",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/reference-tools.ts",
+      "requiredBehavior": "来源和确认状态，不虚构命中",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-31",
+      "name": "cat_read_context_doc",
+      "referenceSourcePath": "packages/linguist-cat-tools/src/reference-tools.ts",
+      "requiredBehavior": "真实文本/图像、锚点、分页与版本证据",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    },
+    {
+      "id": "TOOL-32",
+      "name": "linguist_working_copy",
+      "referenceSourcePath": "apps/electron/src/main/lib/linguist/working-copy-tool.ts",
+      "requiredBehavior": "prepare/assemble、hash接续、完整coverage、非原生交付",
+      "required": true,
+      "status": "not_started",
+      "targetPaths": [],
+      "evidencePaths": []
+    }
+  ],
+  "workPackages": [
+    {
+      "id": "W00",
+      "title": "源快照、完整映射与前置条件",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W01",
+      "title": "领域和元数据去宿主耦合",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W02",
+      "title": "DSH 原生 bundle 与作用域绑定",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W03",
+      "title": "完整工具迁移",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W04",
+      "title": "专业证据和完成闭环",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W05",
+      "title": "原生专业子任务与自动任务",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W06",
+      "title": "LA 外部插件 HTTP/SSE 与文件通道",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W07",
+      "title": "完整工作台及原生视觉",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W08",
+      "title": "BrowserSkill 完整接入",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W09",
+      "title": "兼容、备份与隐私",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W10",
+      "title": "输出、上下文与 UI 性能收口",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W11",
+      "title": "本地产物、实际安装与真实 smoke",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    },
+    {
+      "id": "W12",
+      "title": "全面验收、交付和通知",
+      "required": true,
+      "status": "not_started",
+      "evidencePaths": []
+    }
+  ],
+  "validationFamilies": [
+    {
+      "id": "V01",
+      "title": "源快照/目标接续",
+      "requiredAssertions": "未提交功能保留；源无写；重复执行不清目标用户内容",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V02",
+      "title": "无旧宿主依赖",
+      "requiredAssertions": "安装产物不 import Proma/Pi/Electron host；原源目录不可见仍能运行",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V03",
+      "title": "元数据/DB",
+      "requiredAssertions": "旧合成 schema 可读；新项目不需 promaWorkspaceId；稳定 ID/历史不变",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V04",
+      "title": "实际插件打包",
+      "requiredAssertions": "从 tgz 安装成功；roles/Skills/worker/CSS/locale齐；无 cwd/source 依赖",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V05",
+      "title": "Host 单例/scope",
+      "requiredAssertions": "两 Session 两项目并行；Cordis/scope 无双实例；工具不串权限/角色",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V06",
+      "title": "参数与错误",
+      "requiredAssertions": "TypeBox→DSH必填/union/上限不丢；错误非成功空列表；取消生效",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V07",
+      "title": "导入用途/内容",
+      "requiredAssertions": "mapping.json/坏XML不ready；相同内容改后缀规则相同；dryRun零写入",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V08",
+      "title": "Phrase恢复分支",
+      "requiredAssertions": "无数字无包装、仅包装、Target独有、真实变量、有效/损坏/歧义master分开",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V09",
+      "title": "八类格式往返",
+      "requiredAssertions": "原件、可编辑结构、原生导出三个合同；标签/换行/锁/状态不丢",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V10",
+      "title": "工作副本",
+      "requiredAssertions": "prepare/assemble/前版接续、源hash/前版hash、遗漏ID、冲突与原件不变",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V11",
+      "title": "写入与并发",
+      "requiredAssertions": "UI草稿与Agent竞争CAS；拒绝stale且保草稿；失败事务不半写",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V12",
+      "title": "Proposal/QA/撤销",
+      "requiredAssertions": "来源和处置保留；只读摘要不创建记录；有export引用不可删历史解锁",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V13",
+      "title": "必要参考",
+      "requiredAssertions": "required/forbidden不被topK清空；图像真送入；全文分页不丢/不假已读",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V14",
+      "title": "最终请求证据",
+      "requiredAssertions": "只返回工具/被裁剪/失败请求/旧actor不计；有效实际请求可正常闭环",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V15",
+      "title": "专业范围",
+      "requiredAssertions": "Reviewer全范围Source+Target，unchanged真实覆盖；分页不缩任务；fork不能借父资格",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V16",
+      "title": "子任务交接",
+      "requiredAssertions": "父子cwd不同、缺料、越权、输入变更、原生接续与结果范围",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V17",
+      "title": "等待与取消",
+      "requiredAssertions": ">120秒合法等待（假时钟+一次真实边界）；取消监听清理；迟到结果不串写",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V18",
+      "title": "HTTP/SSE/文件",
+      "requiredAssertions": "同源权限、cross-site拒绝、版本基线、断线/迟到结果、目录/路径穿越",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V19",
+      "title": "CAT编辑器",
+      "requiredAssertions": "IME、emoji/组合字符、Tag原子边界、锁、换行、undo/redo、快捷键、滚动",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V20",
+      "title": "原生UI",
+      "requiredAssertions": "并排/全屏/浮动切换、双项目、浅深色/窄窗/键盘、真实截图、无僵尸槽位",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V21",
+      "title": "BrowserSkill实际链",
+      "requiredAssertions": "原生skill发现→AgentWindow→localhost页面读取→操作→清理，不只doctor",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V22",
+      "title": "网页任务身份/保存",
+      "requiredAssertions": "近似作业/不同语言/虚拟列表/失效ref/富文本；派发不冒充保存",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V23",
+      "title": "下载上传",
+      "requiredAssertions": "触发前捕获、快速/延迟/同名/多下载/取消/断连/原子输出；源不覆盖",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V24",
+      "title": "浏览器生命周期",
+      "requiredAssertions": "同Session串行、跨Session身份、借用/归还、取消原任务、插件重载不乱关窗口",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V25",
+      "title": "隐私",
+      "requiredAssertions": "无额外session-log上传/无全局抓包；测试无真实客户数据/密钥快照",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V26",
+      "title": "长会话/裁剪",
+      "requiredAssertions": "同版本资料按需复用；压缩后缺失才补；PTC藏全文不能冒充审校",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V27",
+      "title": "完整语言小样",
+      "requiredAssertions": "真正错误被改、正确译文保留、变量与约束正确、完整范围有决定；不以QA清零判成功",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V28",
+      "title": "调度",
+      "requiredAssertions": "原生计划捕获项目/岗位/范围；来源消失不改绑定；需要用户登录时不假完成",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V29",
+      "title": "安装重开/回退",
+      "requiredAssertions": "固定官方 Desktop 成品与内嵌 DSH 版本一致；原生插件管理安装实际 tgz；桌面双击、退出重开、非交互PATH、关施工shell仍可用；独立 desktop profile 和重装保数据",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    },
+    {
+      "id": "V30",
+      "title": "通知门禁",
+      "requiredAssertions": "缺真实模型/浏览器/必需功能任一项不能READY；验证失败通知明确，成功后真实重开",
+      "required": true,
+      "status": "not_run",
+      "evidencePaths": []
+    }
+  ],
+  "completion": {
+    "rule": "All mandatory gates must pass on the actual current installed artifacts; missing external prerequisites never pass via mocks.",
+    "statuses": [
+      "IMPLEMENTING",
+      "VERIFYING",
+      "READY",
+      "BLOCKED_ENV",
+      "FAILED"
+    ],
+    "gates": [
+      {
+        "id": "G01",
+        "criterion": "本地实际功能映射全部有真实目标和证据，无必需TODO/空壳",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G02",
+        "criterion": "所有角色、CAT/工作副本/网页路径完整",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G03",
+        "criterion": "领域ID、格式、Tag/锁/CAS/QA/历史和专业证据回归通过",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G04",
+        "criterion": "真正安装tgz、Host/Client/资源/worker均加载，运行无需源目录或Proma",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G05",
+        "criterion": "两Session作用域、HTTP/SSE、子任务、取消/恢复正确",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G06",
+        "criterion": "实际UI可操作并有安装版本截图",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G07",
+        "criterion": "正常配置Provider真实合成任务通过，非mock",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G08",
+        "criterion": "BrowserSkill实际CLI/daemon/extension/plugin链及文件传输合成任务通过",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G09",
+        "criterion": "新产品独立data/profile，旧源/旧数据/客户网站未被修改",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G10",
+        "criterion": "官方 Desktop 成品从隔离入口双击→退出→重开，独立 desktop profile 插件仍激活；施工shell结束不影响运行",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G11",
+        "criterion": "源功能快照、最终代码、产物、安装实例和证据身份一致",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      },
+      {
+        "id": "G12",
+        "criterion": "无未处理的强制外部prerequisite，无默认额外客户日志外发",
+        "mandatory": true,
+        "allowedOutcomes": [
+          "pass",
+          "fail",
+          "blocked"
+        ],
+        "evidenceRequired": true,
+        "initialOutcome": null
+      }
+    ],
+    "notificationRequires": [
+      "READY receipt produced by verifier",
+      "matching current install identity",
+      "real nonmock provider smoke",
+      "real BrowserSkill extension chain with localhost fixture",
+      "desktop launcher reopen verification"
+    ],
+    "prohibitedSubstitutions": [
+      "source-only build as installed verification",
+      "mock model as real provider smoke",
+      "bsk version/doctor alone as browser workflow",
+      "tool return as final request evidence",
+      "completed subagent as professional coverage",
+      "hash-only round-trip as editable-tag proof",
+      "manually marked all-true gates"
+    ]
+  },
+  "externalPrerequisites": [
+    {
+      "id": "provider_access",
+      "requiredForReady": true,
+      "action": "Use already authorized DSH route/env/official credential access; do not dump secrets or bypass authentication."
+    },
+    {
+      "id": "browser_extension_connection",
+      "requiredForReady": true,
+      "action": "Use the intended connected BrowserSkill extension. Missing user installation/connection remains BLOCKED_ENV."
+    },
+    {
+      "id": "local_execution_permissions",
+      "requiredForReady": true,
+      "action": "Use allowed user-level filesystem/process/notification interfaces; do not bypass OS security."
+    }
+  ],
+  "customerDataOperationsAuthorized": false,
+  "localNewProductInstallAuthorized": true,
+  "oldProductReplacementAuthorized": false,
+  "remotePublicationAuthorized": false
+}

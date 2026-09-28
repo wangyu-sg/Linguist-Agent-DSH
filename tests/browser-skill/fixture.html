@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LA-DSH BrowserSkill synthetic fixture</title>
+<main>
+  <h1>LA-DSH BrowserSkill synthetic fixture</h1>
+  <p>Two similar jobs are present. Only LA-001 may be edited in this check.</p>
+  <section aria-label="Job LA-001, English to Chinese">
+    <h2>LA-001 · English → Chinese</h2>
+    <p>Source: Open the settings menu.</p>
+    <label for="target-la-001">Target for LA-001</label>
+    <input id="target-la-001" value="">
+    <button id="save-la-001" type="button">Save LA-001</button>
+    <p id="saved-la-001">Not saved</p>
+  </section>
+  <section aria-label="Job LA-002, English to German">
+    <h2>LA-002 · English → German</h2>
+    <p>Source: Open the settings menu.</p>
+    <label for="target-la-002">Target for LA-002</label>
+    <input id="target-la-002" value="Einstellungen öffnen">
+    <p id="saved-la-002">Existing target, unchanged</p>
+  </section>
+  <section aria-label="Synthetic file transfer">
+    <h2>File transfer</h2>
+    <label for="upload">Attach the synthetic file</label>
+    <input id="upload" type="file">
+    <p id="upload-status">No upload received</p>
+    <a id="download" href="/download">Download synthetic file</a>
+  </section>
+</main>
+<script>
+  document.querySelector('#save-la-001').addEventListener('click', async () => {
+    const target = document.querySelector('#target-la-001').value;
+    const response = await fetch('/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ taskId: 'LA-001', target }),
+    });
+    document.querySelector('#saved-la-001').textContent = response.ok ? 'Saved LA-001 on server' : 'Save failed';
+  });
+  document.querySelector('#upload').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const response = await fetch('/upload', { method: 'POST', headers: { 'x-synthetic-filename': file.name }, body: file });
+    document.querySelector('#upload-status').textContent = response.ok ? 'Upload received on server' : 'Upload failed';
+  });
+</script>
+</html>

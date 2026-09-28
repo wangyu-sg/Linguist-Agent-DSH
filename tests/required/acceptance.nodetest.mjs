@@ -1,0 +1,945 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import test from 'node:test'
+import { LinguistProjectService, convertOfficePreviewToHtml } from '../../packages/linguist-domain-service/src/index.ts'
+import { createDefaultCatFormatRegistry } from '../../packages/linguist-domain-service/src/format-registry.ts'
+import { createAsset, createProject } from '../../packages/linguist-cat-core/src/index.ts'
+import { bindImportedSegments } from '../../packages/linguist-cat-formats/src/index.ts'
+import { createLinguistCatTools, LINGUIST_CAT_TOOL_NAMES } from '../../packages/linguist-cat-tools/src/index.ts'
+import { FormatParseError } from '../../packages/linguist-cat-formats/src/errors.ts'
+import { createCatDeps } from '../../packages/dsh-linguist/src/host/cat-deps.ts'
+import { EvidenceObserver } from '../../packages/dsh-linguist/src/host/evidence.ts'
+import { BindingStore } from '../../packages/dsh-linguist/src/host/bindings.ts'
+import { ManagedFiles } from '../../packages/dsh-linguist/src/host/files.ts'
+import { MutationBus } from '../../packages/dsh-linguist/src/host/mutations.ts'
+import { dispatchOperation } from '../../packages/dsh-linguist/src/host/operations.ts'
+import { invokeError, registerHttpRoutes } from '../../packages/dsh-linguist/src/host/http.ts'
+import { loadLinguistRoleResources } from '../../packages/dsh-linguist/src/host/role-resources.ts'
+import { createWorkingCopyTool } from '../../packages/dsh-linguist/src/host/working-copy-tool.ts'
+import { captureAutomationLinguistContext, revalidateAutomationLinguistContext } from '../../packages/dsh-linguist/src/host/automation-context.ts'
+import { freezeLinguistDelegation, linguistDelegationOutcome } from '../../packages/dsh-linguist/src/host/delegation.ts'
+import { LinguistDelegationControl } from '../../packages/dsh-linguist/src/host/delegation-control.ts'
+import { deliverDelegationInputs, preflightDelegationInputs } from '../../packages/dsh-linguist/src/host/delegation-inputs.ts'
+import { createLinguistDelegationTool } from '../../packages/dsh-linguist/src/host/delegation-tool.ts'
+import { copyLinguistSessionToProject, sessionCopyEligibility } from '../../packages/dsh-linguist/src/host/session-copy.ts'
+import { addPreparedTurnContext, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
+import { ScheduleContextManager } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
+import { ScheduleId, createAfterScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
+
+const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
+const JSZip = requireFormats('jszip')
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+
+test('packaged role resources fail with stable path-free errors when missing or oversized', () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-role-resources-'))
+  try {
+    const base = new URL(`file://${root}/`)
+    for (const role of ['general', 'translator', 'reviewer', 'proofreader']) writeFileSync(join(root, `${role}.md`), `# ${role}`)
+    assert.equal(loadLinguistRoleResources(base).reviewer, '# reviewer')
+    rmSync(join(root, 'reviewer.md'))
+    assert.throws(() => loadLinguistRoleResources(base), error => error.message === 'Linguist reviewer role resource unavailable' && !error.message.includes(root))
+    writeFileSync(join(root, 'reviewer.md'), 'x'.repeat(6_001))
+    assert.throws(() => loadLinguistRoleResources(base), error => error.message === 'Linguist reviewer role resource invalid' && !error.message.includes(root))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('invoke error preserves only safe typed counts and format classification', () => {
+  const countError = Object.assign(new Error('Downstream references block import undo'), {
+    code: 'IMPORT_UNDO_BLOCKED', details: { proposals: 2, jobs: 1 },
+  })
+  assert.deepEqual(invokeError(countError).details, { proposals: 2, jobs: 1 })
+  countError.details = { proposals: 2, path: '/private/customer-file' }
+  assert.equal(invokeError(countError).details, undefined)
+  const format = invokeError(new FormatParseError('synthetic-csv', '/private/customer/path/sample.csv', 'Customer text: <secret>'))
+  assert.equal(format.formatDetails?.code, 'FORMAT_PARSE_ERROR')
+  assert.equal(format.formatDetails?.filename, 'sample.csv')
+  assert.doesNotMatch(JSON.stringify(format), /private|<secret>|Customer text/)
+})
+
+test('LA Schedule creates a native DSH task and admits only an unchanged bound due occurrence', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-schedule-native-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic due', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'due.csv' })
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace-schedule')
+    const binding = { workspaceId: 'workspace-schedule', projectId: project.id, role: 'reviewer', workMode: 'cat' }
+    bindings.bindSession('session-schedule', binding)
+    const assertProjectSession = async (sessionId, projectId) => {
+      assert.equal(bindings.session(sessionId)?.projectId, projectId)
+      assert.equal(bindings.projectWorkspace(projectId), 'workspace-schedule')
+    }
+    const native = {
+      rows: [],
+      async create(sessionId, request) {
+        const id = ScheduleId(`schedule-${randomUUID()}`)
+        const record = request.after_seconds === undefined
+          ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
+          : createAfterScheduleRecord(id, request.prompt, request.after_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, sessionId, status: 'active' })
+        if (this.beforeReturn) { await this.beforeReturn(record); this.beforeReturn = undefined }
+        return record
+      },
+      async catalog() { return this.rows },
+      async update({ sessionId, id, expected, title, prompt, change }) {
+        const row = this.rows.find(item => item.sessionId === sessionId && item.id === id)
+        if (!row || row.scheduledAt !== expected.scheduledAt || row.prompt !== expected.prompt) return { id, updated: false, code: 'schedule_conflict' }
+        const record = change === undefined ? { ...expected, title, prompt }
+          : createEveryScheduleRecord(id, prompt, change.every_seconds, Date.now(), title)
+        this.rows = this.rows.map(item => item === row ? { ...record, sessionId, status: 'active' } : item)
+        return { id, updated: true, record }
+      },
+      async history({ id }) { return { id, records: [{ scheduledAt: new Date().toISOString(), deliveredAt: new Date().toISOString(), messageId: 'message-synthetic', prompt: this.rows.find(item => item.id === id)?.prompt }], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 } } },
+      async delete({ sessionId, id }) {
+        const row = this.rows.find(item => item.sessionId === sessionId && item.id === id)
+        if (!row) return { id, deleted: false, code: 'schedule_not_found' }
+        this.rows = this.rows.filter(item => item !== row)
+        return { id, deleted: true }
+      },
+    }
+    const manager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession)
+    native.beforeReturn = async record => {
+      const early = { id: 'early-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(record) }] }
+      assert.equal((await manager.onPreStep({ id: 'session-schedule' }, { kind: 'enter', messages: [early] }, 0, 0)).messages[1].source.kind, 'linguist-schedule-execution')
+    }
+    const turnContext = { schemaVersion: 1, projectId: project.id, assetId: segment.assetId, selectedSegmentIds: [segment.id], capturedAt: new Date().toISOString(), uiRevision: 1 }
+    const base = { operation: 'linguistScheduleCreate', payload: {
+      sessionId: 'session-schedule', projectId: project.id, title: 'Review selected Segment', prompt: 'Review the selected source and current target.',
+      executeAtDue: true, scope: 'segments', turnContext, timing: { kind: 'after', seconds: 120 },
+    }, service, bindings, workspaceRegistry: { get: () => ({ id: 'workspace-schedule', path: root }) },
+    files: new ManagedFiles(root), mutations: new MutationBus(), assertProjectSession,
+    resolveSessionWorkspace: async () => ({ workspaceRoot: root }), scheduleContext: manager }
+    const created = await dispatchOperation(base)
+    assert.equal(created.projectId, project.id)
+    assert.equal(created.role, 'reviewer')
+    assert.equal(created.scope, 'segments')
+    assert.equal(created.scheduleId, native.rows[0].id)
+    assert.match(native.rows[0].prompt, /\[LA-SCHEDULE-CONTEXT v1 token=/)
+    const originalTarget = native.rows[0].scheduledAt
+    const titleOnly = await dispatchOperation({ ...base, operation: 'linguistScheduleUpdate', payload: { ...base.payload,
+      scheduleId: created.scheduleId, expectedVersion: created.version, title: 'Title-only review edit' } })
+    assert.equal(titleOnly.kind, 'after')
+    assert.equal(titleOnly.scheduledAt, originalTarget)
+    const message = { id: 'due-message', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
+    const agent = { id: 'session-schedule' }
+    const manualMessages = []
+    const reopened = new ScheduleContextManager(root, native, service, bindings, assertProjectSession,
+      async (sessionId, manualMessage) => { assert.equal(sessionId, 'session-schedule'); manualMessages.push(manualMessage) })
+    const manual = await dispatchOperation({ ...base, scheduleContext: reopened, operation: 'linguistScheduleRunNow',
+      payload: { sessionId: 'session-schedule', scheduleId: created.scheduleId, expectedVersion: titleOnly.version } })
+    assert.equal(manual.status, 'accepted')
+    assert.equal(manual.messageId, manualMessages[0].id)
+    assert.equal(native.rows[0].scheduledAt, originalTarget)
+    const manualAdmitted = await reopened.onPreStep({ id: 'session-schedule' }, { kind: 'enter', messages: manualMessages }, 0, 1)
+    assert.equal(manualAdmitted.messages[1].source.kind, 'linguist-schedule-execution')
+    assert.match(manualAdmitted.messages[1].content[0].text, /"trigger":"manual"/)
+    await assert.rejects(dispatchOperation({ ...base, scheduleContext: reopened, operation: 'linguistScheduleRunNow',
+      payload: { sessionId: 'session-schedule', scheduleId: created.scheduleId, expectedVersion: created.version } }), /changed since it was listed/)
+    const admitted = await reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 1, 1)
+    assert.equal(admitted.messages.length, 2)
+    assert.equal(admitted.messages[0], message)
+    assert.equal(admitted.messages[1].source.kind, 'linguist-schedule-execution')
+    assert.match(admitted.messages[1].content[0].text, /Review the selected source and current target/)
+    assert.match(admitted.messages[1].content[0].text, new RegExp(segment.id))
+    await assert.rejects(reopened.validateModelRequest(agent, 1, 1, { provider: 'synthetic', model: 'chosen' }, async () => { throw new Error('model unavailable') }), /model unavailable/)
+    await reopened.validateModelRequest(agent, 1, 1, { provider: 'synthetic', model: 'chosen' }, async (provider, model) => {
+      assert.equal(provider, 'synthetic')
+      assert.equal(model, 'chosen')
+    })
+    const generic = { ...message, content: [{ type: 'text', text: renderReminderFraming({ ...native.rows[0], id: ScheduleId(`schedule-${randomUUID()}`), prompt: 'Drink water' }) }] }
+    assert.deepEqual((await reopened.onPreStep(agent, { kind: 'enter', messages: [generic] }, 1, 2)).messages, [generic])
+    const removedMarker = { ...message, content: [{ type: 'text', text: renderReminderFraming({ ...native.rows[0], prompt: 'Edited task without marker' }) }] }
+    await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [removedMarker] }, 1, 3), /marker was removed/)
+    const recurring = await dispatchOperation({ ...base, payload: { ...base.payload, title: 'Recurring review', timing: { kind: 'every', seconds: 180 } } })
+    assert.equal(recurring.kind, 'every')
+    const ordinary = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), 'Ordinary reminder', 180, Date.now(), 'Ordinary')
+    const batch = { ...message, content: [{ type: 'text', text: renderRecurringReminderBatchFraming([
+      { record: native.rows[1], occurrenceAt: native.rows[1].scheduledAt },
+      { record: ordinary, occurrenceAt: ordinary.scheduledAt },
+    ]) }] }
+    const batchAdmitted = await reopened.onPreStep(agent, { kind: 'enter', messages: [batch] }, 2, 1)
+    assert.equal(batchAdmitted.messages.length, 2)
+    assert.equal(batchAdmitted.messages[1].source.scheduleId, recurring.scheduleId)
+    const listed = await dispatchOperation({ ...base, operation: 'linguistScheduleList', payload: { sessionId: 'session-schedule' } })
+    assert.equal(listed.items.length, 2)
+    assert.equal(listed.items[1].authorizationStatus, 'ready')
+    const history = await dispatchOperation({ ...base, operation: 'linguistScheduleHistory', payload: { sessionId: 'session-schedule', scheduleId: recurring.scheduleId, limit: 10 } })
+    assert.equal(history.records[0].prompt, 'Review the selected source and current target.')
+    const edited = await dispatchOperation({ ...base, operation: 'linguistScheduleUpdate', payload: { ...base.payload,
+      scheduleId: recurring.scheduleId, expectedVersion: recurring.version, title: 'Edited recurring review',
+      prompt: 'Review the frozen selection again.', timing: { kind: 'every', seconds: 240 } } })
+    assert.equal(edited.scheduleId, recurring.scheduleId)
+    assert.notEqual(edited.version, recurring.version)
+    assert.equal((await manager.list('session-schedule')).items[1].authorizationStatus, 'ready')
+    await assert.rejects(dispatchOperation({ ...base, operation: 'linguistScheduleUpdate', payload: { ...base.payload,
+      scheduleId: recurring.scheduleId, expectedVersion: recurring.version } }), /changed since it was listed/)
+    native.rows[1] = { ...native.rows[1], everySeconds: 300 }
+    await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [batch] }, 2, 2), /identity changed|deleted or changed/)
+    native.rows[0] = { ...native.rows[0], title: 'Edited in native Schedule UI' }
+    await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 3, 1), /deleted or changed/)
+    native.rows[0] = { ...native.rows[0], title: 'Title-only review edit' }
+    bindings.bindSession('session-schedule', { ...binding, role: 'general' })
+    await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 4, 1), /no longer matches/)
+    bindings.bindSession('session-schedule', binding)
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\nb,结束,End\n'), filename: 'changed.csv' })
+    await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 5, 1), /project revision changed/)
+    assert.deepEqual(await reopened.stopSessionSchedules('session-schedule'), [created.scheduleId, recurring.scheduleId])
+    assert.equal((await native.catalog()).length, 0)
+    const detachResult = await dispatchOperation({ ...base, operation: 'linguistSessionsDetachBinding', payload: { sessionId: 'session-schedule' },
+      detachSessionBinding: async sessionId => ({ sessionId, detached: true, cancelledScheduleIds: [], historicalEvidencePreserved: true }) })
+    assert.deepEqual(detachResult, { sessionId: 'session-schedule', detached: true, cancelledScheduleIds: [], historicalEvidencePreserved: true })
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('scheduled Linguist context freezes Host-owned project and rejects stale or truncated scope', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-automation-context-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic schedule', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'schedule.csv' })
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace-schedule')
+    const binding = { workspaceId: 'workspace-schedule', projectId: project.id, role: 'reviewer', workMode: 'cat' }
+    const turnContext = { schemaVersion: 1, projectId: project.id, assetId: segment.assetId, selectedSegmentIds: [segment.id], capturedAt: new Date().toISOString(), uiRevision: 1 }
+    const captured = captureAutomationLinguistContext({ scope: 'segments', role: 'reviewer', turnContext }, binding, 'workspace-schedule', bindings, service)
+    assert.deepEqual(captured.scope, { kind: 'segments', assetId: segment.assetId, segmentIds: [segment.id] })
+    assert.deepEqual(revalidateAutomationLinguistContext(captured, binding, 'workspace-schedule', bindings, service), [segment.id])
+    assert.throws(() => captureAutomationLinguistContext({ scope: 'segments', turnContext: { ...turnContext, selectionTruncated: true } }, binding, 'workspace-schedule', bindings, service), /truncated/)
+    assert.throws(() => revalidateAutomationLinguistContext(captured, { ...binding, projectId: 'prj-0000000000000000' }, 'workspace-schedule', bindings, service), /no longer matches/)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('native DSH prompt requestId admits the prepared CAT selection exactly in its own model step', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-turn-context-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic turn', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'turn.csv' })
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace-turn')
+    const binding = { workspaceId: 'workspace-turn', projectId: project.id, role: 'reviewer', workMode: 'cat' }
+    bindings.bindSession('session-turn', binding)
+    const requestId = '025548a2-3425-4fa8-9465-b851b746568a'
+    const context = { schemaVersion: 1, projectId: project.id, assetId: segment.assetId, activeSegmentId: segment.id, selectedSegmentIds: [segment.id], capturedAt: new Date().toISOString(), uiRevision: 8 }
+    const receipts = new TurnContextReceipts(root)
+    const assertProjectSession = async (sessionId, projectId) => {
+      assert.equal(bindings.session(sessionId)?.projectId, projectId)
+      assert.equal(bindings.projectWorkspace(projectId), 'workspace-turn')
+    }
+    const prepareInput = {
+      operation: 'linguistTurnContextPrepare', payload: { sessionId: 'session-turn', requestId, turnContext: context },
+      service, bindings, workspaceRegistry: { get: () => ({ id: 'workspace-turn', path: root }) },
+      files: new ManagedFiles(root), mutations: new MutationBus(), assertProjectSession,
+      resolveSessionWorkspace: async () => ({ workspaceRoot: root }), turnContextReceipts: receipts,
+    }
+    const prepared = await dispatchOperation(prepareInput)
+    assert.deepEqual(prepared, { requestId, context, selectionTruncated: false })
+    assert.deepEqual(await dispatchOperation(prepareInput), prepared)
+    await assert.rejects(dispatchOperation({ ...prepareInput, payload: { ...prepareInput.payload, turnContext: { ...context, uiRevision: 9 } } }), /different Linguist CAT selection/)
+    await assert.rejects(dispatchOperation({ ...prepareInput, payload: { ...prepareInput.payload, turnContext: { ...context, selectedSegmentIds: ['seg-0000000000000000'] }, requestId: randomUUID() } }), /does not belong/)
+
+    const reopened = new TurnContextReceipts(root)
+    const original = { id: 'user-message', role: 'user', source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'Review this segment' }] }
+    const admitted = await addPreparedTurnContext({ sessionId: 'session-turn', decision: { kind: 'enter', messages: [original] }, receipts: reopened, service, bindings, assertProjectSession })
+    assert.equal(admitted.kind, 'enter')
+    assert.equal(admitted.messages.length, 2)
+    assert.equal(admitted.messages[0].source.kind, 'linguist-turn-context')
+    assert.equal(admitted.messages[0].source.requestId, requestId)
+    assert.match(admitted.messages[0].content[0].text, /<linguist_turn_context version="1"/)
+    assert.match(admitted.messages[0].content[0].text, new RegExp(segment.id))
+    assert.equal(admitted.messages[1], original)
+    assert.equal((await addPreparedTurnContext({ sessionId: 'session-turn', decision: { kind: 'enter', messages: [{ ...original, source: { kind: 'user', rpcId: randomUUID() } }] }, receipts: reopened, service, bindings, assertProjectSession })).messages.length, 1)
+
+    bindings.bindSession('session-turn', { ...binding, workMode: 'browser' })
+    await assert.rejects(addPreparedTurnContext({ sessionId: 'session-turn', decision: { kind: 'enter', messages: [original] }, receipts: reopened, service, bindings, assertProjectSession }), /binding changed/)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('native delegation freezes CAT range and Workspace input bytes before child start', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-delegation-'))
+  const outside = mkdtempSync(join(tmpdir(), 'la-dsh-delegation-outside-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic delegation', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'scope.csv' })
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    const binding = { workspaceId: 'synthetic-workspace', projectId: project.id, role: 'general', workMode: 'cat' }
+    const frozen = freezeLinguistDelegation(service, binding, { role: 'reviewer', scope: { assetIds: [segment.assetId] } })
+    assert.equal(frozen.role, 'reviewer')
+    assert.deepEqual(frozen.delegatedScope.segmentIds, [segment.id])
+    assert.throws(() => freezeLinguistDelegation(service, frozen, { scope: { segmentIds: ['seg-0000000000000000'] } }), /outside|Only a General/)
+    assert.ok(linguistDelegationOutcome(service, 'child-session', frozen))
+    const bytes = Buffer.from('Synthetic local input')
+    writeFileSync(join(root, 'input.txt'), bytes)
+    writeFileSync(join(outside, 'secret.txt'), 'outside')
+    symlinkSync(join(outside, 'secret.txt'), join(root, 'outside-link.txt'))
+    const staged = await preflightDelegationInputs([{ path: 'input.txt', purpose: 'Review context', required: true, expectedSha256: sha256(bytes), snapshot: true }], root)
+    assert.equal(staged.ready, true)
+    const receipts = await deliverDelegationInputs(staged.items, root, 'synthetic-call')
+    assert.equal(receipts[0].state, 'snapshotted')
+    assert.equal(receipts[0].purpose, 'Review context')
+    assert.deepEqual(readFileSync(receipts[0].usablePath), bytes)
+    assert.equal((await preflightDelegationInputs([{ path: 'outside-link.txt', purpose: 'Unauthorized', required: true }], root)).ready, false)
+    assert.equal((await preflightDelegationInputs([{ path: 'missing.txt', purpose: 'Optional context', required: false }], root)).items[0].receipt.state, 'missing')
+    const fencedWorkspace = join(root, 'fenced-workspace')
+    mkdirSync(fencedWorkspace)
+    writeFileSync(join(fencedWorkspace, 'input.txt'), bytes)
+    symlinkSync(outside, join(fencedWorkspace, '.linguist'))
+    const fenced = await preflightDelegationInputs([{ path: 'input.txt', purpose: 'Review context', required: true, snapshot: true }], fencedWorkspace)
+    await assert.rejects(() => deliverDelegationInputs(fenced.items, fencedWorkspace, 'fenced-call'), /not a regular Workspace directory/)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }) }
+})
+
+test('Linguist delegation starts a continuable DSH child and keeps follow-ups within its frozen binding', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-native-delegate-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Native child', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'child.csv' })
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    const agent = { id: 'parent-session' }
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace')
+    const parentBinding = { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat' }
+    bindings.bindSession(agent.id, parentBinding)
+    const intents = new Map()
+    const catalog = []
+    const calls = []
+    const native = {
+      resolveMaxDepth: () => 1,
+      async startContinuable(spec) {
+        assert.equal(spec.provider, 'spawn')
+        assert.equal(spec.request.maxDepth, 1)
+        assert.equal(spec.request.parent, agent)
+        assert.deepEqual(intents.get(spec.childId).delegatedScope.segmentIds, [segment.id])
+        assert.match(spec.request.prompt[0].text, /Review context/)
+        bindings.bindSession(spec.childId, intents.get(spec.childId))
+        catalog.push({ id: spec.childId, mode: 'continuable', label: spec.label, createdAt: 1 })
+        calls.push('start')
+        return { childId: spec.childId, messageId: 'first-message' }
+      },
+      async listChildren(id) { assert.equal(id, agent.id); return catalog },
+      async sendMessage(sender, childId, content, options) {
+        assert.equal(sender, agent)
+        assert.equal(options.signal.aborted, false)
+        calls.push(['message', childId, content[0].text])
+        return 'followup-message'
+      },
+      async prompt(request) { calls.push(['prompt', request.childSessionId, request.content[0].text, request.delivery]); return { messageId: 'human-message' } },
+      interruptByParent(childId, parentId, mode) {
+        calls.push(['interrupt', childId, parentId, mode])
+        return { accepted: true }
+      },
+    }
+    const control = new LinguistDelegationControl(service, bindings, native, async (sessionId, projectId) => {
+      assert.equal(sessionId, agent.id)
+      assert.equal(projectId, project.id)
+    })
+    const { tool, messageTool, listTool, interruptTool } = createLinguistDelegationTool({
+      service, binding: parentBinding, agent, control,
+      resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
+      reserveIntent: (childId, binding) => { intents.set(childId, binding); return () => { intents.delete(childId) } },
+      subagents: native,
+    })
+    const args = { role: 'reviewer', objective: 'Review this synthetic segment', scope: { segmentIds: [segment.id] },
+      inputs: [{ path: 'reference.txt', purpose: 'Review context', required: false }], expectedOutcome: 'A segment-level review with unresolved items' }
+    const result = await tool.execute(args, { agent, callId: 'synthetic-tool-call', signal: new AbortController().signal })
+    assert.equal(result.status, 'started')
+    assert.equal(result.messageId, 'first-message')
+    assert.deepEqual(result.checkedInputs, [])
+    assert.deepEqual(result.notChecked, [])
+    assert.equal(calls[0], 'start')
+    assert.equal(intents.size, 0)
+    assert.deepEqual(new BindingStore(root).session(result.childSessionId).delegatedScope.segmentIds, [segment.id])
+    assert.equal((await listTool.execute({}, { agent })).items[0].childSessionId, result.childSessionId)
+    const message = await messageTool.execute({ childSessionId: result.childSessionId, message: 'Continue within the same scope' },
+      { agent, signal: new AbortController().signal })
+    assert.equal(message.messageId, 'followup-message')
+    const requestId = randomUUID()
+    assert.equal((await control.prompt(agent.id, result.childSessionId, requestId, 'Human follow-up', 'queue')).messageId, 'human-message')
+    const operationInput = {
+      service, bindings, workspaceRegistry: { get: () => undefined }, files: new ManagedFiles(root), mutations: new MutationBus(),
+      assertProjectSession: async () => {}, resolveSessionWorkspace: async () => ({ workspaceRoot: root }), delegationControl: control,
+    }
+    assert.equal((await dispatchOperation({ ...operationInput, operation: 'linguistDelegationsList', payload: { parentSessionId: agent.id } })).items.length, 1)
+    assert.equal((await dispatchOperation({ ...operationInput, operation: 'linguistDelegationsPrompt', payload: {
+      parentSessionId: agent.id, childSessionId: result.childSessionId, requestId: randomUUID(), text: 'Host follow-up', delivery: 'steer',
+    } })).messageId, 'human-message')
+    const interrupted = await interruptTool.execute({ childSessionId: result.childSessionId }, { agent })
+    assert.deepEqual(interrupted, { childSessionId: result.childSessionId, accepted: true, scope: 'current-turn' })
+    assert.deepEqual(calls.slice(1), [
+      ['message', result.childSessionId, 'Continue within the same scope'],
+      ['prompt', result.childSessionId, 'Human follow-up', 'queue'],
+      ['prompt', result.childSessionId, 'Host follow-up', 'steer'],
+      ['interrupt', result.childSessionId, agent.id, 'continuable'],
+    ])
+    assert.equal((await dispatchOperation({ ...operationInput, operation: 'linguistDelegationsInterrupt', payload: {
+      parentSessionId: agent.id, childSessionId: result.childSessionId,
+    } })).scope, 'current-turn')
+    bindings.bindSession(result.childSessionId, { ...parentBinding, role: 'reviewer', delegatedScope: { assetIds: [], segmentIds: [] } })
+    await assert.rejects(() => control.prompt(agent.id, result.childSessionId, randomUUID(), 'Blocked', 'queue'), /frozen binding/i)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('Session copy uses DSH native create/fork only for eligible source and Workspace', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-session-copy-'))
+  const workspace = join(root, 'workspace')
+  const secondWorkspace = join(root, 'other-workspace')
+  mkdirSync(workspace)
+  mkdirSync(secondWorkspace)
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const source = await service.createProject({ name: 'Source project', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const target = await service.createProject({ name: 'Target project', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const crossWorkspaceTarget = await service.createProject({ name: 'Different Workspace', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const bindings = new BindingStore(root)
+    bindings.bindProject(source.id, 'workspace-1')
+    bindings.bindProject(target.id, 'workspace-1')
+    bindings.bindProject(crossWorkspaceTarget.id, 'workspace-2')
+    bindings.bindSession('source-session', { workspaceId: 'workspace-1', projectId: source.id, role: 'reviewer', workMode: 'cat' })
+    let events = []
+    let forks = 0
+    let creates = 0
+    const host = {
+      bindings, service,
+      workspaceRegistry: { get: id => id === 'workspace-1' ? { id, path: realpathSync(workspace) } : id === 'workspace-2' ? { id, path: realpathSync(secondWorkspace) } : undefined },
+      sessionExists: async () => true,
+      agentStatus: () => 'idle',
+      rebindAgent: () => {},
+      sessionController: {
+        inspect: async () => ({ meta: { cwd: realpathSync(workspace) }, events }),
+        create: async () => { creates++; return { sessionId: `blank-${creates}` } },
+        fork: async () => { forks++; return { sessionId: `fork-${forks}` } },
+        rename: async () => {},
+      },
+    }
+    assert.deepEqual(await sessionCopyEligibility(host, 'source-session'), { eligible: true, mode: 'blank' })
+    const blank = await copyLinguistSessionToProject(host, 'source-session', target.id)
+    assert.equal(blank.mode, 'blank')
+    assert.equal(bindings.session(blank.sessionId).projectId, target.id)
+    events = [
+      { type: 'user/message', seq: 0 }, { type: 'assistant/message', seq: 1 },
+      { type: 'turn/end', seq: 2, data: { reason: { kind: 'completed' } } },
+    ]
+    assert.deepEqual(await sessionCopyEligibility(host, 'source-session'), { eligible: true, mode: 'fork' })
+    assert.equal((await sessionCopyEligibility(host, 'source-session', crossWorkspaceTarget.id)).reason, 'CROSS_WORKSPACE_FORK_UNSUPPORTED')
+    await assert.rejects(() => copyLinguistSessionToProject(host, 'source-session', crossWorkspaceTarget.id), /CROSS_WORKSPACE_FORK_UNSUPPORTED/)
+    const fork = await copyLinguistSessionToProject(host, 'source-session', target.id)
+    assert.equal(fork.mode, 'fork')
+    assert.equal(forks, 1)
+    events = [...events, { type: 'user/message', seq: 3 }]
+    assert.equal((await sessionCopyEligibility(host, 'source-session')).reason, 'NO_COMPLETED_ASSISTANT')
+    assert.equal(creates, 1)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('four DSH roles retain the full CAT tool set and distinct Session bindings', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-roles-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic roles', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'synthetic-workspace')
+    const expected = [...LINGUIST_CAT_TOOL_NAMES]
+    assert.equal(expected.length, 31)
+    for (const role of ['general', 'translator', 'reviewer', 'proofreader']) {
+      const sessionId = `synthetic-${role}`
+      bindings.bindSession(sessionId, { workspaceId: 'synthetic-workspace', projectId: project.id, role, workMode: 'cat' })
+      const unreachable = () => { throw new Error('Unused test hook was called') }
+      const deps = createCatDeps({
+        service, projectId: project.id, sessionId, role, sessionCwd: root,
+        attachments: { imageLimits: { maxImageBytes: 1024 }, saveImage: unreachable, readImage: unreachable },
+        assertBound: () => assert.equal(bindings.session(sessionId)?.projectId, project.id),
+        authorizeReadPath: unreachable, authorizeWritePath: unreachable, discoveryScope: unreachable,
+        onMutation: unreachable, prepareStage: unreachable, prepareContextDoc: unreachable,
+        onEvidencePrepared: unreachable, generationProvenance: unreachable,
+        stageEvidenceRunId: () => undefined, reviewScopeSegmentIds: () => undefined, delegatedScopeSegmentIds: () => undefined,
+      })
+      assert.equal(deps.linguistRole, role)
+      assert.deepEqual(createLinguistCatTools(deps).map(tool => tool.name), expected)
+      assert.equal(bindings.session(sessionId)?.role, role)
+    }
+    assert.equal(bindings.projectWorkspace(project.id), 'synthetic-workspace')
+  } finally {
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('raw Stage Evidence requires exact model-visible tool content and a successful response', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-evidence-'))
+  const receipts = []
+  const observer = new EvidenceObserver({ openProject: () => ({ stageEvidence: { recordReceipt: value => receipts.push(value) } }) }, root)
+  const receipt = {
+    stageRunId: 'synthetic-stage', baselineHash: 'synthetic-baseline', sessionId: 'synthetic-session',
+    generationRunId: 'synthetic-generation', toolCallId: 'synthetic-call', segmentIds: ['synthetic-segment'],
+    evidence: [{ ref: { kind: 'asset', id: 'synthetic-asset' }, version: '1', anchorIds: [] }],
+  }
+  const collect = async iterable => { for await (const _ of iterable) { /* consume observed stream */ } }
+  const stream = reason => async function* () { yield { type: 'finish', reason: { kind: reason } } }
+  const options = text => ({
+    provider: 'synthetic-provider', model: 'synthetic-model', sessionId: 'synthetic-session',
+    messages: [{ role: 'tool', toolCallId: 'synthetic-call', content: [{ type: 'text', text }] }],
+  })
+  try {
+    observer.prepare('synthetic-project', receipt)
+    observer.presented(receipt.sessionId, receipt.toolCallId, [{ type: 'text', text: 'Exact source and target' }])
+    await collect(observer.stream(options('Partial source'), stream('stop')))
+    assert.equal(receipts.length, 0)
+    await collect(observer.stream(options('Exact source and target'), stream('aborted')))
+    assert.equal(receipts.length, 0)
+    await collect(observer.stream(options('Exact source and target'), stream('stop')))
+    assert.equal(receipts.length, 1)
+    assert.equal(receipts[0].evidence[0].submission, 'provider-response-v1')
+    const observations = readFileSync(join(root, 'evidence-observations.jsonl'), 'utf8').trim().split('\n')
+    assert.equal(observations.length, 1)
+    assert.equal(JSON.parse(observations[0]).toolCallId, receipt.toolCallId)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('synthetic historical schema 1 project metadata survives backup and restore', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-schema1-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const created = await service.createProject({ name: 'Synthetic legacy', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const imported = await service.importAsset(created.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'synthetic.csv' })
+    assert.equal(imported.status, 'imported')
+    service.closeAll()
+    const paths = service.getProjectPaths(created.id)
+    const indexPath = join(root, 'projects.json')
+    const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+    const legacy = { ...index.projects[0], schemaVersion: 1, promaWorkspaceId: 'synthetic-historical-id' }
+    index.projects[0] = legacy
+    writeFileSync(indexPath, JSON.stringify(index))
+    const manifest = JSON.parse(readFileSync(paths.projectJsonPath, 'utf8'))
+    writeFileSync(paths.projectJsonPath, JSON.stringify({ ...manifest, schemaVersion: 1, promaWorkspaceId: legacy.promaWorkspaceId }))
+    assert.equal(service.getProject(created.id).promaWorkspaceId, legacy.promaWorkspaceId)
+    const before = service.openProject(created.id).segments.query({ limit: 1 })[0]
+    const backup = service.backupProject(created.id)
+    assert.equal(service.previewRestore(created.id, backup.backupName).restorable, true)
+    service.editSegment(created.id, before.id, 'Changed after backup', before.revision)
+    const restored = service.restoreProject(created.id, backup.backupName)
+    assert.equal(restored.backupName, backup.backupName)
+    assert.equal(service.getProject(created.id).schemaVersion, 1)
+    assert.equal(service.getProject(created.id).promaWorkspaceId, legacy.promaWorkspaceId)
+    assert.equal(service.openProject(created.id).segments.getById(before.id).target, before.target)
+    assert.equal(service.openProject(created.id).segments.getById(before.id).id, before.id)
+  } finally {
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('external CAT backup import preserves historical IDs and source bytes across independent roots', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-external-backup-'))
+  const oldRoot = join(root, 'old-product')
+  const newRoot = join(root, 'new-product')
+  const workspaceRoot = join(root, 'workspace')
+  mkdirSync(oldRoot)
+  mkdirSync(newRoot)
+  mkdirSync(workspaceRoot)
+  const oldService = new LinguistProjectService({ rootDir: oldRoot, applicationVersion: 'synthetic-old' })
+  const newService = new LinguistProjectService({ rootDir: newRoot, applicationVersion: 'synthetic-new' })
+  oldService.init()
+  newService.init()
+  try {
+    const created = await oldService.createProject({ name: 'Synthetic prior CAT', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const imported = await oldService.importAsset(created.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'synthetic.csv' })
+    assert.equal(imported.status, 'imported')
+    oldService.closeAll()
+    const indexPath = join(oldRoot, 'projects.json')
+    const oldIndex = JSON.parse(readFileSync(indexPath, 'utf8'))
+    oldIndex.projects[0] = { ...oldIndex.projects[0], schemaVersion: 1, promaWorkspaceId: 'synthetic-historical-workspace' }
+    writeFileSync(indexPath, JSON.stringify(oldIndex))
+    const oldProjectPath = oldService.getProjectPaths(created.id).projectJsonPath
+    const oldManifest = JSON.parse(readFileSync(oldProjectPath, 'utf8'))
+    writeFileSync(oldProjectPath, JSON.stringify({ ...oldManifest, schemaVersion: 1, promaWorkspaceId: 'synthetic-historical-workspace' }))
+    const oldSegment = oldService.openProject(created.id).segments.query({ limit: 1 })[0]
+    const oldAssetId = oldSegment.assetId
+    const backup = oldService.backupProject(created.id)
+    oldService.closeAll()
+    const originalBackupDir = join(oldRoot, backup.backupDir)
+    const selectedBackupDir = join(workspaceRoot, 'selected-backup')
+    cpSync(originalBackupDir, selectedBackupDir, { recursive: true })
+    const originalBefore = directoryHashes(originalBackupDir)
+    const selectedBefore = directoryHashes(selectedBackupDir)
+    const bindings = new BindingStore(newRoot)
+    const dispatchInput = {
+      operation: 'linguistBackupsImportExternal',
+      payload: { workspaceId: 'synthetic-dsh-workspace', backupPath: 'selected-backup' },
+      service: newService,
+      bindings,
+      workspaceRegistry: { get: id => id === 'synthetic-dsh-workspace' ? { id, path: realpathSync(workspaceRoot) } : undefined },
+      files: new ManagedFiles(newRoot),
+      mutations: new MutationBus(),
+      assertProjectSession: async () => { throw new Error('Backup import must not require a new Session') },
+      resolveSessionWorkspace: async () => { throw new Error('Backup import must not require a new Session') },
+    }
+    const result = await dispatchOperation(dispatchInput)
+    assert.equal(result.project.id, created.id)
+    assert.equal(result.project.schemaVersion, 1)
+    assert.equal(result.project.workspaceId, 'synthetic-dsh-workspace')
+    assert.equal(result.importedFrom, 'selected-backup')
+    assert.equal(result.schemaVersion, newService.openProject(created.id).schemaVersion)
+    assert.equal(newService.getProject(created.id).promaWorkspaceId, 'synthetic-historical-workspace')
+    assert.equal(newService.openProject(created.id).segments.getById(oldSegment.id).id, oldSegment.id)
+    assert.equal(newService.openProject(created.id).segments.getById(oldSegment.id).assetId, oldAssetId)
+    assert.equal(newService.openProject(created.id).segments.getById(oldSegment.id).target, oldSegment.target)
+    assert.equal(new BindingStore(newRoot).projectWorkspace(created.id), 'synthetic-dsh-workspace')
+    assert.deepEqual(directoryHashes(originalBackupDir), originalBefore)
+    assert.deepEqual(directoryHashes(selectedBackupDir), selectedBefore)
+    assert.deepEqual(newService.listProjects({ includeArchived: true }).map(project => project.id), [created.id])
+    const health = await dispatchOperation({ ...dispatchInput, operation: 'linguistProjectsCheckHealth', payload: { projectId: created.id } })
+    assert.equal(health.kind, 'quick')
+    assert.equal(health.healthy, true)
+    await assert.rejects(dispatchOperation(dispatchInput), /already exists/i)
+    assert.deepEqual(directoryHashes(originalBackupDir), originalBefore)
+    assert.deepEqual(directoryHashes(selectedBackupDir), selectedBefore)
+    assert.deepEqual(newService.listProjects({ includeArchived: true }).map(project => project.id), [created.id])
+
+    const tampered = join(workspaceRoot, 'tampered-backup')
+    cpSync(selectedBackupDir, tampered, { recursive: true })
+    writeFileSync(join(tampered, 'cat.db'), 'corrupted synthetic database')
+    await assert.rejects(dispatchOperation({ ...dispatchInput, payload: { ...dispatchInput.payload, backupPath: 'tampered-backup' } }), /corrupt|mismatch/i)
+    assert.deepEqual(newService.listProjects({ includeArchived: true }).map(project => project.id), [created.id])
+    symlinkSync(originalBackupDir, join(workspaceRoot, 'linked-backup'))
+    await assert.rejects(dispatchOperation({ ...dispatchInput, payload: { ...dispatchInput.payload, backupPath: 'linked-backup' } }), /regular directory/i)
+    assert.deepEqual(directoryHashes(originalBackupDir), originalBefore)
+
+    const failedRoot = join(root, 'failed-product')
+    mkdirSync(failedRoot)
+    const failedService = new LinguistProjectService({ rootDir: failedRoot, applicationVersion: 'synthetic-failure' })
+    failedService.init()
+    const failedStore = failedService.store
+    failedStore.openProject = () => { throw new Error('Synthetic post-registration failure') }
+    try {
+      await assert.rejects(dispatchOperation({
+        ...dispatchInput,
+        service: failedService,
+        bindings: new BindingStore(failedRoot),
+        files: new ManagedFiles(failedRoot),
+      }), /PROJECT_UNHEALTHY|Project unhealthy|unhealthy/i)
+      assert.deepEqual(failedService.listProjects({ includeArchived: true }), [])
+      assert.equal(lstatSync(join(failedRoot, 'projects', created.id), { throwIfNoEntry: false }), undefined)
+      assert.deepEqual(readdirSync(join(failedRoot, 'projects')), [])
+      assert.deepEqual(readdirSync(join(failedRoot, 'trash')), [])
+      assert.deepEqual(directoryHashes(selectedBackupDir), selectedBefore)
+    } finally {
+      failedService.closeAll()
+    }
+  } finally {
+    oldService.closeAll()
+    newService.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('legacy LA root migration scans a selected copy and imports with independent verification', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-legacy-root-'))
+  const workspaceRoot = join(root, 'workspace')
+  const legacyRoot = join(workspaceRoot, 'synthetic-la-copy')
+  const externalRoot = join(legacyRoot, 'external')
+  const dataRoot = join(root, 'new-product')
+  const legacyProjectId = 'synthetic-legacy-project'
+  const legacyProjectDir = join(legacyRoot, 'data', 'projects', legacyProjectId)
+  mkdirSync(join(legacyProjectDir, 'batches', 'synthetic-batch'), { recursive: true })
+  mkdirSync(externalRoot)
+  mkdirSync(dataRoot)
+  const sourceFile = join(externalRoot, 'synthetic.xliff')
+  writeFileSync(sourceFile, '<?xml version="1.0"?><xliff version="1.2"><file><body><trans-unit id="one"><source>Open</source><target>打开</target></trans-unit></body></file></xliff>')
+  writeFileSync(join(legacyProjectDir, 'project.json'), JSON.stringify({
+    schemaVersion: 1, projectId: legacyProjectId, projectName: 'Synthetic legacy import', root: externalRoot,
+    sourceLanguage: 'zh-CN', targetLanguage: 'en-US', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }))
+  writeFileSync(join(legacyProjectDir, 'batches', 'synthetic-batch', 'batch.json'), JSON.stringify({
+    schemaVersion: 1, projectId: legacyProjectId, batchId: 'synthetic-batch', format: 'xliff_1_2', sourceFile,
+    sourceLanguage: 'zh-CN', targetLanguage: 'en-US', segments: [
+      { id: 'one', source: 'Open', target: '打开', status: 'confirmed', locked: false },
+    ],
+  }))
+  writeFileSync(join(legacyProjectDir, 'chat.json'), JSON.stringify([
+    { ts: '2026-01-01T00:00:00.000Z', kind: 'user', text: 'Synthetic request', sessionId: 'synthetic-session' },
+    { ts: '2026-01-01T00:00:01.000Z', kind: 'assistant', text: 'Synthetic response', sessionId: 'synthetic-session' },
+  ]))
+  mkdirSync(join(legacyProjectDir, '_pi_sessions'))
+  const historicalSessionBytes = '{"synthetic":"archived only"}\n'
+  writeFileSync(join(legacyProjectDir, '_pi_sessions', 'synthetic.jsonl'), historicalSessionBytes)
+  const orphanId = 'synthetic-orphan'
+  const orphanDir = join(legacyRoot, 'data', 'projects', orphanId, 'batches', 'synthetic-batch')
+  mkdirSync(orphanDir, { recursive: true })
+  writeFileSync(join(orphanDir, 'batch.json'), JSON.stringify({
+    schemaVersion: 1, projectId: orphanId, batchId: 'synthetic-batch', format: 'csv_paste', sourceFile: 'synthetic-paste',
+    sourceLanguage: 'zh-CN', targetLanguage: 'en-US', segments: [
+      { id: 'orphan-one', source: 'Cancel', target: '取消', status: 'draft', locked: false },
+    ],
+  }))
+  const original = directoryHashes(legacyRoot)
+  const service = new LinguistProjectService({ rootDir: dataRoot, applicationVersion: 'synthetic-test' })
+  service.init()
+  const bindings = new BindingStore(dataRoot)
+  const common = {
+    service, bindings,
+    workspaceRegistry: { get: id => id === 'synthetic-workspace' ? { id, path: realpathSync(workspaceRoot) } : undefined },
+    files: new ManagedFiles(dataRoot), mutations: new MutationBus(),
+    assertProjectSession: async () => { throw new Error('Legacy import must not create a Session') },
+    resolveSessionWorkspace: async () => { throw new Error('Legacy import must not create a Session') },
+  }
+  try {
+    const scan = await dispatchOperation({ ...common, operation: 'linguistLegacyMigrationScan', payload: { workspaceId: 'synthetic-workspace', legacyRootPath: 'synthetic-la-copy' } })
+    assert.equal(scan.schemaVersion, 1)
+    assert.equal(scan.totals.projects, 2)
+    assert.equal(scan.projects.find(item => item.projectId === legacyProjectId).segments, 1)
+    assert.equal(scan.projects.find(item => item.projectId === orphanId).orphan, true)
+    let eventHandler
+    registerHttpRoutes({
+      ctx: { webServer: { register: route => { eventHandler = route.handler; return () => {} } } },
+      service, bindings, files: common.files, mutations: common.mutations, installationId: 'synthetic',
+      rebindAgent: () => { throw new Error('Migration does not rebind an Agent') },
+      dispatch: async () => { throw new Error('Migration SSE does not dispatch operations') },
+    })
+    const streamRequest = Object.assign(new EventEmitter(), {
+      method: 'GET', url: `/la/v1/events?workspaceId=synthetic-workspace&scanId=${scan.scanId}`,
+      headers: { host: '127.0.0.1:19387' },
+    })
+    const streamed = []
+    const streamResponse = {
+      headersSent: false, statusCode: 0,
+      writeHead(status) { this.statusCode = status; this.headersSent = true },
+      write(chunk) { streamed.push(chunk) },
+      end() { throw new Error('Authorized migration SSE should stay open') },
+    }
+    await eventHandler(streamRequest, streamResponse)
+    assert.equal(streamResponse.statusCode, 200)
+    assert.match(streamed[0], /event: migration-ready/)
+    assert.match(streamed[0], new RegExp(scan.scanId))
+    const unrelated = []
+    const stopUnrelated = common.mutations.subscribeMigration('other-workspace', scan.scanId, { write: chunk => unrelated.push(chunk) })
+    const dryRunRoot = join(root, 'cli-dry-run-product')
+    const cli = spawnSync(process.execPath, [
+      '--experimental-transform-types', '--import', './packages/linguist-cat-store/test/register-ts-loader.mjs',
+      'packages/linguist-legacy-migration/src/cli.ts', 'import', '--root', legacyRoot,
+      '--project', legacyProjectId, '--target-root', dryRunRoot, '--dry-run', '--json',
+    ], { cwd: process.cwd(), encoding: 'utf8' })
+    assert.equal(cli.status, 0, cli.stderr)
+    assert.equal(JSON.parse(cli.stdout).dryRun, true)
+    assert.equal(lstatSync(dryRunRoot, { throwIfNoEntry: false }), undefined)
+    await assert.rejects(dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: { workspaceId: 'synthetic-workspace', scanId: '00000000-0000-0000-0000-000000000000', projectIds: [legacyProjectId] } }), /matching legacy root scan/i)
+    const input = { workspaceId: 'synthetic-workspace', scanId: scan.scanId, projectIds: [legacyProjectId], options: { externalSource: 'copy' } }
+    const report = await dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: input })
+    const progress = streamed.filter(chunk => chunk.startsWith('event: migration-progress')).map(chunk => JSON.parse(chunk.split('data: ')[1]))
+    assert.deepEqual(progress, [
+      { workspaceId: 'synthetic-workspace', scanId: scan.scanId, projectId: legacyProjectId, phase: 'import', index: 1, total: 1 },
+      { workspaceId: 'synthetic-workspace', scanId: scan.scanId, projectId: legacyProjectId, phase: 'verify', index: 1, total: 1 },
+    ])
+    assert.equal(unrelated.length, 1, 'Other Workspace receives only its own ready event')
+    stopUnrelated()
+    streamRequest.emit('close')
+    assert.equal(report.projects.length, 1)
+    const project = report.projects[0]
+    assert.equal(project.legacyProjectId, legacyProjectId)
+    assert.equal(project.disposition, 'imported')
+    assert.equal(project.verify.status, 'passed')
+    assert.equal(project.totals.assets, 1)
+    assert.equal(project.totals.segments, 1)
+    assert.equal(project.transcript.rows, 2)
+    assert.equal(readFileSync(join(dataRoot, 'projects', project.newProjectId, 'legacy-archive', 'chat', 'pi-sessions', 'synthetic.jsonl'), 'utf8'), historicalSessionBytes)
+    assert.equal(bindings.projectWorkspace(project.newProjectId), 'synthetic-workspace')
+    assert.equal(service.getProject(project.newProjectId).schemaVersion, 2)
+    assert.equal(Object.hasOwn(service.getProject(project.newProjectId), 'promaWorkspaceId'), false)
+    assert.equal(service.openProject(project.newProjectId).segments.query({ limit: 1 })[0].target, '打开')
+    assert.deepEqual(directoryHashes(legacyRoot), original)
+    const quarantined = await dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: { ...input, projectIds: [orphanId] } })
+    assert.equal(quarantined.projects[0].disposition, 'quarantined')
+    assert.equal(quarantined.projects[0].verify.status, 'skipped')
+    assert.equal(service.listProjects({ includeArchived: true }).length, 1)
+    const salvaged = await dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: { ...input, projectIds: [orphanId], options: { externalSource: 'reference', salvageOrphan: true } } })
+    assert.equal(salvaged.projects[0].targetConflict, false)
+    assert.equal(salvaged.projects[0].verify.status, 'passed')
+    assert.equal(salvaged.projects[0].totals.segments, 1)
+    assert.equal(bindings.projectWorkspace(salvaged.projects[0].newProjectId), 'synthetic-workspace')
+    assert.deepEqual(directoryHashes(legacyRoot), original)
+    const duplicate = await dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: input })
+    assert.equal(duplicate.projects[0].targetConflict, true)
+    assert.deepEqual(directoryHashes(legacyRoot), original)
+    symlinkSync(sourceFile, join(legacyRoot, 'synthetic-link'))
+    await assert.rejects(dispatchOperation({ ...common, operation: 'linguistLegacyMigrationImport', payload: input }), /non-regular entry/i)
+  } finally {
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('archived CAT projects remain readable and back-upable while writes fail closed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-archived-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic archived', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const imported = await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'synthetic.csv' })
+    assert.equal(imported.status, 'imported')
+    const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
+    service.archiveProject(project.id)
+    assert.equal(service.openProject(project.id).readOnly, true)
+    assert.equal(service.getProjectSummary(project.id).totalSegments, 1)
+    assert.equal(service.queryCatWorkspace(project.id, { limit: 10, offset: 0, includeIndex: false }).total, 1)
+    assert.equal(service.getSegmentContext(project.id, segment.id).segment.id, segment.id)
+    assert.equal(service.getStageDecisionCoverage(project.id, segment.assetId, 'translation').total, 1)
+    assert.deepEqual(service.listBackups(project.id), [])
+    assert.match(service.backupProject(project.id).backupName, /^backup-/u)
+    assert.throws(() => service.editSegment(project.id, segment.id, 'Changed', segment.revision), /archived|归档/i)
+    assert.throws(() => service.runQa(project.id, segment.assetId), /archived|归档/i)
+  } finally {
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function directoryHashes(directory) {
+  const result = {}
+  const visit = (base, relative = '') => {
+    for (const item of readdirSync(base, { withFileTypes: true })) {
+      const path = join(base, item.name)
+      const child = relative === '' ? item.name : `${relative}/${item.name}`
+      assert.equal(lstatSync(path).isSymbolicLink(), false)
+      if (item.isDirectory()) visit(path, child)
+      else result[child] = sha256(readFileSync(path))
+    }
+  }
+  visit(directory)
+  return result
+}
+
+test('Office DOCX and XLSX previews read synthetic bytes without changing originals', async () => {
+  const docx = new JSZip()
+  docx.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+  docx.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+  docx.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Synthetic Office text</w:t></w:r></w:p></w:body></w:document>')
+  const docxBytes = await docx.generateAsync({ type: 'nodebuffer' })
+  const docxHash = sha256(docxBytes)
+  const docxPreview = await convertOfficePreviewToHtml(docxBytes, 'synthetic.docx')
+  assert.match(docxPreview.html, /Synthetic Office text/)
+  assert.equal(sha256(docxBytes), docxHash)
+
+  const xlsx = new JSZip()
+  xlsx.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+  xlsx.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+  xlsx.file('xl/workbook.xml', '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic" sheetId="1" r:id="rId1"/></sheets></workbook>')
+  xlsx.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+  xlsx.file('xl/worksheets/sheet1.xml', '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Open</t></is></c><c r="B2" t="inlineStr"><is><t>&lt;Start&gt;</t></is></c></row></sheetData></worksheet>')
+  const xlsxBytes = await xlsx.generateAsync({ type: 'nodebuffer' })
+  const xlsxHash = sha256(xlsxBytes)
+  const xlsxPreview = await convertOfficePreviewToHtml(xlsxBytes, 'synthetic.xlsx')
+  assert.match(xlsxPreview.html, /Synthetic/)
+  assert.match(xlsxPreview.html, /&lt;Start&gt;/)
+  assert.doesNotMatch(xlsxPreview.html, /<Start>/)
+  assert.equal(sha256(xlsxBytes), xlsxHash)
+})
+
+test('native working-copy tool verifies Session and assembles a private full-coverage result', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-working-tool-'))
+  const original = 'key,source,target\na,开始,Begin\nb,取消,Cancel\n'
+  writeFileSync(join(root, 'source.csv'), original)
+  let authorized = true
+  let checks = 0
+  const tool = createWorkingCopyTool(
+    () => ({ workspaceRoot: root, sessionId: 'synthetic-session' }),
+    async () => { checks += 1; if (!authorized) throw new Error('Session authority changed') },
+  )
+  const args = { sourcePath: 'source.csv', sourceLocale: 'zh-CN', targetLocale: 'en-US' }
+  try {
+    const prepared = await tool.execute({ ...args, operation: 'prepare' }, { signal: new AbortController().signal })
+    assert.equal(prepared.segments, 2)
+    assert.match(prepared.path, /^\.linguist\/working-copies\//)
+    assert.equal(readFileSync(join(root, 'source.csv'), 'utf8'), original)
+    const baseline = JSON.parse(readFileSync(join(root, prepared.path), 'utf8'))
+    const [a, b] = baseline.segments
+    writeFileSync(join(root, 'decisions.json'), JSON.stringify({
+      sourceSha256: prepared.sourceSha256,
+      groups: [{ segmentIds: [a.id], decision: 'corrected' }, { segmentIds: [b.id], decision: 'unchanged' }],
+      edits: [{ segmentId: a.id, baseRevision: a.revision, target: 'Start' }], unresolved: [],
+    }))
+    const result = await tool.execute({ ...args, operation: 'assemble', decisionsPath: 'decisions.json' }, { signal: new AbortController().signal })
+    assert.deepEqual(result.coverage, { total: 2, unchanged: 1, corrected: 1, blocked: 0, undecided: 0 })
+    assert.equal(result.finalChangeCount, 1)
+    assert.equal(result.submitted, false)
+    assert.equal(readFileSync(join(root, 'source.csv'), 'utf8'), original)
+    assert.equal(checks, 2)
+    authorized = false
+    await assert.rejects(tool.execute({ ...args, operation: 'prepare' }, { signal: new AbortController().signal }), /Session authority changed/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('all eight shipped CAT adapters detect and round-trip synthetic original bytes', async () => {
+  const fixture = name => new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)))
+  const phraseXml = '<?xml version="1.0"?><xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="one"><source>Open</source><target>打开</target></trans-unit></body></file></xliff>'
+  const phraseDocx = new JSZip()
+  const cell = value => `<w:tc><w:p><w:r><w:t>${value}</w:t></w:r></w:p></w:tc>`
+  phraseDocx.file('word/document.xml', `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr>${['synthetic:0', '', '1', 'Open', '打开', 'Draft', ''].map(cell).join('')}</w:tr></w:tbl></w:body></w:document>`)
+  const workbook = new JSZip()
+  workbook.file('xl/workbook.xml', '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic" sheetId="1" r:id="rId1"/></sheets></workbook>')
+  workbook.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+  workbook.file('xl/worksheets/sheet1.xml', '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>key</t></is></c><c r="B1" t="inlineStr"><is><t>source</t></is></c><c r="C1" t="inlineStr"><is><t>target</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>a</t></is></c><c r="B2" t="inlineStr"><is><t>Open</t></is></c><c r="C2" t="inlineStr"><is><t>打开</t></is></c></row></sheetData></worksheet>')
+  const cases = [
+    ['mini_game_ui.xliff', new Uint8Array(readFileSync(new URL('../linguist-fixtures/mini_game_ui.xliff', import.meta.url)))],
+    ['sample.mqxliff', new Uint8Array(readFileSync(new URL('../linguist-fixtures/sample.mqxliff', import.meta.url)))],
+    ['minimal_delivery.sdlxliff', fixture('minimal_delivery.sdlxliff')],
+    ['synthetic.mxliff', new TextEncoder().encode(phraseXml)],
+    ['synthetic.docx', new Uint8Array(await phraseDocx.generateAsync({ type: 'nodebuffer' }))],
+    ['mini_dialogue.csv', fixture('mini_dialogue.csv')],
+    ['mini_items.json', fixture('mini_items.json')],
+    ['synthetic.xlsx', new Uint8Array(await workbook.generateAsync({ type: 'nodebuffer' }))],
+  ]
+  const registry = createDefaultCatFormatRegistry()
+  assert.equal(registry.list().length, 8)
+  const project = createProject({ name: 'Synthetic formats', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+  const ids = []
+  for (const [filename, bytes] of cases) {
+    const adapter = await registry.detectBest(bytes, filename)
+    const imported = await adapter.import({ bytes, filename, sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    assert.ok(imported.segments.length > 0, `${filename} has no segments`)
+    const asset = createAsset({ projectId: project.id, ...imported.asset })
+    const bound = bindImportedSegments(imported.segments, asset.id)
+    const exported = await adapter.export({ originalBytes: bytes, asset, segments: bound })
+    assert.equal(sha256(exported), sha256(bytes), `${filename} changed with no edits`)
+    const reimported = await adapter.import({ bytes: exported, filename, sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    assert.deepEqual(reimported.segments.map(segment => [segment.key, segment.source, segment.target, segment.locked, segment.status]), imported.segments.map(segment => [segment.key, segment.source, segment.target, segment.locked, segment.status]), filename)
+    const writable = bound.find(segment => !segment.locked && !/[<>{}]/u.test(segment.source + segment.target))
+    assert.ok(writable, `${filename} lacks a plain writable synthetic segment`)
+    const nextTarget = 'Synthetic revised target'
+    const edited = bound.map(segment => segment.id === writable.id ? { ...segment, target: nextTarget } : segment)
+    const changedBytes = await adapter.export({ originalBytes: bytes, asset, segments: edited })
+    assert.notEqual(sha256(changedBytes), sha256(bytes), `${filename} did not write the edited target`)
+    const changed = await adapter.import({ bytes: changedBytes, filename, sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const matching = changed.segments.find(segment => segment.key === writable.key)
+    assert.ok(matching, `${filename} lost the edited segment`)
+    assert.equal(adapter.id === 'json_i18n' ? matching.source : matching.target, nextTarget, filename)
+    const locked = bound.find(segment => segment.locked)
+    if (locked) {
+      await assert.rejects(adapter.export({ originalBytes: bytes, asset, segments: bound.map(segment => segment.id === locked.id ? { ...segment, target: 'Forbidden edit' } : segment) }), undefined, `${filename} allowed a locked edit`)
+    }
+    ids.push(adapter.id)
+  }
+  assert.equal(new Set(ids).size, 8)
+})

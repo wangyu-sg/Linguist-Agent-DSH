@@ -1,0 +1,12 @@
+.page { height: 100%; overflow: auto; padding: 12px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: 13px/1.5 system-ui, sans-serif; }
+.page h2 { margin: 0; font-size: 15px; }
+.page p { margin: 8px 0; overflow-wrap: anywhere; }
+.page header { padding-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.page header p, .target small { color: var(--dsw-alias-label-secondary); }
+.targets { margin: 12px 0; padding: 0; border: 0; }
+.targets legend { margin-bottom: 8px; font-weight: 600; }
+.target { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; padding: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; cursor: pointer; }
+.target span, .target small { display: block; }
+.target:has(input:checked) { border-color: var(--dsw-alias-brand-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent); }
+.error { color: var(--dsw-alias-label-error); }
+.warning { color: var(--dsw-alias-label-warning); }

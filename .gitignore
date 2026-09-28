@@ -1,0 +1,9 @@
+node_modules/
+dist/
+packages/dsh-linguist/lib/
+.toolchain/
+.pnpm-store/
+.migration/
+artifacts/
+*.tgz
+.DS_Store

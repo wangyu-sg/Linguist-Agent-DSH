@@ -1,0 +1,44 @@
+.panel { display: flex; min-width: 0; flex-direction: column; gap: 8px; color: var(--dsw-alias-label-primary); }
+.panel h3 { margin: 10px 0 2px; font-size: 13px; }
+.panel h3:first-child { margin-top: 0; }
+.panel hr { width: 100%; border: 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+.panel p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.panel pre { max-height: 260px; overflow: auto; white-space: pre-wrap; }
+.toolbar, .form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.form { align-items: end; }
+.formFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.toolbar label, .form label { display: inline-flex; align-items: center; gap: 5px; }
+.toolbar select, .form select, .toolbar input:not([type="checkbox"]):not([type="file"]), .form input { min-height: 28px; max-width: 240px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 2px 6px; font: inherit; }
+.toolbar input[type="file"] { max-width: 180px; font-size: 11px; }
+.toolbar input[type="checkbox"] { accent-color: var(--dsw-alias-brand-primary); }
+.item, .selected, .callout { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 8px; }
+.selected, .callout { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent); }
+.item strong, .selected strong { font-size: 12px; }
+.item small { color: var(--dsw-alias-label-tertiary); }
+.compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.compare > div + div { border-left: 1px solid var(--dsw-alias-border-l2); padding-left: 8px; }
+.compare p { font-size: 13px; }
+.blocking { color: var(--dsw-alias-label-error); }
+.check { color: var(--dsw-alias-label-primary); }
+.notice { color: var(--dsw-alias-label-secondary); }
+.removed { background: color-mix(in srgb, var(--dsw-alias-label-error) 16%, transparent); text-decoration: line-through; }
+.added { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent); }
+.preview { display: block; max-height: 100px; max-width: 160px; object-fit: contain; }
+.previewPane { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 8px; }
+.previewPane pre { max-height: 320px; overflow: auto; white-space: pre-wrap; }
+.previewPane iframe { width: 100%; min-height: 340px; border: 1px solid var(--dsw-alias-border-l2); background: white; }
+.batchTargets { max-height: 320px; overflow: auto; display: grid; gap: 8px; }
+.batchTargets label { display: grid; gap: 4px; }
+.batchTargets span { max-height: 48px; overflow: auto; font-size: 12px; }
+.importItems { max-height: 300px; overflow: auto; padding-left: 18px; }
+.importItems li { padding: 2px 0; overflow-wrap: anywhere; }
+.batchTargets textarea { min-height: 56px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; }
+.proposalTarget { min-width: min(280px, 100%); flex: 1 1 280px; min-height: 72px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; }
+.scheduleForm { display: grid; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
+.scheduleForm > label { display: grid; gap: 4px; }
+.scheduleForm textarea { min-height: 88px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 6px; font: inherit; }
+.scheduleForm .formFields { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.scheduleManager { display: grid; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
+.scheduleManager h3 { margin: 0; }
+.proposalRun { display: grid; gap: 6px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
+@media (max-width: 760px) { .compare { grid-template-columns: 1fr; } .compare > div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0 0; } }

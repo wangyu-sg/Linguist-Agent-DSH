@@ -1,0 +1,495 @@
+import {
+  InvalidStateTransitionError,
+  matchTmCandidates,
+  normalizeQaProfile,
+  UnknownSegmentError,
+  type QaFindingDisposition,
+  type QaFindingSeverity,
+  type Segment,
+  type WorkflowStage,
+} from '@linguist/cat-core'
+import {
+  runAssetQa,
+  StoreNotFoundError,
+  type ApprovedExemplar,
+  type PersistedQaFinding,
+  type ProjectDatabase,
+  type StageDecisionCoverage,
+} from '@linguist/cat-store'
+import {
+  errorCodeOf,
+  LinguistProjectArchivedError,
+} from './errors'
+import type { ProjectModuleContext } from './project-module-context'
+import type {
+  CatQaFinding,
+  CatSegmentContext,
+  CatWorkspacePage,
+  CatWorkspaceQuery,
+  ApproveSegmentExemplarInput,
+  StageMutationBatchResult,
+  StageMutationFailure,
+  StageMutationItem,
+} from './project-service-types'
+
+/**
+ * CAT 工作台质量模块：查询、人工编辑/阶段确认与确定性 QA。
+ *
+ * 模型提案不在这里落盘；所有状态推进仍走 store 的 CAS 与人工动作。
+ */
+export class ProjectQuality {
+  constructor(private readonly context: ProjectModuleContext) {}
+
+  /** CAT Workspace：资产元数据 + 同过滤条件下的分页句段与 COUNT。 */
+  queryCatWorkspace(
+    projectId: string,
+    query: CatWorkspaceQuery,
+  ): CatWorkspacePage {
+    this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    const filter = {
+      assetId: query.assetId,
+      status: query.status,
+      currentStageState: query.currentStageState,
+      search: query.search,
+    }
+    return this.context.call(
+      () => ({
+        assets: db.assets.listByProject(),
+        segments: db.segments.query({
+          ...filter,
+          limit: query.limit,
+          offset: query.offset,
+        }),
+        total: db.segments.count(filter),
+        segmentIds: query.includeIndex
+          ? db.segments.queryIds(filter)
+          : [],
+      }),
+      projectId,
+    )
+  }
+
+  /** Context Rail：按 opaque id 读取稳定详情，不依赖虚拟 Grid 当前窗口。 */
+  getSegmentContext(
+    projectId: string,
+    segmentId: string,
+  ): CatSegmentContext {
+    this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    return this.context.call(() => {
+      const segment = db.segments.getById(segmentId)
+      if (segment === undefined) throw new UnknownSegmentError(segmentId)
+      const pendingProposal = db.proposals
+        .listBySegment(segmentId, 'pending')
+        .at(-1)
+      const neighbors = db.segments.neighbors(segmentId, 1)
+      const tmCandidates = db.tmUnits.listCandidates(segment.sourceLocale, segment.targetLocale)
+      const tmCandidatesById = new Map(tmCandidates.map((candidate) => [candidate.unitId, candidate]))
+      const tmDiagnostics = matchTmCandidates(
+        segment.source,
+        tmCandidates,
+        {
+          context: {
+            ...(segment.key === undefined ? {} : { contextKey: segment.key }),
+            ...(neighbors.previous.at(-1) === undefined ? {} : { previousSource: neighbors.previous.at(-1)!.source }),
+            ...(neighbors.next[0] === undefined ? {} : { nextSource: neighbors.next[0]!.source }),
+          },
+          minimumScore: 75,
+        },
+      )
+      return {
+        segment,
+        ...(pendingProposal !== undefined ? { pendingProposal } : {}),
+        tm: tmDiagnostics.slice(0, 10).map((match) => {
+          const candidate = tmCandidatesById.get(match.unitId)
+          return {
+            id: match.unitId,
+            matchClass: match.matchClass,
+            score: Math.round(match.displayScore),
+            matchedSource: match.matchedSource,
+            target: match.target,
+            sourceLabel: match.sourceLabel,
+            provenanceCount: match.provenanceCount,
+            badges: [
+              ...(match.context.structural === 'match' ? ['结构上下文一致'] : []),
+              ...(match.context.textFlow === 'match' ? ['文本流上下文一致'] : []),
+              ...(match.sourcePriority > 0 ? [`来源优先级 ${match.sourcePriority}`] : []),
+              ...(candidate?.originalTuid === undefined ? [] : [`TMX TU ID：${candidate.originalTuid}`]),
+              ...(candidate?.metadata === undefined ? [] : [`TMX 属性：${JSON.stringify(candidate.metadata)}`]),
+              ...(candidate?.sourceInline === undefined ? [] : [`源文内联结构：${candidate.sourceInline}`]),
+              ...(candidate?.targetInline === undefined ? [] : [`译文内联结构：${candidate.targetInline}`]),
+            ],
+            safety: match.structure.safety,
+            warnings: [...match.structure.reasons],
+            differences: match.differences,
+            variantCount: match.variantCount,
+          }
+        }),
+        termMatches: db.termEntries.evaluateSegment(segment).matches
+          .slice(0, 10)
+          .map((item) => item.match),
+        approvedExemplars: segment.context?.meta?.speaker?.trim()
+          ? db.tmUnits.listApprovedExemplars({
+              speaker: segment.context.meta.speaker.trim(),
+              limit: 5,
+            })
+          : db.tmUnits
+              .listApprovedExemplars({ limit: Number.MAX_SAFE_INTEGER })
+              .filter((exemplar) => exemplar.segmentId === segmentId)
+              .slice(0, 5),
+        stageEvents: db.segments.listStageEvents(segmentId),
+        qaFindings: db.qaFindings.list({ segmentId }).map((finding) => ({
+          id: finding.id,
+          segmentId: finding.segmentId,
+          code: finding.code,
+          severity: finding.severity,
+          issueType: finding.issueType,
+          disposition: finding.disposition,
+          message: finding.message,
+          status: finding.status,
+          segmentRevision: finding.segmentRevision,
+          currentRevision: segment.revision,
+          ...(finding.waiverReason !== undefined
+            ? { waiverReason: finding.waiverReason }
+            : {}),
+        })),
+      }
+    }, projectId)
+  }
+
+  /** 只有当前阶段已确认的 Segment 才能成为角色译例；正文与引用均由 Host 取值。 */
+  addApprovedExemplar(
+    projectId: string,
+    input: ApproveSegmentExemplarInput,
+  ): ApprovedExemplar {
+    this.context.assertProjectWritable(projectId)
+    const db = this.context.openProject(projectId)
+    return this.context.call(() => {
+      const segment = db.segments.getById(input.segmentId)
+      if (segment === undefined) throw new UnknownSegmentError(input.segmentId)
+      const stageState = segment.currentStageState ?? 'untouched'
+      if (stageState !== 'confirmed') {
+        throw new InvalidStateTransitionError(
+          'approved-exemplar',
+          stageState,
+          'confirmed-segment',
+        )
+      }
+      const module = segment.context?.meta?.module?.trim()
+      return db.tmUnits.addApprovedExemplar({
+        source: segment.source,
+        target: segment.target,
+        sourceLocale: segment.sourceLocale,
+        targetLocale: segment.targetLocale,
+        speaker: input.speaker,
+        textType: input.textType,
+        ...(module ? { module } : {}),
+        assetId: segment.assetId,
+        segmentId: segment.id,
+        ...(input.note === undefined ? {} : { note: input.note }),
+      })
+    }, projectId)
+  }
+
+  /**
+   * 单批次单阶段的岗位 decision 覆盖（Reviewer/Proofreader 真实进度）。
+   * 只读聚合：归档项目仍可读；assetId 不属于本项目时自然得到 total=0。
+   */
+  getStageDecisionCoverage(
+    projectId: string,
+    assetId: string,
+    stage: WorkflowStage,
+  ): StageDecisionCoverage {
+    this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => db.segments.getStageDecisionCoverage(stage, db.segments.queryIds({ assetId })),
+      projectId,
+    )
+  }
+
+  /**
+   * 重跑确定性 QA，只替换 open Finding，不改 Segment。
+   * forbidden 术语仍为 L1 阻断，preferred 偏离按项目策略定级。
+   */
+  runQa(projectId: string, assetId: string): CatQaFinding[] {
+    const project = this.context.getProject(projectId)
+    if (project.archivedAt !== undefined) {
+      throw new LinguistProjectArchivedError(projectId)
+    }
+    const db = this.context.openProject(projectId)
+    return this.context.call(() => {
+      if (db.assets.get(assetId) === undefined) throw new StoreNotFoundError('asset', assetId)
+      return this.toQaFindings(db, runAssetQa(db, assetId, {
+        glossaryPolicy: project.glossaryPolicy,
+        profile: normalizeQaProfile(project.qaProfile),
+        ...(project.tagProfile !== undefined
+          ? { tagProfile: project.tagProfile }
+          : {}),
+      }))
+    }, projectId)
+  }
+
+  /** Finding 始终携带句段当前 revision，供人工审核界面判定陈旧状态。 */
+  listQaFindings(
+    projectId: string,
+    filter: {
+      assetId?: string
+      segmentId?: string
+      code?: string
+      status?: 'open' | 'resolved' | 'waived'
+      severity?: QaFindingSeverity
+      disposition?: QaFindingDisposition
+      limit?: number
+      offset?: number
+    } = {},
+  ): { items: CatQaFinding[]; total: number } {
+    this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    if (filter.assetId !== undefined) {
+      if (db.assets.get(filter.assetId) === undefined) throw new StoreNotFoundError('asset', filter.assetId)
+      if (filter.segmentId !== undefined && db.segments.getById(filter.segmentId)?.assetId !== filter.assetId) {
+        throw new StoreNotFoundError('segment in asset', filter.segmentId)
+      }
+    }
+    return this.context.call(() => ({
+      items: this.toQaFindings(db, db.qaFindings.list(filter)),
+      total: db.qaFindings.count(filter),
+    }), projectId)
+  }
+
+  /** 人工 only：必须先发生译文编辑，才能解决该轮 Finding。 */
+  resolveQaFinding(
+    projectId: string,
+    findingId: string,
+  ): CatQaFinding {
+    const project = this.context.getProject(projectId)
+    if (project.archivedAt !== undefined) {
+      throw new LinguistProjectArchivedError(projectId)
+    }
+    const db = this.context.openProject(projectId)
+    return this.context.call(() => {
+      const finding = db.qaFindings.getById(findingId)
+      if (finding === undefined) {
+        throw new StoreNotFoundError('qa finding', findingId)
+      }
+      const segment = db.segments.getById(finding.segmentId)
+      if (segment === undefined) {
+        throw new UnknownSegmentError(finding.segmentId)
+      }
+      if (segment.revision <= finding.segmentRevision) {
+        throw new InvalidStateTransitionError(
+          'qa-finding',
+          finding.status,
+          'resolved-before-edit',
+        )
+      }
+      return this.toQaFindings(
+        db,
+        [db.qaFindings.transition(finding.id, 'resolved')],
+      )[0]!
+    }, projectId)
+  }
+
+  /** 人工 only：豁免必须持久化原因、操作者与时间。 */
+  waiveQaFinding(
+    projectId: string,
+    findingId: string,
+    reason: string,
+    operator: string,
+  ): CatQaFinding {
+    const project = this.context.getProject(projectId)
+    if (project.archivedAt !== undefined) {
+      throw new LinguistProjectArchivedError(projectId)
+    }
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => this.toQaFindings(db, [
+        db.qaFindings.transition(findingId, 'waived', {
+          reason,
+          operator,
+          at: this.context.now(),
+        }),
+      ])[0]!,
+      projectId,
+    )
+  }
+
+  /** 人工 only：按精确 Finding ID 原子批量豁免。 */
+  waiveQaFindings(
+    projectId: string,
+    findingIds: readonly string[],
+    reason: string,
+    operator: string,
+  ): CatQaFinding[] {
+    const project = this.context.getProject(projectId)
+    if (project.archivedAt !== undefined) {
+      throw new LinguistProjectArchivedError(projectId)
+    }
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => this.toQaFindings(
+        db,
+        db.qaFindings.waiveMany(findingIds, {
+          reason,
+          operator,
+          at: this.context.now(),
+        }),
+      ),
+      projectId,
+    )
+  }
+
+  /** 人工译文编辑：内容写入只走 Repository 的 CAS 事务。 */
+  editSegment(
+    projectId: string,
+    segmentId: string,
+    target: string,
+    expectedRevision: number,
+  ): Segment {
+    const project = this.context.getProject(projectId)
+    if (project.archivedAt !== undefined) {
+      throw new LinguistProjectArchivedError(projectId)
+    }
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => db.segments.applyTargetEdit(
+        segmentId,
+        target,
+        expectedRevision,
+        {
+          source: 'human',
+          now: this.context.now(),
+        },
+      ).segment,
+      projectId,
+    )
+  }
+
+  /** 人工确认当前 T/E/P 阶段；CAS 失败不会前进或覆盖。 */
+  confirmCurrentStage(
+    projectId: string,
+    segmentId: string,
+    expectedRevision: number,
+  ): Segment {
+    this.context.assertProjectWritable(projectId)
+    const project = this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => db.segments.confirmCurrentStage(
+        segmentId,
+        project.workflowStage ?? 'translation',
+        expectedRevision,
+        {
+          actor: 'local-user',
+          now: this.context.now(),
+        },
+      ).segment,
+      projectId,
+    )
+  }
+
+  /** 人工撤销当前阶段确认；保留目标和历史事件。 */
+  unconfirmCurrentStage(
+    projectId: string,
+    segmentId: string,
+    expectedRevision: number,
+  ): Segment {
+    this.context.assertProjectWritable(projectId)
+    const project = this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    return this.context.call(
+      () => db.segments.unconfirmCurrentStage(
+        segmentId,
+        project.workflowStage ?? 'translation',
+        expectedRevision,
+        {
+          actor: 'local-user',
+          now: this.context.now(),
+        },
+      ).segment,
+      projectId,
+    )
+  }
+
+  /** 批量确认逐条返回结果；部分失败永不伪装成全量成功。 */
+  confirmCurrentStageBulk(
+    projectId: string,
+    items: readonly StageMutationItem[],
+  ): StageMutationBatchResult {
+    this.context.assertProjectWritable(projectId)
+    const project = this.context.getProject(projectId)
+    const db = this.context.openProject(projectId)
+    const succeeded: Segment[] = []
+    const failed: StageMutationFailure[] = []
+    const seen = new Set<string>()
+    for (const item of items) {
+      if (seen.has(item.segmentId)) {
+        failed.push({
+          segmentId: item.segmentId,
+          code: 'DUPLICATE_SEGMENT',
+          message: '同一批次不能重复确认同一句段',
+        })
+        continue
+      }
+      seen.add(item.segmentId)
+      try {
+        succeeded.push(db.segments.confirmCurrentStage(
+          item.segmentId,
+          project.workflowStage ?? 'translation',
+          item.expectedRevision,
+          {
+            actor: 'local-user',
+            now: this.context.now(),
+          },
+        ).segment)
+      } catch (error) {
+        failed.push({
+          segmentId: item.segmentId,
+          code: errorCodeOf(error),
+          message: error instanceof Error
+            ? error.message
+            : '阶段确认失败',
+        })
+      }
+    }
+    return { succeeded, failed }
+  }
+
+  private toQaFindings(
+    db: ProjectDatabase,
+    findings: readonly PersistedQaFinding[],
+  ): CatQaFinding[] {
+    const segments = new Map(
+      db.segments
+        .getByIds([...new Set(findings.map((finding) => finding.segmentId))])
+        .map((segment) => [segment.id as string, segment]),
+    )
+    return findings.flatMap((finding) => {
+      const segment = segments.get(finding.segmentId)
+      if (segment === undefined) return []
+      return [{
+        id: finding.id,
+        segmentId: finding.segmentId,
+        code: finding.code,
+        severity: finding.severity,
+        issueType: finding.issueType,
+        disposition: finding.disposition,
+        message: finding.message,
+        status: finding.status,
+        segmentRevision: finding.segmentRevision,
+        currentRevision: segment.revision,
+        ...(finding.waiverReason !== undefined
+          ? { waiverReason: finding.waiverReason }
+          : {}),
+        ...(finding.waivedBy !== undefined
+          ? { waivedBy: finding.waivedBy }
+          : {}),
+        ...(finding.waivedAt !== undefined
+          ? { waivedAt: finding.waivedAt }
+          : {}),
+      }]
+    })
+  }
+}

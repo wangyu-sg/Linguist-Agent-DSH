@@ -1,0 +1,113 @@
+import type {
+  LinguistConsistencyWorker,
+  LinguistConsistencyWorkerRequest,
+  LinguistConsistencyWorkerResult,
+  LinguistQaWorker,
+  LinguistQaWorkerRequest,
+  LinguistQaWorkerResult,
+} from '@linguist/cat-tools'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
+import type { ContextDoc } from '@linguist/cat-store'
+import type { ContextImportWorkerRequest } from './context-import'
+import type { ImportContextDocInput } from './project-service-types'
+
+type WorkerMessage<TResult> =
+  | { type: 'progress'; phase: 'started' | 'completed'; threadId: number }
+  | { type: 'result'; result: TResult }
+  | { type: 'error'; name: string; message: string }
+
+export type WorkerRequest =
+  | { kind: 'qa'; request: LinguistQaWorkerRequest }
+  | { kind: 'consistency'; request: LinguistConsistencyWorkerRequest }
+  | { kind: 'context-import'; request: ContextImportWorkerRequest }
+  | { kind: 'context-prepare'; request: ImportContextDocInput }
+
+function workerEntry(): URL {
+  const built = new URL('./cat-job-worker.js', import.meta.url)
+  return existsSync(fileURLToPath(built)) ? built : new URL('./cat-job-worker.ts', import.meta.url)
+}
+
+function abortError(label: string): Error {
+  const error = new Error(`CAT ${label} worker cancelled`)
+  error.name = 'AbortError'
+  return error
+}
+
+function runWorker<TResult>(
+  request: WorkerRequest,
+  label: string,
+  signal: AbortSignal | undefined,
+  onProgress: ((phase: 'started' | 'completed') => void) | undefined,
+): Promise<TResult> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(label))
+      return
+    }
+    const worker = new Worker(workerEntry(), { workerData: request })
+    let settled = false
+    const settle = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      signal?.removeEventListener('abort', onAbort)
+      callback()
+    }
+    const onAbort = (): void => {
+      void worker.terminate()
+      settle(() => reject(abortError(label)))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    worker.on('message', (message: WorkerMessage<TResult>) => {
+      if (settled) return
+      if (message.type === 'progress') {
+        try {
+          onProgress?.(message.phase)
+        } catch (error) {
+          console.warn('[Linguist] CAT worker progress callback failed:', error instanceof Error ? error.name : 'unknown')
+        }
+        return
+      }
+      if (message.type === 'error') {
+        const error = new Error(message.message)
+        error.name = message.name
+        settle(() => reject(error))
+        return
+      }
+      try {
+        onProgress?.('completed')
+      } catch (error) {
+        console.warn('[Linguist] CAT worker completion callback failed:', error instanceof Error ? error.name : 'unknown')
+      }
+      settle(() => resolve(message.result))
+    })
+    worker.on('error', (error) => settle(() => reject(error)))
+    worker.on('exit', (code) => {
+      settle(() => reject(new Error(`CAT ${label} worker exited without a result (code ${code})`)))
+    })
+  })
+}
+
+export const runLinguistQaWorker: LinguistQaWorker = (
+  request,
+  signal,
+  onProgress,
+) => runWorker<LinguistQaWorkerResult>({ kind: 'qa', request }, 'QA', signal, onProgress)
+
+export const runLinguistConsistencyWorker: LinguistConsistencyWorker = (
+  request,
+  signal,
+  onProgress,
+) => runWorker<LinguistConsistencyWorkerResult>(
+  { kind: 'consistency', request },
+  'consistency',
+  signal,
+  onProgress,
+)
+
+export const runLinguistContextImportWorker = (request: ContextImportWorkerRequest): Promise<ContextDoc> =>
+  runWorker({ kind: 'context-import', request }, 'Context import', undefined, undefined)
+
+export const runLinguistContextPrepareWorker = (request: ImportContextDocInput): Promise<{ ready: true }> =>
+  runWorker({ kind: 'context-prepare', request }, 'Context prepare', undefined, undefined)
