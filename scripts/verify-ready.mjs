@@ -131,6 +131,23 @@ function validationMap(map) {
   return [join(root, 'docs/migration/FEATURE_MAP.json')]
 }
 
+/** Source capabilities and UI actions must each appear in current installed acceptance. */
+export function requireCapabilityCoverage(domain, ui, observations) {
+  const excluded = new Set(['source-unwired-not-current-requirement', 'host-specific-excluded-from-la-domain'])
+  const required = new Set([...domain.features.map(item => item.id), ...ui.actions.filter(item => !excluded.has(item.implementationStatus)).map(item => item.id)])
+  assert(Array.isArray(observations), 'per-capability installed acceptance is missing')
+  const covered = new Set()
+  for (const observation of observations) {
+    assert(observation.result === 'passed' && observation.detail?.trim() && observation.featureIds?.length, 'capability observation lacks a passed result, detail or feature IDs')
+    for (const id of observation.featureIds) {
+      assert(required.has(id), `unknown or excluded capability in acceptance: ${id}`)
+      covered.add(id)
+    }
+  }
+  const missing = [...required].filter(id => !covered.has(id))
+  assert(missing.length === 0, `capabilities without installed acceptance: ${missing.join(', ')}`)
+}
+
 function traceContains(path, values, label) {
   const text = readFileSync(path, 'utf8')
   for (const value of values) assert(text.includes(value), `${label} trace omits observed ${value}`)
@@ -281,16 +298,31 @@ function desktopProof(acceptance, current, pack) {
   return [trace, current.appPath, artifact.appPath]
 }
 
-function privacyProof(acceptance, source, state) {
+/** The user's one authorized private GitHub push; this does not grant publication elsewhere. */
+export function privatePushProof(remotePublished, authorization, proof, commit) {
+  assert(remotePublished === false || remotePublished === true, 'remote publication state is unverified')
+  if (remotePublished === false) return []
+  const repository = 'https://github.com/wangyu-sg/Linguist-Agent-DSH'
+  assert(authorization?.repository === repository && authorization.visibility === 'private' && authorization.userAuthorized === true, 'private repository push lacks the explicit user authorization')
+  const path = checkFileProof(proof?.receiptPath, proof?.receiptSha256)
+  const receipt = readJson(path)
+  assert(receipt.schemaVersion === 1 && receipt.status === 'PUSHED' && receipt.pushExitCode === 0, 'private repository push did not succeed')
+  assert(receipt.repository === repository && receipt.visibility === 'private', 'push receipt is not for the authorized private repository')
+  assert(typeof commit === 'string' && /^[a-f0-9]{40}$/.test(commit) && receipt.localCommit === commit && receipt.remoteCommit === commit, 'private repository push does not match the current local and remote commit')
+  return [path]
+}
+
+function privacyProof(acceptance, source, state, commit) {
   const privacy = acceptance.privacy
-  assert(privacy?.sourceUntouched === true && privacy.oldDataUntouched === true && privacy.customerDataTouched === false && privacy.remotePublished === false, 'privacy scope was not confirmed')
-  assert(state.customerDataTouched === false && state.remotePublished === false, 'migration state records customer data or remote publication')
+  assert(privacy?.sourceUntouched === true && privacy.oldDataUntouched === true && privacy.customerDataTouched === false, 'privacy scope was not confirmed')
+  assert(state.customerDataTouched === false && state.remotePublished === privacy.remotePublished, 'migration state records customer data or differs from the remote publication evidence')
+  const push = privatePushProof(privacy.remotePublished, state.remotePushAuthorization, privacy.privatePush, commit)
   for (const item of source.files) {
     const path = join(source.sourcePath, item.path)
     assert(existsSync(path) && fileSha(path) === item.sha256, `read-only source changed: ${item.path}`)
   }
   const trace = checkFileProof(privacy.tracePath, privacy.traceSha256)
-  return [trace, join(root, '.migration/source-snapshot-manifest.json')]
+  return [trace, join(root, '.migration/source-snapshot-manifest.json'), ...push]
 }
 
 export async function verifyReady() {
@@ -341,7 +373,7 @@ export async function verifyReady() {
     assert(local.checks?.cli === 'PASS' && local.checks?.daemon === 'PASS' && local.checks?.fixtureHttp === 'PASS', 'BrowserSkill CLI/daemon localhost baseline did not pass')
     return [join(root, 'integrations/browser-skill/dist/BUILD.json'), join(root, 'integrations/browser-skill/dist/LOCALHOST_SMOKE.json'), ...browserProof(acceptance, current, pack), ...tests(['V21', 'V23', 'V24'])]
   }, true)
-  gate('G09', () => { accept(); return [...privacyProof(acceptance, source, state), ...tests(['V01', 'V25'])] })
+  gate('G09', () => { accept(); return [...privacyProof(acceptance, source, state, code.commit), ...tests(['V01', 'V25'])] })
   gate('G10', () => { accept(); return [...desktopProof(acceptance, current, pack), ...tests(['V29'])] })
   gate('G11', () => {
     accept()
@@ -355,9 +387,23 @@ export async function verifyReady() {
     accept()
     if (gates.find(item => item.id === 'G07')?.outcome === 'blocked' || gates.find(item => item.id === 'G08')?.outcome === 'blocked') throw new ExternalPrerequisiteError('genuine Provider or extension prerequisite remains unverified')
     assert(gates.find(item => item.id === 'G07')?.outcome === 'pass' && gates.find(item => item.id === 'G08')?.outcome === 'pass', 'Provider or BrowserSkill gate failed')
-    assert(acceptance.privacy?.customerDataTouched === false && acceptance.privacy?.remotePublished === false, 'privacy prerequisite is unverified')
+    assert(gates.find(item => item.id === 'G09')?.outcome === 'pass', 'privacy prerequisite is unverified')
     return [acceptancePath]
   }, true)
+  gate('G13', () => {
+    accept()
+    assert(map.capabilityAudit?.domain && map.capabilityAudit?.ui, 'complete source capability inventory is missing')
+    const domainPath = join(root, map.capabilityAudit.domain)
+    const uiPath = join(root, map.capabilityAudit.ui)
+    requireCapabilityCoverage(readJson(domainPath), readJson(uiPath), acceptance.capabilities)
+    const paths = acceptance.capabilities.map(observation => {
+      const path = checkFileProof(observation.evidencePath, observation.evidenceSha256)
+      assert(statSync(path).mtimeMs >= Date.parse(pack.createdAt), 'capability evidence predates the installed package')
+      traceContains(path, [current.installationId, ...observation.featureIds], 'capability acceptance')
+      return path
+    })
+    return [domainPath, uiPath, ...new Set(paths)]
+  })
   gate('V30', () => { validationMap(map); return tests(['V30']) })
   const requiredGates = gates.filter(item => /^G\d\d$/.test(item.id))
   const status = requiredGates.some(item => item.outcome === 'fail') || gates.find(item => item.id === 'V30')?.outcome === 'fail' ? 'FAILED'
@@ -384,6 +430,7 @@ export async function verifyReady() {
       reopenVerified: gates.find(item => item.id === 'G10')?.outcome === 'pass',
     },
     gates, blockers, customerDataTouched: state.customerDataTouched, remotePublished: state.remotePublished,
+    ...(state.remotePublished === true ? { remotePushAuthorization: state.remotePushAuthorization, privatePush: acceptance?.privacy?.privatePush } : {}),
     currentSha256: current ? fileSha(currentPath) : null,
     packSha256: pack ? fileSha(join(root, 'artifacts/pack.json')) : null,
     acceptancePath: existsSync(acceptancePath) ? acceptancePath : null,

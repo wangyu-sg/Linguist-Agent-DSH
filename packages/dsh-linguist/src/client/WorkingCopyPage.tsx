@@ -13,16 +13,19 @@ export function WorkingCopyPage({ sessionId, onOpenFile }: {
   const locale = useLocaleId()
   const [list, setList] = React.useState<LinguistWorkingCopiesListResult>()
   const [error, setError] = React.useState('')
+  const [loading, setLoading] = React.useState(true)
   const [refresh, setRefresh] = React.useState(0)
   React.useEffect(() => {
     let live = true
+    setLoading(true)
     required<LinguistWorkingCopiesListResult>('linguistWorkingCopiesList', { sessionId })
       .then((next) => { if (live) { setList(next); setError('') } })
       .catch((cause: unknown) => { if (live) setError(String(cause)) })
+      .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [sessionId, refresh])
   return <section className={styles.page} aria-label={t("本地化工作副本")}>
-    <header className={styles.header}><div><h2>{t("工作副本")}</h2><p>{t("原文件保持原样；工作稿内的决策覆盖不等于正式交付完成。")}</p></div><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></header>
+    <header className={styles.header}><div><h2>{t("工作副本")}</h2><p>{t("原文件保持原样；工作稿内的决策覆盖不等于正式交付完成。")}</p></div><Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></header>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {!list && !error && <p role="status">{t("正在读取当前会话的工作副本…")}</p>}
     {list && list.items.length === 0 && <p>{t("此会话尚无工作副本。可让 Agent 对 Workspace 内原文件运行本地化工作副本工具。")}</p>}

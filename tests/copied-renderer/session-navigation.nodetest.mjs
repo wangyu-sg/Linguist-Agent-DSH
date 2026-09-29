@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import * as workspacePaths from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-util-workspace-path/lib/index.js'
+import { createRequire } from 'node:module'
 
 // Execute the real Client registration without mounting React or a desktop window.
 test('native navigation cancels pending LA opens and late session creation', async () => {
@@ -93,4 +94,49 @@ test('native navigation cancels pending LA opens and late session creation', asy
   assert.equal(draftsCleared, false)
   disposeDrafts()
   assert.equal(draftsCleared, true)
+})
+
+test('a copied Session can retry navigation without creating a second copy', async () => {
+  const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
+  const React = require('react')
+  const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/SessionCopyPage.tsx', import.meta.url), 'utf8')
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText
+  const projects = [{ id: 'source' }, { id: 'target' }]
+  const state = [{ projectId: 'source', workMode: 'cat' }, projects, 'target', { eligible: true, mode: 'fork' }, false, false, false, undefined, '']
+  let cursor = 0, copies = 0, navigations = 0
+  const exports = {}
+  runInNewContext(code, { exports, require: name => {
+    if (name === 'react') return { ...React, useEffect() {}, useState() { const index = cursor++; return [state[index], value => { state[index] = value }] } }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button' }
+    if (name === './api') return { required: async (operation, input) => {
+      assert.equal(operation, 'linguistSessionsCopyToProject')
+      assert.equal(input.targetProjectId, 'target')
+      copies++
+      return { sessionId: 'created-copy', projectId: 'target', mode: 'fork' }
+    } }
+    if (name === './ui-locale') return { useT: () => value => value }
+    if (name === './project-errors') return { describeProjectError: String }
+    if (name.endsWith('.module.css')) return { default: {} }
+    throw new Error(`Unexpected copy page import: ${name}`)
+  } })
+  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)]
+  const render = () => {
+    cursor = 0
+    return nodes(exports.SessionCopyPage({ sessionId: 'source-session', onCopied: async result => {
+      assert.equal(result.sessionId, 'created-copy')
+      if (++navigations === 1) throw new Error('Synthetic navigation failure')
+    } })).find(node => node.type === 'button')
+  }
+  assert.equal(render().props.disabled, false)
+  render().props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  const retry = render()
+  assert.equal(retry.props.children, '打开已创建会话')
+  assert.equal(retry.props.disabled, false)
+  assert.match(state.at(-1), /Synthetic navigation failure/)
+  retry.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(copies, 1)
+  assert.equal(navigations, 2)
+  assert.equal(state.at(-1), '')
 })

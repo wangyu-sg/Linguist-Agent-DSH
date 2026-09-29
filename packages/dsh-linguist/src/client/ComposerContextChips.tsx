@@ -23,8 +23,8 @@ export function ComposerContextChips({ sessionId, connect, inputActions }: { ses
   return <div role="group" aria-label={t('当前 Linguist 工作台视图')} className={styles.contextChips}>
     <span className={styles.contextChip} title={context.projectId}>{context.projectName}</span>
     {context.assetId && <span className={styles.contextChip} title={context.assetId}>{context.assetName ?? t('当前批次')}</span>}
-    {context.referenceSegmentId && <span className={styles.contextChip} title={context.referenceSegmentId}>{t('引用片段')}<button type="button" onClick={context.clearReference} aria-label={t('清除引用片段')}>×</button></span>}
-    {context.selectedCount > 0 && <span className={styles.contextChip}>{t('已选 {count} 段', { count: context.selectedCount })}<button type="button" onClick={context.clearSelection} aria-label={t('清除已选片段')}>×</button></span>}
+    {context.referenceSegmentId && <span className={styles.contextChip} title={context.referenceSegmentId}>{t('引用片段')}<Button variant="ghost" size="sm" type="button" onClick={context.clearReference} aria-label={t('清除引用片段')}>×</Button></span>}
+    {context.selectedCount > 0 && <span className={styles.contextChip}>{t('已选 {count} 段', { count: context.selectedCount })}<Button variant="ghost" size="sm" type="button" onClick={context.clearSelection} aria-label={t('清除已选片段')}>×</Button></span>}
     <small>{t(referenceStatus === 'attached' ? '发送时附带当前 CAT 选区。' : '本条未附带 CAT 选区。')}</small>
     {referenceStatus === 'omitted' && <Button variant="outline" size="sm" onClick={() => {
       try {

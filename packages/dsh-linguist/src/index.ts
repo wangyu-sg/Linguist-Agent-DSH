@@ -1,15 +1,18 @@
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-schedule'
+import type {} from '@deepseek-ai/dsh-skill'
+import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
 import Schema from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import { createLinguistCatTools } from '@linguist/cat-tools'
+import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat-tools'
 import { LinguistProjectService } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
 import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
@@ -23,6 +26,7 @@ import { ManagedFiles } from './host/files'
 import { registerHttpRoutes } from './host/http'
 import { INTEGRITY_OPERATIONS, IntegrityHost } from './host/integrity'
 import { MutationBus } from './host/mutations'
+import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
 import { ScheduleContextManager } from './host/schedule-context'
@@ -34,7 +38,7 @@ import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts 
 import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string(), installationId: Schema.string(),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
@@ -54,6 +58,10 @@ export function apply(ctx: Context, config: Config): void {
   const evidence = new EvidenceObserver(service, config.dataRoot)
   const integrity = new IntegrityHost(service, mutations, files)
   const roleText = loadLinguistRoleResources(new URL('../resources/linguist-roles/', import.meta.url))
+  ctx.skills.registerProvider(control => new FileSystemSkillProvider(ctx, control, {
+    providerName: 'linguist', includeDefaultRoots: false, watch: false,
+    bundledSkillDir: fileURLToPath(new URL('../resources/skills/', import.meta.url)),
+  }))
   const registered = new Map<string, () => void>()
   const delegationIntents = new Map<string, { parentSessionId: string; binding: SessionBinding }>()
 
@@ -85,12 +93,27 @@ export function apply(ctx: Context, config: Config): void {
       throw new Error(`Linguist project binding changed for Session ${agent.id}`)
     }
     const turnContextProvenance = binding.projectId && binding.workMode === 'cat' ? new TurnContextCallProvenance() : undefined
+    const modelProvenance = new ModelCallProvenance()
+    let assembledPrompt: ReturnType<typeof buildLinguistPromptSection> | undefined
     const disposers: Array<() => void> = []
     try {
       disposers.push(agent.ctx.systemPrompt.section({
         name: 'linguist-role', order: 300,
-        text: () => buildLinguistPromptSection(service, roleText, binding, workspace.path).prompt,
+        text: () => {
+          assembledPrompt = buildLinguistPromptSection(service, roleText, binding, workspace.path)
+          return assembledPrompt.prompt
+        },
         interpolate: false,
+      }))
+      disposers.push(agent.ctx.on('llm/stream', (options, next) => {
+        if (options.sessionId === agent.id && options.purpose === undefined) {
+          if (!assembledPrompt) throw new Error('Linguist prompt has not been assembled for this DSH request')
+          modelProvenance.dispatched(options, assembledPrompt)
+        }
+        return next()
+      }))
+      disposers.push(agent.ctx.on('session/event', (session, event) => {
+        if (session === agent.session) modelProvenance.observe(event)
       }))
       if (turnContextProvenance) {
         disposers.push(agent.ctx.on('session/event', (session, event) => {
@@ -184,14 +207,27 @@ export function apply(ctx: Context, config: Config): void {
             })
           },
           onEvidencePrepared: (receipt) => evidence.prepare(projectId, receipt),
-          generationProvenance: toolCallId => ({ sessionId, toolCallId, runId: `dsh:${sessionId}:${toolCallId}`, modelProvider: agent.options.provider, modelId: agent.options.model, runtime: 'dsh-native', ...(turnContextProvenance?.forCall(toolCallId) ?? {}) }),
+          generationProvenance: toolCallId => ({ sessionId, toolCallId, runId: `dsh:${sessionId}:${toolCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native', ...(turnContextProvenance?.forCall(toolCallId) ?? {}) }),
           stageEvidenceRunId: () => stage?.stageRunId,
           reviewScopeSegmentIds: () => stage?.plan.segmentIds,
           delegatedScopeSegmentIds: () => delegatedScope,
           ...(agent.options.model === undefined ? {} : { modelId: agent.options.model }),
         })
         for (const source of createLinguistCatTools(deps)) {
-          disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments, (callId, content) => evidence.presented(sessionId, callId, content), (callId, rootCallId) => turnContextProvenance?.associateNestedCall(callId, rootCallId))))
+          disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments,
+            (callId, content) => evidence.presented(sessionId, callId, content),
+            (callId, rootCallId) => {
+              turnContextProvenance?.associateNestedCall(callId, rootCallId)
+              modelProvenance.associateNestedCall(callId, rootCallId)
+            },
+            (toolCallId, update) => {
+              const progress = (update.details as CatWorkerJobProgress | undefined)?.jobProgress
+              if (progress) {
+                const { jobId, ...job } = progress
+                mutations.publish(projectId, { kind: 'job-updated', sessionId, toolCallId, jobId, job })
+              }
+            },
+          )))
         }
       }
       registered.set(agent.id, () => { for (const dispose of disposers.reverse()) dispose() })
@@ -247,7 +283,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.on('agent/pre-step', async ({ agent, messages, turn, step }, next) => {
     scheduleContext.recordAttempts(agent, messages, turn)
-    return scheduleContext.onPreStep(agent, await scheduleContext.dispatchDue(agent, await next(), turn), turn, step)
+    return scheduleContext.onPreStep(agent, await scheduleContext.dispatchDue(agent, await next(), turn, messages), turn, step)
   })
   ctx.on('agent/request', async ({ agent, turn, step }, next) => {
     const config = await next()

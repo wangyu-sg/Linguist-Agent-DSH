@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistMigrationProjectReport,
   LinguistMigrationProgress,
@@ -10,7 +10,7 @@ import { required, subscribeMigration } from './api'
 import { useT } from './ui-locale'
 import styles from './LegacyMigrationPanel.module.css'
 
-export function LegacyMigrationPanel({ workspaceId, onImported, onPickDirectory }: { workspaceId: string; onImported: () => void; onPickDirectory: (workspaceId: string) => Promise<string | null> }): React.ReactElement {
+export function LegacyMigrationPanel({ workspaceId, onImported, onPickDirectory, onRunningChange }: { workspaceId: string; onImported: () => void; onPickDirectory: (workspaceId: string) => Promise<string | null>; onRunningChange: (running: boolean) => void }): React.ReactElement {
   const t = useT()
   const [legacyRootPath, setLegacyRootPath] = React.useState('.')
   const [scan, setScan] = React.useState<LinguistMigrationWorkspaceScanResult>()
@@ -25,6 +25,8 @@ export function LegacyMigrationPanel({ workspaceId, onImported, onPickDirectory 
   const [message, setMessage] = React.useState('')
   const [phaseProgress, setPhaseProgress] = React.useState<LinguistMigrationProgress>()
   const [progressError, setProgressError] = React.useState('')
+
+  React.useEffect(() => onRunningChange(running), [running, onRunningChange])
 
   React.useEffect(() => { setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setMessage(''); setPhaseProgress(undefined); setProgressError(''); setTotalSelected(0) }, [workspaceId])
 
@@ -101,14 +103,14 @@ export function LegacyMigrationPanel({ workspaceId, onImported, onPickDirectory 
       <p>{t('源 schema {version} · {projects} 项目 · {batches} 批次 · {segments} 段', { version: scan.schemaVersion, projects: scan.totals.projects, batches: scan.totals.batches, segments: scan.totals.segments })}</p>
       {scan.health.map((signal, index) => <p key={index} className={signal.severity === 'error' ? styles.warning : undefined}>{signal.severity} · {signal.message}</p>)}
       {scan.projects.length === 0 ? <p>{t('该数据根中没有可迁移项目。')}</p> : <>
-        <div className={styles.projects}>{scan.projects.map((project) => <label key={project.projectId} className={styles.project}>
-          <input type="checkbox" disabled={running} checked={selected.has(project.projectId)} onChange={() => setSelected((currentSelected) => { const next = new Set(currentSelected); if (next.has(project.projectId)) next.delete(project.projectId); else next.add(project.projectId); return next })} />
-          <span><strong>{project.name}</strong> <code>{project.projectId}</code><small>{project.sourceLocale ?? '?'} → {project.targetLocale ?? '?'} · {project.batches} {t('批次')} · {project.segments} {t('段')} · TM {project.tmEntries ?? '?'} · TB {project.termEntries ?? '?'}{project.chatPresent ? ` · ${t('含聊天记录')}` : ''}{project.orphan ? ` · ${salvageOrphan ? t('将抢救导入') : t('将隔离（零写入）')}` : ''}</small>{project.health.map((signal, index) => <small key={index} className={signal.severity === 'error' ? styles.warning : undefined}>{signal.severity} · {signal.message}</small>)}</span>
-        </label>)}</div>
+        <div className={styles.projects}>{scan.projects.map((project) => <div key={project.projectId} className={styles.project}>
+          <Checkbox disabled={running} checked={selected.has(project.projectId)} label={project.name} onChange={() => setSelected((currentSelected) => { const next = new Set(currentSelected); if (next.has(project.projectId)) next.delete(project.projectId); else next.add(project.projectId); return next })} />
+          <span><code>{project.projectId}</code><small>{project.sourceLocale ?? '?'} → {project.targetLocale ?? '?'} · {project.batches} {t('批次')} · {project.segments} {t('段')} · TM {project.tmEntries ?? '?'} · TB {project.termEntries ?? '?'}{project.chatPresent ? ` · ${t('含聊天记录')}` : ''}{project.orphan ? ` · ${salvageOrphan ? t('将抢救导入') : t('将隔离（零写入）')}` : ''}</small>{project.health.map((signal, index) => <small key={index} className={signal.severity === 'error' ? styles.warning : undefined}>{signal.severity} · {signal.message}</small>)}</span>
+        </div>)}</div>
         <div className={styles.options}>
           <label><input type="radio" name="legacy-external-source" disabled={running} checked={externalSource === 'copy'} onChange={() => setExternalSource('copy')} />{t('复制外部源文字节（默认）')}</label>
           <label><input type="radio" name="legacy-external-source" disabled={running} checked={externalSource === 'reference'} onChange={() => setExternalSource('reference')} />{t('只保留外部源文引用')}</label>
-          {scan.projects.some((project) => project.orphan) && <label><input type="checkbox" disabled={running} checked={salvageOrphan} onChange={(event) => setSalvageOrphan(event.target.checked)} />{t('抢救无清单的孤儿项目')}</label>}
+          {scan.projects.some((project) => project.orphan) && <Checkbox disabled={running} checked={salvageOrphan} onChange={setSalvageOrphan} label={t('抢救无清单的孤儿项目')} />}
         </div>
         <Button variant="outline" size="sm" disabled={running || selected.size === 0} onClick={() => void importSelected()}>{t('导入所选项目 {count} 个', { count: selected.size })}</Button>
       </>}

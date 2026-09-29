@@ -5770,5 +5770,13 @@
     "auditEvidencePath": "artifacts/evidence/source-inventory-audit.json",
     "rendererStaticAuditPath": "docs/migration/RENDERER_AUDIT.md"
   },
-  "mappingStatus": "renderer_static_audit_partial_installed_verification_pending"
+  "mappingStatus": "renderer_static_audit_partial_installed_verification_pending",
+  "capabilityAudit": {
+    "domain": "docs/migration/audit-2026-09-29/SOURCE-DOMAIN.json",
+    "ui": "docs/migration/audit-2026-09-29/SOURCE-UI.json",
+    "uiIssues": "docs/migration/audit-2026-09-29/TARGET-UI-ISSUES.md",
+    "overview": "docs/migration/audit-2026-09-29/功能迁移总览.html",
+    "scope": "68 domain capabilities and 137 UI interaction contracts; overlapping inventories, not completion percentages",
+    "status": "integrated_rc2_candidate_awaiting_installed_acceptance"
+  }
 }

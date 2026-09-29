@@ -31,7 +31,7 @@ function load(name) {
     if (name === './tag-atomic-utils') return load('tag-atomic-utils.ts')
     if (name === './workflow-ui') return { stageActionLabel: () => '确认', stageProgressLabel: () => '翻译', segmentStatusBadgeTitle: () => '翻译' }
     if (name === '@tanstack/react-virtual') return { useVirtualizer: ({ count }) => ({ getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 94 })), getTotalSize: () => count * 94, scrollToIndex() {}, measureElement() {} }) }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button' }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Checkbox: 'checkbox' }
     if (name === './ui-locale') return { useT: () => t }
     if (name.endsWith('.module.css')) return { default: {} }
     // The lifecycle fixture has no protected tokens; tag rules have their own copied tests.

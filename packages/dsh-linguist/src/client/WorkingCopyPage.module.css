@@ -1,18 +1,18 @@
-.page { height: 100%; overflow: auto; padding: 12px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: 13px/1.5 system-ui, sans-serif; }
+.page { composes: surface from './Controls.module.css'; container-type: inline-size; height: 100%; overflow: auto; padding: 12px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);  }
 .page p { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.header, .itemHead { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.header, .itemHead { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .header { border-bottom: 1px solid var(--dsw-alias-border-l2); margin-bottom: 12px; padding-bottom: 8px; }
 .header h2 { margin: 0; font-size: 15px; }
 .header p, .itemHead small { color: var(--dsw-alias-label-secondary); }
-.item { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; margin: 8px 0; padding: 10px; }
+.item { border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); margin: 8px 0; padding: 12px; }
 .itemHead strong, .itemHead small { display: block; overflow-wrap: anywhere; }
 .status, .nextAction { color: var(--dsw-alias-brand-primary); }
-.error { color: var(--dsw-alias-label-error); }
+.error { color: var(--dsw-alias-state-error-primary); }
 .item details { margin: 8px 0; }
 .item summary { cursor: pointer; }
-.item ol { margin: 5px 0; padding-left: 22px; }
-.item li { border-top: 1px solid var(--dsw-alias-border-l2); padding: 7px 0; }
+.item ol { margin: 8px 0; padding-left: 24px; }
+.item li { border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0; }
 .diff { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .diff div + div { border-left: 1px solid var(--dsw-alias-border-l2); padding-left: 8px; }
-.diff span, .hash { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
-@media (max-width: 760px) { .itemHead { flex-direction: column; } .diff { grid-template-columns: 1fr; } .diff div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 6px 0 0; } }
+.diff span, .hash { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+@container (max-width: 760px) { .itemHead { flex-direction: column; } .diff { grid-template-columns: 1fr; } .diff div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 6px 0 0; } }

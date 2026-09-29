@@ -14,10 +14,21 @@ test('native Input owns its single border; plugin CSS styles only native select 
     for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       if (!/\bborder(?:-width)?\s*:/.test(rule[2])) continue
       for (const selector of rule[1].split(',')) {
-        assert(!/\binput\b/.test(selector), `${name}: ${selector.trim()} adds a second border inside native Input`)
+        assert(!/\binput\b/.test(selector) || selector.includes('::file-selector-button'), `${name}: ${selector.trim()} adds a second border inside native Input`)
       }
     }
   }
+})
+
+test('project dialogs bound long content and keep in-flight migration visible', () => {
+  const page = readFileSync(new URL('ProjectsPage.tsx', client), 'utf8')
+  const controls = readFileSync(new URL('Controls.module.css', client), 'utf8')
+  assert.equal((page.match(/className=\{styles\.modal\} contentClassName=\{styles\.dialog\}/g) ?? []).length, 4)
+  assert.match(controls, /\.modal\s*\{[^}]*max-height: 100%/)
+  assert.match(controls, /\.modalContent\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto/)
+  assert.match(page, /LegacyMigrationPanel[^>]*onRunningChange=\{setBusy\}/)
+  assert.match(page, /<fieldset disabled=\{busy\}[^>]*><LegacyMigrationPanel/)
+  assert.match(page, /open=\{dialog === 'import'\} onClose=\{\(\) => \{ if \(!busy\)/)
 })
 
 test('native form controls own visible containers', () => {

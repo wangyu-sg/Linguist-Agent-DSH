@@ -39,19 +39,19 @@
     "status": "app signed and side-by-side installed; LA native plugin install and end-to-end acceptance pending"
   },
   "currentDesktopVerification": {
-    "carrier": "official DeepSeek Harness Desktop 0.2.0-rc.1 mac-arm64 prerelease",
-    "releaseUrl": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1",
-    "downloadUrl": "https://download.deepseek.com/dsh-desk/bin/mac-arm64/deepseek-harness-0.2.0-rc.1-mac-arm64.dmg",
-    "dmgSha256": "86cea83e41f516bbfb71d634bf62b965e5944723224abf41606ba8d636fe9858",
+    "carrier": "official DeepSeek Harness Desktop 0.2.0-rc.2 mac-arm64 prerelease",
+    "releaseUrl": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2",
+    "downloadUrl": "https://download.deepseek.com/dsh-desk/bin/mac-arm64/deepseek-harness-0.2.0-rc.2-mac-arm64.dmg",
+    "dmgSha256": "7c32c459c403d8a035ac60600f240ed2025312f0a7afde283f454f30ec4ed96e",
     "dmgVerify": "pass",
-    "copiedAppPath": "/Applications/DeepSeek Harness.app",
-    "copiedAppBundleId": "com.deepseek.dsh",
-    "copiedAppVersion": "0.2.0-rc.1",
+    "appPath": "/Applications/DeepSeek Harness.app",
+    "bundleId": "com.deepseek.dsh",
+    "version": "0.2.0-rc.2",
     "teamId": "NAN929V4UM",
     "codesignDeepStrict": "pass",
     "gatekeeper": "accepted; Notarized Developer ID",
-    "embeddedDesktopVersion": "0.2.0-rc.1",
-    "status": "official application copied to Applications; native plugin installation and acceptance pending"
+    "status": "upgraded by official native updater; integrated rc.2 LA/BrowserSkill rebuild and native acceptance pending",
+    "evidencePath": "artifacts/evidence/dsh-rc2-official-desktop.json"
   },
   "requirementsForExecutor": [
     "Inspect actual local implementation and installation artifacts.",
@@ -348,5 +348,20 @@
       "evidenceLevel": "official_document_plus_local_artifact",
       "verification": "official_docs_read_and_fixed_dmg_hdiutil_codesign_spctl_runtime_inspection"
     }
-  ]
+  ],
+  "priorDesktopVerification": {
+    "carrier": "official DeepSeek Harness Desktop 0.2.0-rc.1 mac-arm64 prerelease",
+    "releaseUrl": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1",
+    "downloadUrl": "https://download.deepseek.com/dsh-desk/bin/mac-arm64/deepseek-harness-0.2.0-rc.1-mac-arm64.dmg",
+    "dmgSha256": "86cea83e41f516bbfb71d634bf62b965e5944723224abf41606ba8d636fe9858",
+    "dmgVerify": "pass",
+    "copiedAppPath": "/Applications/DeepSeek Harness.app",
+    "copiedAppBundleId": "com.deepseek.dsh",
+    "copiedAppVersion": "0.2.0-rc.1",
+    "teamId": "NAN929V4UM",
+    "codesignDeepStrict": "pass",
+    "gatekeeper": "accepted; Notarized Developer ID",
+    "embeddedDesktopVersion": "0.2.0-rc.1",
+    "status": "official application copied to Applications; native plugin installation and acceptance pending"
+  }
 }

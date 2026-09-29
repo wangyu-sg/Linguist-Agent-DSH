@@ -11,7 +11,7 @@ const userDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/ds
 const lockPath = join(userDataDir, 'SingletonLock')
 const receipts = join(dataRoot, 'receipts')
 
-if (current.profile !== 'desktop' || current.dshVersion !== '0.2.0-rc.1' || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this official Desktop plugin installation')
+if (current.profile !== 'desktop' || current.dshVersion !== '0.2.0-rc.2' || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this official Desktop plugin installation')
 if (!existsSync(executable) || !existsSync(join(current.home, 'profiles/desktop/package.json')) || !existsSync(userDataDir)) throw new Error('official Desktop, desktop profile, or Chromium data directory is missing')
 
 function ownedMainPid() {

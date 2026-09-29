@@ -16,6 +16,7 @@ import { LINGUIST_IPC_ERROR_CODES, type LinguistIpcError } from '@linguist/domai
 import { BindingStore, type LinguistRole, type LinguistWorkMode, type SessionBinding } from './bindings'
 import { ManagedFiles } from './files'
 import { MutationBus } from './mutations'
+import { LinguistSessionCopyError } from './session-copy'
 
 interface HttpDeps {
   ctx: Context
@@ -183,6 +184,10 @@ function isRole(value: string): value is LinguistRole { return ['general', 'tran
 function isWorkMode(value: string): value is LinguistWorkMode { return ['cat', 'working-copy', 'browser'].includes(value) }
 /** Preserve only machine counts and format classification from typed domain errors. */
 export function invokeError(error: unknown): LinguistIpcError {
+  if (error instanceof LinguistSessionCopyError) {
+    return { code: LINGUIST_IPC_ERROR_CODES.SESSION_COPY_FAILED, message: error.message,
+      sessionCopyDetails: { sessionId: error.sessionId, cleanup: error.cleanup } }
+  }
   const candidate = error instanceof Error && 'code' in error ? error.code : undefined
   const code = error instanceof TypeError ? LINGUIST_IPC_ERROR_CODES.INVALID_INPUT
     : Object.values(LINGUIST_IPC_ERROR_CODES).find(value => value === candidate) ?? LINGUIST_IPC_ERROR_CODES.INTERNAL

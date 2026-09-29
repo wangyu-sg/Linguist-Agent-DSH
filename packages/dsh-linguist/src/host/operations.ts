@@ -556,6 +556,16 @@ export async function dispatchOperation(input: DispatchOperationInput): Promise<
     }
     case 'linguistCatGetLatestRunSummary':
       return { summary: service.openProject(projectId(payload)).runs.getLatestRunChangeSummary() ?? null }
+    case 'linguistCatGetJob': {
+      const id = projectId(payload)
+      const sessionId = string(payload.sessionId, 'sessionId', 200)
+      await input.assertProjectSession(sessionId, id)
+      const job = service.openProject(id).runs.getJob(string(payload.jobId, 'jobId', 1000), { sessionId })
+      return { job: job === undefined ? null : {
+        jobId: job.jobId, sessionId: job.sessionId, runId: job.runId, status: job.status,
+        cursor: job.cursor, total: job.segmentIds.length, completed: job.completedSegmentIds.length, failed: job.failedSegmentIds.length,
+      } }
+    }
     case 'linguistCatUndoLatestRun': {
       const id = projectId(payload)
       const sessionId = string(payload.sessionId, 'sessionId', 200)

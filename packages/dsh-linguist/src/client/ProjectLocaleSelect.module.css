@@ -1,8 +1,6 @@
-.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.field .label { display: block; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.field select { width: 100%; min-width: 0; min-height: 34px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 5px 8px; font: inherit; }
-.field select:focus-visible { outline: 2px solid var(--dsw-alias-border-focus); outline-offset: 1px; }
-.field select:disabled { opacity: .55; cursor: not-allowed; }
-.hint, .error { font-size: 11px; overflow-wrap: anywhere; }
+.field { composes: surface from './Controls.module.css'; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field .label { font-size: 13px; color: var(--dsw-alias-label-secondary); }
+.field select { width: 100%; }
+.hint, .error { font-size: 12px; overflow-wrap: anywhere; }
 .hint { color: var(--dsw-alias-label-secondary); }
-.error { color: var(--dsw-alias-label-error); }
+.error { color: var(--dsw-alias-state-error-primary); }

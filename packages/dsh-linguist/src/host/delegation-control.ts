@@ -3,6 +3,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentRuntime, SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
 import type { LinguistProjectService } from '@linguist/domain-service'
 import type { BindingStore, SessionBinding } from './bindings'
+import { linguistDelegationOutcome } from './delegation'
 
 type NativeControl = Pick<SubagentRuntime, 'listChildren' | 'sendMessage' | 'prompt' | 'interruptByParent'>
 
@@ -18,6 +19,7 @@ export class LinguistDelegationControl {
   async list(parentSessionId: string): Promise<{ items: Array<{
     childSessionId: string; label: string; createdAt: number; role: SessionBinding['role'];
     scope: NonNullable<SessionBinding['delegatedScope']>
+    professionalOutcome: ReturnType<typeof linguistDelegationOutcome>
   }> }> {
     const parent = await this.parent(parentSessionId)
     const children = await this.native.listChildren(SessionId(parentSessionId))
@@ -27,7 +29,8 @@ export class LinguistDelegationControl {
       const binding = this.bindings.session(child.id)
       if (!binding?.delegatedScope || binding.projectId !== parent.projectId || binding.workspaceId !== parent.workspaceId) continue
       items.push({ childSessionId: child.id, label: child.label, createdAt: child.createdAt,
-        role: binding.role, scope: binding.delegatedScope })
+        role: binding.role, scope: binding.delegatedScope,
+        professionalOutcome: linguistDelegationOutcome(this.service, child.id, binding) })
     }
     return { items }
   }

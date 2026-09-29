@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment/types'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -195,15 +196,15 @@ export function CatToolResult({ props, onNavigate }: { props: ToolCallViewProps;
   const hasBody = !!details || !!result?.content.length || !!result?.error
   return <section className={styles.card} aria-label={t('{title}工具结果', { title })}>
     <div className={styles.head}>
-      <button type="button" className={styles.toggle} aria-expanded={expanded && hasBody} disabled={!hasBody} onClick={toggle}>
+      <Button variant="ghost" size="sm" type="button" className={styles.toggle} aria-expanded={expanded && hasBody} disabled={!hasBody} onClick={toggle}>
         <span className={styles.caret} aria-hidden="true">{expanded ? '▾' : '▸'}</span><strong>{title}</strong>
         <span className={result?.isError ? styles.error : styles.state}>{state}</span>
-      </button>
-      {props.inspect && <button type="button" className={styles.inspect} onClick={props.inspect}>{t('查看轨迹')}</button>}
+      </Button>
+      {props.inspect && <Button variant="ghost" size="sm" type="button" className={styles.inspect} onClick={props.inspect}>{t('查看轨迹')}</Button>}
     </div>
     {result && <p className={styles.summary}>{result.isError ? result.error?.reason ?? t('工具执行失败，展开查看详情') : resultSummary(props.toolName, payload, t)}</p>}
     {anchors.length > 0 && <nav className={styles.anchors} aria-label={t('工具结果定位')}>
-      {anchors.map(({ label, count, location }) => <button key={label} type="button" onClick={() => { setNavigationError(''); void onNavigate(location).catch((cause: unknown) => setNavigationError(String(cause))) }}>{t(label)}{count === undefined ? '' : ` ${count}`}</button>)}
+      {anchors.map(({ label, count, location }) => <Button variant="ghost" size="sm" key={label} type="button" onClick={() => { setNavigationError(''); void onNavigate(location).catch((cause: unknown) => setNavigationError(String(cause))) }}>{t(label)}{count === undefined ? '' : ` ${count}`}</Button>)}
     </nav>}
     {navigationError && <p role="alert" className={styles.error}>{navigationError}</p>}
     {expanded && hasBody && <div className={styles.body}>

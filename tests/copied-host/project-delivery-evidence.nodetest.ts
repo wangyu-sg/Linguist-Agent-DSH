@@ -11,6 +11,7 @@ import { readLinguistExportManifests, recordLinguistExportManifest } from '../..
 import { projectPaths } from '../../packages/linguist-domain-service/src/paths.ts'
 import { computeLinguistProjectRevision } from '../../packages/linguist-domain-service/src/project-revision.ts'
 import { makeImportedAsset } from '../../packages/linguist-cat-store/src/testkit.ts'
+import { LinguistProjectService } from '../../packages/linguist-domain-service/src/project-service.ts'
 
 test('异步导出期间修改项目，清单仍标注实际导出快照的 revision', async () => {
   const rootDir = mkdtempSync(join(tmpdir(), 'delivery-revision-'))
@@ -51,6 +52,78 @@ test('异步导出期间修改项目，清单仍标注实际导出快照的 revi
     assert.notEqual(manifest.projectRevision, computeLinguistProjectRevision(project, db))
   } finally {
     db.close()
+    rmSync(rootDir, { recursive: true, force: true })
+  }
+})
+
+test('导出引用阻止撤销导入，拒绝时保留资产、原件、导出记录和历史', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'delivery-undo-'))
+  const service = new LinguistProjectService({ rootDir, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic undo protection', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const imported = await service.importAsset(project.id, {
+      filename: 'exported.json', bytes: new TextEncoder().encode('[{"id":"one","source":"Open","target":"打开"}]'),
+    })
+    assert.equal(imported.status, 'imported')
+    assert(imported.assetId)
+    const db = service.openProject(project.id)
+    const assetId = imported.assetId
+    const staged = await service.stageExport(project.id, assetId)
+    const original = db.readAssetSource(assetId)
+    const segments = db.segments.query({ assetId })
+    const exports = db.exports.listByAsset(assetId)
+    const manifest = readLinguistExportManifests(service.getProjectPaths(project.id).exportsDir)
+    const events = db.runs.listEvents()
+    assert.equal(exports.length, 1)
+    assert.equal(db.proposals.countByAsset(assetId), 0)
+    assert.equal(db.qaFindings.count({ assetId }), 0)
+    assert.equal(db.segments.countEditedByAsset(assetId), 0)
+    assert.equal(db.runs.countReferencingAsset(assetId), 0)
+    // Export is the sole blocker; no other reference can accidentally mask a lost export check.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      assert.throws(() => service.undoImportAsset(project.id, assetId), (error: unknown) => {
+        assert.equal((error as { code: string }).code, 'IMPORT_UNDO_BLOCKED')
+        assert.equal((error as { references: { exports: number } }).references.exports, 1)
+        return true
+      })
+      assert.deepEqual(db.segments.query({ assetId }), segments)
+      assert.deepEqual(db.readAssetSource(assetId), original)
+      assert.deepEqual(db.exports.listByAsset(assetId), exports)
+      assert.deepEqual(db.runs.listEvents(), events)
+      assert.deepEqual(readLinguistExportManifests(service.getProjectPaths(project.id).exportsDir), manifest)
+      assert.deepEqual(readFileSync(staged.stagingPath), original)
+    }
+
+    const edited = service.editSegment(project.id, segments[0]!.id, '开启', segments[0]!.revision)
+    const revisions = db.segments.listRevisions(edited.id)
+    const editedEvents = db.runs.listEvents()
+    assert.equal(revisions.length, 1)
+    assert.throws(() => service.undoImportAsset(project.id, assetId), (error: unknown) => {
+      const blocked = error as { code: string; references: { exports: number; editedSegments: number } }
+      assert.equal(blocked.code, 'IMPORT_UNDO_BLOCKED')
+      assert.equal(blocked.references.exports, 1)
+      assert.equal(blocked.references.editedSegments, 1)
+      return true
+    })
+    assert.deepEqual(db.segments.listRevisions(edited.id), revisions)
+    assert.deepEqual(db.runs.listEvents(), editedEvents)
+    assert.equal(db.segments.getById(edited.id)?.target, '开启')
+    assert.deepEqual(db.exports.listByAsset(assetId), exports)
+    assert.deepEqual(db.readAssetSource(assetId), original)
+
+    const pristine = await service.importAsset(project.id, {
+      filename: 'pristine.json', bytes: new TextEncoder().encode('[{"id":"two","source":"Close","target":"关闭"}]'),
+    })
+    assert(pristine.assetId)
+    const undone = service.undoImportAsset(project.id, pristine.assetId)
+    assert.equal(undone.deletedSegments, 1)
+    assert.equal(undone.sourceBlobRemoved, true)
+    assert.equal(db.assets.get(pristine.assetId), undefined)
+    assert.equal(db.segments.count({ assetId: pristine.assetId }), 0)
+    assert.equal(db.exports.listByAsset(assetId).length, 1)
+  } finally {
+    service.closeAll()
     rmSync(rootDir, { recursive: true, force: true })
   }
 })

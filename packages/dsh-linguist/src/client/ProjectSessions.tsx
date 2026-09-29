@@ -47,11 +47,11 @@ export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISes
   }
 
   return <section className={styles.sessionGroups} aria-label={t('项目会话')}>
-    <div className={styles.toolbar}><h3>{t('项目会话')}</h3><Button variant="outline" size="sm" onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button></div>
+    <div className={styles.toolbar}><h3>{t('项目会话')}</h3><Button variant="ghost" size="sm" disabled={loading || snapshot.phase === 'pending'} onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button></div>
     <p>{t('按已保存的 Linguist 绑定归组；普通 DSH Session 仍由原生 Workspace 侧栏管理。')}</p>
     {snapshot.phase === 'pending' || loading ? <p role="status">{t('正在读取会话绑定…')}</p> : groups.size === 0 && <p>{t('当前没有已绑定的项目会话。')}</p>}
-    {errors.length > 0 && <p role="alert">{t('有 {count} 个会话绑定读取失败：', { count: errors.length })} {errors.slice(0, 3).join('；')}</p>}
-    {openError && <p role="alert">{openError}</p>}
+    {errors.length > 0 && <p role="alert" className={styles.warning}>{t('有 {count} 个会话绑定读取失败：', { count: errors.length })} {errors.slice(0, 3).join('；')}</p>}
+    {openError && <p role="alert" className={styles.warning}>{openError}</p>}
     {[...groups].map(([projectId, entries]) => {
       const project = projects.find((item) => item.id === projectId)
       return <div className={styles.sessionGroup} key={projectId}>

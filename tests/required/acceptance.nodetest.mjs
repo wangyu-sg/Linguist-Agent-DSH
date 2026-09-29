@@ -7,10 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { Readable } from 'node:stream'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { LinguistProjectService, convertOfficePreviewToHtml } from '../../packages/linguist-domain-service/src/index.ts'
 import { createDefaultCatFormatRegistry } from '../../packages/linguist-domain-service/src/format-registry.ts'
-import { createAsset, createProject } from '../../packages/linguist-cat-core/src/index.ts'
+import { createAsset, createProject, createStageEvidenceBaseline } from '../../packages/linguist-cat-core/src/index.ts'
 import { bindImportedSegments } from '../../packages/linguist-cat-formats/src/index.ts'
 import { createLinguistCatTools, LINGUIST_CAT_TOOL_NAMES } from '../../packages/linguist-cat-tools/src/index.ts'
 import { FormatParseError } from '../../packages/linguist-cat-formats/src/errors.ts'
@@ -29,7 +30,7 @@ import { freezeLinguistDelegation, linguistDelegationOutcome } from '../../packa
 import { LinguistDelegationControl } from '../../packages/dsh-linguist/src/host/delegation-control.ts'
 import { deliverDelegationInputs, preflightDelegationInputs } from '../../packages/dsh-linguist/src/host/delegation-inputs.ts'
 import { createLinguistDelegationTool } from '../../packages/dsh-linguist/src/host/delegation-tool.ts'
-import { copyLinguistSessionToProject, sessionCopyEligibility } from '../../packages/dsh-linguist/src/host/session-copy.ts'
+import { copyLinguistSessionToProject, sessionCopyEligibility, LinguistSessionCopyError } from '../../packages/dsh-linguist/src/host/session-copy.ts'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
 import { ScheduleContextManager, scheduleExecutions, scheduleRunPolicy } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
 import { ScheduleId, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
@@ -38,6 +39,8 @@ import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@de
 import { Context } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/cordis/lib/index.js'
 import { apply as applyHost, inject as hostInject } from '../../packages/dsh-linguist/src/index.ts'
 import { ScheduleSessionRuntime } from '../../packages/dsh-linguist/src/host/schedule-session.ts'
+import { ModelCallProvenance } from '../../packages/dsh-linguist/src/host/model-provenance.ts'
+import { buildLinguistPromptSection } from '../../packages/dsh-linguist/src/host/diagnostics.ts'
 
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
 const requireDsh = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
@@ -65,6 +68,7 @@ test('Host schedule callbacks use Sessions through the real Cordis injection bou
   let pluginContext, reads = 0, flushes = 0
   const services = {
     agents: { list: () => [] },
+    skills: { registerProvider: () => () => {} },
     webServer: { register: () => () => {} },
     sessions: {
       get(id) { assert.equal(id, session.id); reads++; return session },
@@ -87,6 +91,137 @@ test('Host schedule callbacks use Sessions through the real Cordis injection bou
     await new ScheduleSessionRuntime(pluginContext, new BindingStore(root), () => {}).flush({ session })
     assert.equal(flushes, 1)
   } finally { await plugin.dispose(); await providers.dispose(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('seven packaged skills use the real native registry, bundled precedence, resources and disposal', async () => {
+  const { SkillRegistry, BUNDLED_SKILL_RANK } = requireDsh('@deepseek-ai/dsh-skill')
+  const { FileSystemSkillProvider } = requireDsh('@deepseek-ai/dsh-skill-filesystem')
+  const ctx = new Context()
+  const registry = ctx.plugin(SkillRegistry)
+  await registry.await()
+  const native = ctx.skills
+  const plugin = ctx.plugin({ inject: ['skills'], apply(scoped) {
+    scoped.skills.registerProvider(control => new FileSystemSkillProvider(scoped, control, {
+      providerName: 'linguist', includeDefaultRoots: false, watch: false,
+      bundledSkillDir: fileURLToPath(new URL('../../packages/dsh-linguist/resources/skills/', import.meta.url)),
+    }))
+  } })
+  await plugin.await()
+  try {
+    const catalog = await native.list()
+    assert.deepEqual(catalog.map(skill => skill.name), ['cultural-lqa', 'game-localization', 'localization-readiness', 'phrase-platform-review-ops', 'release-lqa', 'terminology-candidate-mining', 'translator-brief'])
+    for (const skill of catalog) {
+      assert.equal(skill.source, 'bundled')
+      assert.equal(skill.provider, 'linguist')
+      const loaded = await native.get(skill.name)
+      assert.ok(loaded.content.length > 100)
+      assert.equal(loaded.resourceBase.kind, 'directory')
+      assert.ok(readFileSync(loaded.path, 'utf8').includes(loaded.content))
+      for (const [, ref] of loaded.content.matchAll(/\]\((references\/[^)]+)\)/g)) {
+        assert.ok(readFileSync(join(loaded.resourceBase.path, ref), 'utf8').length > 100)
+      }
+    }
+    const user = ctx.plugin({ inject: ['skills'], apply(scoped) {
+      scoped.skills.registerProvider(() => ({
+        name: 'synthetic-user',
+        async list() { return [{ name: 'game-localization', description: 'User choice', source: 'user-dsh', provider: 'synthetic-user', rank: BUNDLED_SKILL_RANK - 100, locator: 'choice', invocation: { modelInvocable: true, userInvocable: true } }] },
+        async get(candidate) { return { ...candidate, content: 'User customized localization skill' } },
+      }))
+    } })
+    await user.await()
+    assert.equal((await native.get('game-localization')).provider, 'synthetic-user')
+    await plugin.dispose()
+    assert.deepEqual((await native.list()).map(skill => skill.name), ['game-localization'])
+    await user.dispose()
+    assert.deepEqual(await native.list(), [])
+  } finally { await plugin.dispose(); await registry.dispose() }
+})
+
+test('generation provenance freezes the dispatched prompt, actual model and schemas for root and PTC calls', () => {
+  const roleText = loadLinguistRoleResources(new URL('../../packages/dsh-linguist/resources/linguist-roles/', import.meta.url))
+  const prompt = buildLinguistPromptSection({}, roleText, { role: 'general', workMode: 'cat' })
+  const provenance = new ModelCallProvenance()
+  const { createSystemMessage } = requireDsh('@deepseek-ai/dsh-llm')
+  const tools = [{ name: 'run_code', description: 'Actual native transport', parameters: { type: 'object' } }]
+  const request = { provider: 'real-request-route', model: 'actual-request-model', messages: [createSystemMessage(`Native host instructions\n${prompt.prompt}`)], tools }
+  provenance.dispatched(request, prompt)
+  provenance.observe({ type: 'tool/call', data: { turn: 1, step: 0, callId: 'root-requested-call' } })
+  provenance.associateNestedCall('nested-cat-call', 'root-requested-call')
+  const captured = provenance.forCall('nested-cat-call')
+  assert.deepEqual(captured, { modelProvider: request.provider, modelId: request.model, linguistPromptVersion: prompt.status.promptVersion, promptHash: sha256(prompt.prompt), toolsetHash: sha256(JSON.stringify(tools)) })
+  tools[0].description = 'Later changed schema'
+  provenance.dispatched({ ...request, purpose: 'session-title', model: 'auxiliary-model' }, prompt)
+  assert.deepEqual(provenance.forCall('nested-cat-call'), captured)
+  const nextPrompt = { prompt: 'New rendered Linguist section', status: { ...prompt.status, promptHash: sha256('New rendered Linguist section') } }
+  provenance.dispatched({ ...request, model: 'next-model', messages: [createSystemMessage(nextPrompt.prompt)] }, nextPrompt)
+  provenance.observe({ type: 'tool/call', data: { turn: 1, step: 1, callId: 'next-call' } })
+  assert.equal(provenance.forCall('next-call').modelId, 'next-model')
+  assert.equal(provenance.forCall('next-call').promptHash, nextPrompt.status.promptHash)
+  assert.notEqual(provenance.forCall('next-call').toolsetHash, captured.toolsetHash)
+  assert.deepEqual(provenance.forCall('root-requested-call'), captured)
+  assert.throws(() => provenance.dispatched({ ...request, messages: [] }, prompt), /does not contain/)
+  assert.throws(() => provenance.forCall('made-up-call'), /no observed/)
+  provenance.observe({ type: 'turn/end', data: { turn: 1 } })
+  assert.throws(() => provenance.forCall('nested-cat-call'), /no observed/)
+})
+
+test('CAT worker progress crosses the adapter and SSE before settlement, with durable running and cancelled job state', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-job-progress-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic job progress', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const imported = await service.importAsset(project.id, { filename: 'progress.csv', bytes: new TextEncoder().encode('key,source,target\na,Start,开始\n') })
+    const db = service.openProject(project.id)
+    const bus = new MutationBus()
+    const frames = []
+    const unsubscribe = bus.subscribe(project.id, 0, { write: frame => { frames.push(frame); return true } })
+    let enterWorker
+    const entered = new Promise(resolve => { enterWorker = resolve })
+    const source = createLinguistCatTools({
+      sessionId: 'job-session', resolveProject: () => ({ project: service.getProject(project.id), db }),
+      qaWorker: async (_request, signal, onProgress) => {
+        onProgress('started')
+        enterWorker()
+        await new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      },
+    }).find(tool => tool.name === 'cat_run_qa')
+    const tool = adaptCatTool(source, {}, undefined, undefined, (toolCallId, update) => {
+      const { jobId, ...job } = update.details.jobProgress
+      bus.publish(project.id, { kind: 'job-updated', sessionId: 'job-session', toolCallId, jobId, job })
+    })
+    const abort = new AbortController()
+    const pending = tool.execute({ batchId: imported.assetId }, { callId: 'qa-progress-call', signal: abort.signal })
+    const rejected = assert.rejects(pending, /cancelled/)
+    await entered
+    const progress = frames.filter(frame => frame.startsWith('id: ')).map(frame => JSON.parse(frame.split('\ndata: ')[1]))
+    const current = progress.at(-1)
+    assert.equal(current.job.status, 'running')
+    assert.equal(current.toolCallId, 'qa-progress-call')
+    assert.equal(current.job.total, 1)
+    const summary = await dispatchOperation({ operation: 'linguistCatGetLatestRunSummary', payload: { projectId: project.id }, service })
+    assert.equal(summary.summary.job.jobId, current.jobId)
+    assert.equal(summary.summary.job.status, 'running')
+    abort.abort(new Error('cancelled'))
+    await rejected
+    const last = JSON.parse(frames.filter(frame => frame.startsWith('id: ')).at(-1).split('\ndata: ')[1])
+    assert.equal(last.job.status, 'cancelled')
+    assert.equal(db.runs.getJob(current.jobId, { sessionId: 'job-session' }).status, 'cancelled')
+    const readJob = sessionId => dispatchOperation({ operation: 'linguistCatGetJob', payload: { projectId: project.id, sessionId, jobId: current.jobId }, service, assertProjectSession: async (_sessionId, projectId) => { assert.equal(projectId, project.id) } })
+    assert.deepEqual((await readJob('job-session')).job, { jobId: current.jobId, sessionId: 'job-session', runId: summary.summary.runId, ...last.job })
+    await assert.rejects(readJob('other-session'), /session/i)
+    for (const name of ['cat_run_qa', 'cat_plan_consistency_repairs']) {
+      const updates = []
+      const source = createLinguistCatTools({ sessionId: 'completed-job-session', resolveProject: () => ({ project: service.getProject(project.id), db }) }).find(tool => tool.name === name)
+      const adapted = adaptCatTool(source, {}, undefined, undefined, (_callId, update) => { updates.push(update.details.jobProgress) })
+      await adapted.execute(name === 'cat_run_qa' ? { batchId: imported.assetId } : {}, { callId: `${name}-complete`, signal: new AbortController().signal })
+      assert.ok(updates.some(update => update.status === 'running'))
+      assert.equal(updates.at(-1).status, 'completed')
+      assert.equal(updates.at(-1).completed, 1)
+      assert.equal(db.runs.getJob(updates.at(-1).jobId, { sessionId: 'completed-job-session' }).status, 'completed')
+    }
+    unsubscribe()
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
 test('native CAT tool adapter preserves required fields, unions, limits, cancellation and errors', async () => {
@@ -254,6 +389,19 @@ test('invoke error preserves only safe typed counts and format classification', 
   assert.equal(format.formatDetails?.code, 'FORMAT_PARSE_ERROR')
   assert.equal(format.formatDetails?.filename, 'sample.csv')
   assert.doesNotMatch(JSON.stringify(format), /private|<secret>|Customer text/)
+})
+
+test('Session copy HTTP errors expose residual identity and cleanup state without underlying exception data', () => {
+  for (const cleanup of ['not-started', 'completed', 'failed']) {
+    const error = new LinguistSessionCopyError('session-synthetic-copy', cleanup, { cause: new Error('Synthetic secret /private/fixture') })
+    error.internalPath = '/private/fixture'
+    const projected = invokeError(error)
+    assert.equal(projected.code, 'SESSION_COPY_FAILED')
+    assert.deepEqual(projected.sessionCopyDetails, { sessionId: 'session-synthetic-copy', cleanup })
+    assert.match(projected.message, /session-synthetic-copy/)
+    assert.match(projected.message, cleanup === 'not-started' ? /may remain/ : cleanup === 'completed' ? /no Linguist binding remains/ : /rollback failed/)
+    assert.doesNotMatch(JSON.stringify(projected), /Synthetic secret|private|internalPath|cause|stack/)
+  }
 })
 
 test('LA Schedule creates a native DSH task and admits only an unchanged bound due occurrence', async () => {
@@ -865,6 +1013,78 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     events = [...events, { type: 'user/message', seq: 4 }]
     assert.equal((await sessionCopyEligibility(host, 'source-session')).reason, 'NO_COMPLETED_ASSISTANT')
     assert.equal(creates, 3)
+
+    // DSH has no public Session delete API. Failures must leave no LA binding or tools.
+    events = []
+    const rebinds = []
+    host.rebindAgent = id => { rebinds.push({ id, bound: Boolean(bindings.session(id)) }) }
+    host.sessionController.rename = async () => { throw new Error('rename refused') }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), /blank-4.*no Linguist binding remains/)
+    assert.equal(bindings.session('blank-4'), undefined)
+    assert.deepEqual(rebinds, [], 'binding is delayed until native title and source/target checks succeed')
+    host.sessionController.rename = async () => {}
+    host.rebindAgent = id => {
+      rebinds.push({ id, bound: Boolean(bindings.session(id)) })
+      if (bindings.session(id)) throw new Error('tool registration refused')
+    }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), /blank-5.*no Linguist binding remains/)
+    assert.equal(bindings.session('blank-5'), undefined)
+    assert.deepEqual(rebinds, [{ id: 'blank-5', bound: true }, { id: 'blank-5', bound: false }])
+    assert.equal(new BindingStore(root).session('blank-5'), undefined)
+    assert.equal(bindings.session('source-session').projectId, source.id)
+    host.rebindAgent = () => { throw new Error('registration and disposal failed') }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
+      assert.ok(error instanceof LinguistSessionCopyError)
+      assert.ok(error.cause instanceof AggregateError)
+      assert.equal(error.cause.errors.length, 2)
+      assert.deepEqual(invokeError(error).sessionCopyDetails, { sessionId: 'blank-6', cleanup: 'failed' })
+      assert.match(error.message, /blank-6.*rollback failed/)
+      return true
+    })
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('parent delegation list exposes current actor/revision evidence and never treats partial Stage scope as full completion', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-delegation-outcome-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic professional outcome', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    await service.importAsset(project.id, { filename: 'scope.csv', bytes: new TextEncoder().encode('key,source,target\na,Start,开始\nb,Stop,停止\n') })
+    const db = service.openProject(project.id)
+    const ids = db.segments.queryIds()
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace')
+    const parent = { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat' }
+    bindings.bindSession('parent', parent)
+    const children = ['subset-child', 'full-child']
+    for (const child of children) {
+      bindings.bindSession(child, { ...parent, role: 'reviewer', delegatedScope: { assetIds: [], segmentIds: ids } })
+      const plan = { stageRunId: `stage-${child}`, role: 'reviewer', stage: 'editing', assetIds: [db.segments.getById(ids[0]).assetId], segmentIds: child === 'subset-child' ? ids.slice(0, 1) : ids, requirements: [], decisionEventBoundary: 0 }
+      const baseline = createStageEvidenceBaseline({ stageRunId: plan.stageRunId, discoveryScopeHash: 'scope', mappingRevision: 'mapping', ruleSetRevision: 'rules', segmentIds: plan.segmentIds, evidence: [] })
+      db.stageEvidence.create({ stageRunId: plan.stageRunId, sessionId: child, plan, baseline })
+    }
+    const native = { async listChildren() { return children.map(id => ({ id, mode: 'continuable', label: id, createdAt: 1 })) } }
+    const control = new LinguistDelegationControl(service, bindings, native, async () => {})
+    const agent = { id: 'parent' }
+    const { listTool } = createLinguistDelegationTool({ service, binding: parent, agent, control })
+    db.segments.recordCurrentStageDecision(ids[0], 'editing', 0, 'unchanged', { actor: 'subset-child' })
+    db.segments.recordCurrentStageDecision(ids[1], 'editing', 0, 'unchanged', { actor: 'another-session' })
+    let result = await listTool.execute({}, { agent })
+    const partial = result.items.find(item => item.childSessionId === 'subset-child').professionalOutcome
+    assert.equal(partial.total, 2)
+    assert.equal(partial.pending, 1)
+    assert.equal(partial.status, 'in_progress')
+    assert.equal(partial.evidence.status, 'complete', 'a partial Stage can be complete while delegation remains incomplete')
+    assert.match(listTool.output.render({}, result)[0].text, /professionalOutcome/, 'parent model receives the professional audit')
+    for (const id of ids) db.segments.recordCurrentStageDecision(id, 'editing', 0, 'unchanged', { actor: 'full-child' })
+    result = await listTool.execute({}, { agent })
+    assert.equal(result.items.find(item => item.childSessionId === 'full-child').professionalOutcome.status, 'complete')
+    db.segments.applyTargetEdit(ids[0], '开始吧', 0)
+    result = await listTool.execute({}, { agent })
+    const revised = result.items.find(item => item.childSessionId === 'full-child').professionalOutcome
+    assert.equal(revised.pending, 1)
+    assert.equal(revised.status, 'in_progress', 'decisions on an old revision no longer count')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -1370,18 +1590,18 @@ test('Schedule execution history follows committed native turns, not delivery or
   const admitted = id => event('user/message', { id, source: { kind: 'linguist-schedule-execution', scheduleId: 'scheduled-A' } })
   const events = [event('turn/start', { turn: 1 }), event('user/message', { id: 'delivery', source: { kind: 'schedule' } })]
   assert.deepEqual(scheduleExecutions(events, 'scheduled-A'), [])
-  events.push(event('linguist/schedule-attempt', { turn: 1, scheduleId: 'scheduled-A', nativeScheduleId: 'scheduled-A', messageId: 'claimed-A' }))
-  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].phase, 'admission')
+  const attempts = [{ sessionId: 'synthetic-session', turn: 1, messageId: 'claimed-A', attemptedAt: new Date(1002).toISOString() }]
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts)[0].phase, 'admission')
   events.push(admitted('run-A'), admitted('duplicate-step'))
-  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].phase, 'execution')
-  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].messageId, 'claimed-A')
-  assert.equal(scheduleExecutions(events, 'scheduled-A').length, 1)
-  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].outcome, 'unfinished')
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts)[0].phase, 'execution')
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts)[0].messageId, 'claimed-A')
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts).length, 1)
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts)[0].outcome, 'unfinished')
   events.push(event('assistant/message', { message: { content: [{ type: 'text', text: 'complete' }] } }))
-  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].outcome, 'unfinished')
+  assert.equal(scheduleExecutions(events, 'scheduled-A', attempts)[0].outcome, 'unfinished')
   events.push(event('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'private error text', code: 'RATE_LIMITED', status: 429, requestId: 'private-request-id' } } }))
   events.push(event('turn/start', { turn: 2 }), admitted('run-B'), event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
-  const result = scheduleExecutions(events, 'scheduled-A')
+  const result = scheduleExecutions(events, 'scheduled-A', attempts)
   assert.deepEqual(result.map(run => run.outcome), ['error', 'completed'])
   assert(result.every(run => run.endedAt))
   assert.deepEqual(result[0].failure, { code: 'RATE_LIMITED', status: 429 })
@@ -1401,7 +1621,7 @@ test('Schedule pauses after five consecutive failures, resets after success, and
 })
 
 
-test('native Session records schedule admission failures before a model-visible user message exists', async () => {
+test('LA sidecar records schedule admission failures before a model-visible user message exists', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-schedule-admission-'))
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
   service.init()
@@ -1448,6 +1668,12 @@ test('native Session records schedule admission failures before a model-visible 
       manager.recordAttempts(agent, [message], turn)
       await assert.rejects(manager.onPreStep(agent, { kind: 'enter', messages: [message] }, turn, 1), /project revision changed/)
       session.append('turn/end', { turn, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'synthetic authorization rejection' } } })
+      if (turn === 1) {
+        const { validateStoredEvents } = requireDsh('@deepseek-ai/dsh-session-persistence')
+        const cold = Session.create(session.id, validateStoredEvents(session.header, structuredClone(session.ownEvents())), session.header)
+        const reopened = new ScheduleContextManager(root, native, service, bindings, async () => {}, async id => id === session.id ? cold.ownEvents() : actors.get(id)?.session.ownEvents(), runtime)
+        assert.deepEqual((await reopened.history(session.id, created.scheduleId, 10)).executions.map(run => [run.phase, run.outcome]), [['admission', 'error']], 'an active task restores admission failures from its sidecar plus native turn endings')
+      }
       await manager.enforceRunPolicy(session.id)
       assert.equal(native.rows.length, turn < 5 ? 1 : 0)
     }
@@ -1455,12 +1681,16 @@ test('native Session records schedule admission failures before a model-visible 
     const history = await manager.history(session.id, created.scheduleId, 10)
     assert.equal(history.executions.length, 5)
     assert(history.executions.every(run => run.phase === 'admission' && run.outcome === 'error'))
-    const restored = Session.create(session.id, JSON.parse(JSON.stringify(session.ownEvents())))
-    assert.equal(scheduleExecutions(restored.ownEvents(), created.scheduleId).length, 5, 'custom attempt events survive native cold restore')
+    const { validateStoredEvents } = requireDsh('@deepseek-ai/dsh-session-persistence')
+    const restored = Session.create(session.id, validateStoredEvents(session.header, structuredClone(session.ownEvents())), session.header)
+    agent.session = restored
+    const reopened = new ScheduleContextManager(root, native, service, bindings, async (sid, pid) => { assert.equal(bindings.session(sid)?.projectId, pid) }, async id => actors.get(id)?.session.ownEvents(), runtime)
+    assert.equal((await reopened.history(session.id, created.scheduleId, 10)).executions.length, 5, 'sidecar attempts and native outcomes survive a real native cold read')
+    agent.session = session
     session.append('turn/start', { turn: 6 })
     manager.recordAttempts(agent, [{ ...due, id: 'late-due' }], 6)
     session.append('turn/end', { turn: 6, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'stopped' } } })
-    assert.equal(scheduleExecutions(session.ownEvents(), created.scheduleId).length, 5, 'already stopped tasks do not accumulate phantom attempts')
+    assert.equal((await manager.history(session.id, created.scheduleId, 10)).executions.length, 5, 'already stopped tasks do not accumulate phantom attempts')
     const modelTask = await manager.create({ sessionId: sourceId, projectId: project.id, title: 'Model admission fixture', prompt: 'Review current synthetic project', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
     agent = actors.get(modelTask.sessionId); session = agent.session
     const modelDue = { ...due, id: 'model-due', content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
@@ -1471,7 +1701,7 @@ test('native Session records schedule admission failures before a model-visible 
     session.append('turn/end', { turn: 7, reason: { kind: 'error', error: { code: 'MODEL_UNAVAILABLE', message: 'synthetic model failure' } } })
     manager.clearTurn(session.id, 7)
     await manager.validateModelRequest(agent, 7, 1, { provider: 'synthetic', model: 'chosen' }, async () => { throw new Error('ended turn must not resolve model again') })
-    assert.equal(scheduleExecutions(session.ownEvents(), modelTask.scheduleId)[0].phase, 'admission')
+    assert.equal((await manager.history(session.id, modelTask.scheduleId, 10)).executions.reverse()[0].phase, 'admission')
     session.append('turn/start', { turn: 8 })
     const nextDue = { ...modelDue, id: 'model-due-next' }
     manager.recordAttempts(agent, [nextDue], 8)
@@ -1480,14 +1710,14 @@ test('native Session records schedule admission failures before a model-visible 
     session.append('step/start', { turn: 8, step: 1 })
     session.append('user/message', admitted.messages[1], { surfaceOp: 'append' })
     session.append('turn/end', { turn: 8, reason: { kind: 'completed' } })
-    const modelRuns = scheduleExecutions(session.ownEvents(), modelTask.scheduleId)
+    const modelRuns = (await manager.history(session.id, modelTask.scheduleId, 10)).executions.reverse()
     assert.deepEqual(modelRuns.map(run => run.phase), ['admission', 'execution'])
     assert.equal(modelRuns.length, 2, 'repeated observations in the same turn count once')
     assert.equal(scheduleRunPolicy(modelRuns).consecutiveFailures, 0)
     session.append('turn/start', { turn: 9 })
     manager.recordAttempts(agent, [{ ...modelDue, id: 'rewritten-away' }], 9)
     session.append('turn/end', { turn: 9, reason: { kind: 'completed' } })
-    const withNoop = scheduleExecutions(session.ownEvents(), modelTask.scheduleId)
+    const withNoop = (await manager.history(session.id, modelTask.scheduleId, 10)).executions.reverse()
     assert.equal(withNoop.at(-1).outcome, 'not-admitted')
     assert.equal(scheduleRunPolicy(withNoop).runCount, 2, 'empty completed turn is not an executed task')
 
@@ -1557,16 +1787,24 @@ test('scheduled business work runs in its own native Session and only its real e
     const due = { id: 'dispatch-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
     parent.session.append('turn/start', { turn: 1 })
     manager.recordAttempts(parent, [due], 1)
-    const routed = await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 1)
-    assert.deepEqual(routed.messages, [])
+    const routed = await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 1, [due])
+    assert.deepEqual(routed, { kind: 'reject' })
     assert.equal(child.inbox.nextTurn.length, 1)
-    parent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    parent.session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
     await manager.enforceRunPolicy(parent.id)
     assert.equal(native.rows.length, 1, 'dispatch does not consume the execution limit')
-    assert.equal(scheduleExecutions(parent.session.ownEvents(), created.scheduleId)[0].outcome, 'dispatched')
-    await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 2)
+    assert.equal((await manager.history(parent.id, created.scheduleId, 10)).executions[0].outcome, 'dispatched')
+    parent.session.append('turn/start', { turn: 2 })
+    manager.recordAttempts(parent, [{ ...due, id: 'busy-owner-due' }], 2)
+    assert.deepEqual(await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 2, [due]), { kind: 'reject' })
+    parent.session.append('turn/end', { turn: 2, reason: { kind: 'blocked' } })
+    assert.equal((await manager.history(parent.id, created.scheduleId, 10)).executions[0].outcome, 'not-admitted', 'a busy execution Session must not count as another run')
     assert.equal(child.inbox.nextTurn.length, 1, 'idle but queued target must not receive duplicate work')
     assert.equal(creates, 1)
+    const human = { id: 'human-claimed', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Keep my ordinary task' }] }
+    const mixed = await manager.dispatchDue(parent, { kind: 'enter', messages: [due, human] }, 2, [due, human])
+    assert.equal(mixed.kind, 'enter', 'dispatch must not suppress a real human instruction in the same claimed batch')
+    assert.deepEqual(mixed.messages, [human])
     const delivered = child.inbox.nextTurn.shift()
     child.session.append('turn/start', { turn: 1 })
     manager.recordAttempts(child, [delivered], 1)
@@ -1592,7 +1830,7 @@ test('scheduled business work runs in its own native Session and only its real e
     childDeleted = false
     native.beforeReturn = async record => {
       const early = { ...due, id: 'early-dispatch', content: [{ type: 'text', text: renderReminderFraming(record) }] }
-      assert.deepEqual((await manager.dispatchDue(parent, { kind: 'enter', messages: [early] }, 3)).messages, [])
+      assert.deepEqual(await manager.dispatchDue(parent, { kind: 'enter', messages: [early] }, 3, [early]), { kind: 'reject' })
     }
     const early = await manager.create({ sessionId: source.id, projectId: project.id, title: 'Dedicated review', prompt: 'Review synthetic content', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
     assert.equal((await manager.list(parent.id)).items.find(task => task.scheduleId === early.scheduleId).executionSessionId, child.id, 'create response must preserve a Session dispatched before it returned')
@@ -1710,7 +1948,7 @@ test('Feishu schedule notifications freeze recipients, disclose only selected tu
 
 test('native DSH settings redact Linguist notification credentials', async () => {
   const { Config } = await import('../../packages/dsh-linguist/src/index.ts')
-  const { redactSecrets } = await import('../../.toolchain/dsh-0.2.0-rc.1/node_modules/@deepseek-ai/dsh-settings/lib/index.js')
+  const { redactSecrets } = await import('../../.toolchain/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh-settings/lib/index.js')
   const value = { dataRoot: '/synthetic', installationId: 'synthetic', notificationDestinations: [{ id: 'room', label: 'Synthetic', appId: 'app', appSecret: 'DO_NOT_EXPOSE_SYNTHETIC_SECRET', chatId: 'chat', domain: 'feishu' }] }
   assert.equal(Config.dict.notificationDestinations.meta.volatile, true, 'native configuration UI only exposes live fields')
   assert.equal(Config(value).notificationDestinations.get()[0].appId, 'app', 'live config must be read through native Volatile.get')

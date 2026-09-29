@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useAtom, type WritableAtom } from 'jotai'
 import type { LinguistSegmentInfo, LinguistTagProfileInfo } from '@linguist/domain-service/contracts'
 import { compileTagFamilyRegex, scanTags } from '@linguist/cat-core'
@@ -711,22 +712,22 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
           >
             <span className={styles.messageTitle}>{t("译文已有更新，草稿尚未覆盖最新内容。")}</span>
             <span className={styles.actions}>
-              <button
+              <Button
                 type="button"
                 disabled={resolvingConflict}
                 onClick={() => void resolveConflict(false)}
-                className={styles.button}
+                variant="outline" size="sm"
               >
                 {t("重新加载最新译文")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 disabled={resolvingConflict}
                 onClick={() => void resolveConflict(true)}
-                className={styles.button}
+                variant="outline" size="sm"
               >
                 {t("保留我的草稿")}
-              </button>
+              </Button>
             </span>
           </span>
         )}
@@ -749,56 +750,56 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
                 : t('⌘/Ctrl+S 保存 · ⌘/Ctrl+↵ {confirmLabel}并前进 · Esc 取消', { confirmLabel })}
           </span>
           <span className={styles.actions}>
-            <button
+            <Button
               type="button"
               aria-label={t("撤销译文编辑")}
               title={t("撤销")}
               onClick={undo}
               disabled={readOnly || state.composing || state.past.length === 0}
-              className={styles.button}
+              variant="outline" size="sm"
             >
               ↶
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-label={t("重做译文编辑")}
               title={t("重做")}
               onClick={redo}
               disabled={readOnly || state.composing || state.future.length === 0}
-              className={styles.button}
+              variant="outline" size="sm"
             >
               ↷
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-label={t("取消编辑")}
               aria-keyshortcuts="Escape"
               onClick={cancel}
               disabled={saving || resolvingConflict}
-              className={styles.button}
+              variant="outline" size="sm"
             >
               {t("取消")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-label={t("保存译文")}
               aria-keyshortcuts="Meta+S Control+S"
               onClick={() => void save(false)}
               disabled={!canCommit}
-              className={styles.button}
+              variant="outline" size="sm"
             >
               {t("保存")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-label={t('{confirmLabel}并前进', { confirmLabel })}
               aria-keyshortcuts="Meta+Enter Control+Enter"
               onClick={() => void save(true)}
               disabled={!canConfirm}
-              className={styles.primaryButton}
+              variant="primary" size="sm"
             >
               {t('{confirmLabel}并前进', { confirmLabel })}
-            </button>
+            </Button>
           </span>
         </span>
         <span role="status" aria-live="polite" className={styles.srOnly}>

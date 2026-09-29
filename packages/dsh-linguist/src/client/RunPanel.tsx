@@ -1,7 +1,9 @@
 import * as React from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistLatestRunSummaryResult,
+  LinguistJobProgressResult,
+  LinguistProjectMutationEvent,
   LinguistRunUndoResult,
   LinguistScheduleCreateRequest,
   LinguistScheduleCreateResult,
@@ -112,7 +114,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       {destinations?.map(destination => {
         const selected = notificationTargets.find(item => item.destinationId === destination.id)
         return <div key={destination.id} className={styles.form}>
-          <label><input type="checkbox" checked={!!selected} onChange={event => setNotificationTargets(previous => event.target.checked ? [...previous, { destinationId: destination.id, trigger: 'always' }] : previous.filter(item => item.destinationId !== destination.id))} />{destination.label}</label>
+          <Checkbox label={destination.label} checked={!!selected} onChange={checked => setNotificationTargets(previous => checked ? [...previous, { destinationId: destination.id, trigger: 'always' }] : previous.filter(item => item.destinationId !== destination.id))} />
           {selected && <select aria-label={`${t('通知条件')} · ${destination.label}`} value={selected.trigger} onChange={event => setNotificationTargets(previous => previous.map(item => item.destinationId === destination.id ? { ...item, trigger: event.target.value as LinguistScheduleNotificationTarget['trigger'] } : item))}>
             <option value="always">{t('每次执行结束')}</option><option value="success">{t('仅正常结束')}</option><option value="error">{t('仅未成功结束')}</option>
           </select>}
@@ -144,17 +146,17 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       {(kind === 'after' || kind === 'every') && <label>{t('秒数')}<Input type="number" min="60" step="1" value={seconds} onChange={(event) => setSeconds(event.target.value)} /></label>}
       {kind === 'at' && <label>{t('执行时间')}<Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly') && <label>{t('每天时间')}<Input type="time" step="1" value={time} onChange={(event) => setTime(event.target.value)} /></label>}
-      {kind === 'weekly' && <fieldset className={styles.formFields}><legend>{t('星期')}</legend>{[1, 2, 3, 4, 5, 6, 7].map((day) => <label key={day}><input type="checkbox" checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />{t(['一', '二', '三', '四', '五', '六', '日'][day - 1]!)}</label>)}</fieldset>}
+      {kind === 'weekly' && <fieldset className={styles.formFields}><legend>{t('星期')}</legend>{[1, 2, 3, 4, 5, 6, 7].map((day) => <Checkbox key={day} label={t(['一', '二', '三', '四', '五', '六', '日'][day - 1]!)} checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />)}</fieldset>}
       {kind === 'cron' && <label>Cron<Input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<Input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
-    <div className={styles.toolbar}><Button variant="outline" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
+    <div className={styles.toolbar}><Button variant="primary" type="submit" size="md" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
     {created && <p role="status">{t(editing?.pausedAfterFailures ? '已恢复 DSH 调度' : editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
     {error && <p role="alert">{error}</p>}
   </form>
 }
 
-export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, onChanged }: {
+export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, jobUpdates, onCancelRun, onChanged }: {
   projectId: string
   sessionId: string
   assetId?: string
@@ -163,6 +165,8 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   workflowStage: LinguistWorkflowStage
   archived: boolean
   mutation: number
+  jobUpdates: ReadonlyMap<string, LinguistProjectMutationEvent>
+  onCancelRun: () => Promise<void>
   onChanged: () => void
 }): React.ReactElement {
   const t = useT()
@@ -172,6 +176,11 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   const [message, setMessage] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [refresh, setRefresh] = React.useState(0)
+  const [jobs, setJobs] = React.useState<ReadonlyMap<string, NonNullable<LinguistJobProgressResult['job']>>>(new Map())
+  const [jobError, setJobError] = React.useState('')
+  const [stopConfirm, setStopConfirm] = React.useState(false)
+  const [stopping, setStopping] = React.useState(false)
+  const [loadError, setLoadError] = React.useState('')
   const [scheduleRefresh, setScheduleRefresh] = React.useState(0)
   const [notificationDestinations, setNotificationDestinations] = React.useState<LinguistScheduleListResult['notificationDestinations']>()
   const [editingSchedule, setEditingSchedule] = React.useState<LinguistScheduleInfo>()
@@ -185,10 +194,28 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
       assetId ? required('linguistProjectsGetStageCoverage', { projectId, assetId, workflowStage }) : Promise.resolve(undefined),
     ]
     Promise.all(reads).then(([latest, stage]) => {
-      if (live) { setRun(latest); setCoverage(stage); setMessage('') }
-    }).catch((error: unknown) => { if (live) setMessage(String(error)) })
+      if (live) { setRun(latest); setCoverage(stage); setLoadError('') }
+    }).catch((error: unknown) => { if (live) setLoadError(String(error)) })
     return () => { live = false }
   }, [projectId, assetId, workflowStage, mutation, refresh])
+
+  React.useEffect(() => {
+    let live = true
+    setJobError('')
+    // SSE provides current progress immediately; the scoped read reconciles final state after reconnect.
+    setJobs(new Map([...jobUpdates].map(([jobId, event]) => [jobId, { jobId, sessionId, runId: event.runId ?? '', ...event.job! }])))
+    Promise.all([...jobUpdates.keys()].map((jobId) => required<LinguistJobProgressResult>('linguistCatGetJob', { projectId, sessionId, jobId })))
+      .then((results) => { if (live) setJobs(new Map(results.flatMap(({ job }) => job ? [[job.jobId, job] as const] : []))) })
+      .catch((cause: unknown) => { if (live) setJobError(String(cause)) })
+    return () => { live = false }
+  }, [projectId, sessionId, jobUpdates, refresh, mutation])
+
+  const stopRun = async () => {
+    setStopping(true)
+    try { await onCancelRun(); setStopConfirm(false); setRefresh((value) => value + 1); setMessage(t('停止请求已交给 DSH；请核对任务最终状态。')) }
+    catch (cause) { setJobError(String(cause)) }
+    finally { setStopping(false) }
+  }
 
   const undoRun = async () => {
     const summary = run?.summary
@@ -207,11 +234,21 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   }
 
   return <section className={styles.panel} aria-label={t("岗位覆盖与运行记录")}>
-    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
-    {!assetId ? <p>{t("选择一个工作批次以查看当前岗位覆盖。")}</p> : !coverage ? <p role="status">{t("正在读取覆盖…")}</p> :
+    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button variant="ghost" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
+    {loadError && <p role="alert">{loadError}</p>}
+    {!assetId ? <p>{t("选择一个工作批次以查看当前岗位覆盖。")}</p> : !coverage && !loadError ? <p role="status">{t("正在读取覆盖…")}</p> : coverage &&
       <div className={styles.callout}><p>{t(stageName(workflowStage))} · {t({ in_progress: '决策进行中', complete: '决策覆盖完整', completed_with_blocks: '决策覆盖完整，仍有阻塞' }[coverage.status])}</p><p>{t("总计")} {coverage.total} · {t(stageCompletionLabel(workflowStage))} {coverage.confirmed} {t("· 原文无改动")} {coverage.unchanged} {t("· 已修订")} {coverage.corrected} {t("· 阻塞")} {coverage.blocked} {t("· 待决策")} {coverage.pending}</p><p>{t('阶段决策覆盖不等于正式交付完成；仍需处理 QA、建议与交付预检。')}</p></div>}
+    <div className={styles.toolbar}><h3>{t('当前会话的专业任务')}</h3><Button variant="outline" size="sm" disabled={stopping} onClick={() => setStopConfirm(true)}>{t('停止当前会话运行')}</Button></div>
+    <p className={styles.notice}>{t('停止操作会中止整个当前会话的活动回合，包括正在执行的工具。')}</p>
+    {jobError && <p role="alert">{jobError}</p>}
+    {[...jobs.values()].map((job) => <article className={styles.item} key={job.jobId} aria-label={`${t('专业任务')} ${job.jobId}`}>
+      <div className={styles.toolbar}><strong>{t('专业任务')} {job.jobId}</strong><span>{t({ pending: '等待中', running: '运行中', paused: '已暂停', completed: '执行结束', failed: '执行失败', cancelled: '已取消' }[job.status])}</span></div>
+      <progress className={styles.jobProgress} max={Math.max(1, job.total)} value={job.cursor} aria-label={t('专业任务进度')} />
+      <p>{t('已处理')} {job.cursor}/{job.total} · {t('完成')} {job.completed} · {t('失败')} {job.failed}</p>
+    </article>)}
+    <Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={stopConfirm} onClose={() => { if (!stopping) setStopConfirm(false) }} title={t('停止当前会话运行')} closeLabel={t('取消')} footer={<><Button variant="ghost" size="sm" disabled={stopping} onClick={() => setStopConfirm(false)}>{t('取消')}</Button><Button variant="primary" size="sm" disabled={stopping} onClick={() => void stopRun()}>{stopping ? t('正在停止…') : t('确认停止')}</Button></>}><p>{t('停止操作会中止整个当前会话的活动回合，包括正在执行的工具。')}</p>{jobError && <p role="alert">{jobError}</p>}</Modal>
     <h3>{t("最近一次 Agent 运行")}</h3>
-    {!run ? <p role="status">{t("正在读取运行记录…")}</p> : !run.summary ? <p>{t("此项目尚无可展示的运行记录。")}</p> :
+    {!run && !loadError ? <p role="status">{t("正在读取运行记录…")}</p> : run && !run.summary ? <p>{t("此项目尚无可展示的运行记录。")}</p> : run?.summary &&
       <div className={styles.item}>
         <strong>Run {run.summary.runId}</strong>
         {run.summary.job && <p>Job {run.summary.job.jobId} · {run.summary.job.status} {t("· 完成")} {run.summary.job.completedSegments}/{run.summary.job.scopedSegments} {t("· 失败")} {run.summary.job.failedSegments}</p>}

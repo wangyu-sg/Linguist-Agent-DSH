@@ -7,6 +7,17 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { BindingStore } from './bindings'
 
+export class LinguistSessionCopyError extends Error {
+  constructor(readonly sessionId: string, readonly cleanup: 'not-started' | 'completed' | 'failed', options: ErrorOptions) {
+    const state = cleanup === 'not-started'
+      ? 'history copy failed before Linguist binding; this Session may remain in native history. Inspect it before retrying.'
+      : cleanup === 'completed'
+        ? 'copy failed; no Linguist binding remains. DSH has no Session deletion API; this unbound Session remains in native history.'
+        : 'copy failed and Linguist binding rollback failed; this Session remains in native history and requires inspection before retrying.'
+    super(`Native DSH Session ${sessionId} ${state}`, options)
+  }
+}
+
 export type LinguistSessionCopyEligibility =
   | { eligible: true; mode: 'blank' | 'fork' }
   | { eligible: false; reason: 'SESSION_NOT_FOUND' | 'NOT_LINGUIST_SESSION' | 'RUNNING' | 'HISTORY_UNREADABLE' | 'NO_COMPLETED_ASSISTANT' | 'TARGET_PROJECT_UNAVAILABLE' | 'SAME_PROJECT'; message: string }
@@ -104,7 +115,7 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
         } finally { await handle.close() }
         copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset: snapshot.meta.agentPreset })
       } catch (error) {
-        throw new Error(`Native DSH Session ${id} history copy failed; inspect this exact Session before retrying: ${String(error)}`)
+        throw new LinguistSessionCopyError(id, 'not-started', { cause: error })
       }
     }
   } else {
@@ -113,17 +124,25 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
   const sessionId = String(copied.sessionId)
   const binding = { workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode }
   try {
-    host.bindings.bindSession(sessionId, binding)
-    host.rebindAgent(sessionId)
     await host.sessionController.rename({ sessionId: copied.sessionId, title: `${project.name} (copy)` })
     const third = await sessionCopyEligibility(host, sourceSessionId, targetProjectId)
     const latestTarget = host.service.getProject(targetProjectId)
     if (!third.eligible || third.mode !== first.mode || latestTarget.archivedAt || !host.service.checkProjectHealth(targetProjectId).healthy
-      || host.bindings.session(sessionId)?.projectId !== targetProjectId || host.bindings.projectWorkspace(targetProjectId) !== targetWorkspaceId) {
+      || host.bindings.projectWorkspace(targetProjectId) !== targetWorkspaceId) {
       throw new Error('Source or target changed during copy')
     }
+    host.bindings.bindSession(sessionId, binding)
+    host.rebindAgent(sessionId)
   } catch (error) {
-    throw new Error(`Native DSH Session ${sessionId} was created but copy finalization failed; inspect this exact Session before retrying: ${String(error)}`)
+    if (host.bindings.session(sessionId)) {
+      try {
+        host.bindings.restoreSession(sessionId, undefined)
+        host.rebindAgent(sessionId)
+      } catch (rollbackError) {
+        throw new LinguistSessionCopyError(sessionId, 'failed', { cause: new AggregateError([error, rollbackError]) })
+      }
+    }
+    throw new LinguistSessionCopyError(sessionId, 'completed', { cause: error })
   }
   return { sessionId, workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode, mode: first.mode }
 }

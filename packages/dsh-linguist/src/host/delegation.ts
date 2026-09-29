@@ -31,18 +31,20 @@ export function freezeLinguistDelegation(
 }
 
 /** Native DSH run completion is separate from the CAT decision audit. */
-export function linguistDelegationOutcome(service: LinguistProjectService, sessionId: string, binding: SessionBinding): unknown {
+export function linguistDelegationOutcome(service: LinguistProjectService, sessionId: string, binding: SessionBinding) {
   const stage = binding.role === 'translator' ? 'translation' : binding.role === 'reviewer' ? 'editing' : binding.role === 'proofreader' ? 'proofreading' : undefined
   if (!stage || !binding.projectId || !binding.delegatedScope) return undefined
   const db = service.openProject(binding.projectId)
   const evidenceState = db.stageEvidence.list(stage).find(state => state.sessionId === sessionId)
   const evidence = evidenceState && db.stageEvidence.getCompletion(evidenceState.stageRunId)
-  const coverage = evidence?.decisions ?? db.segments.getStageDecisionCoverage(stage, binding.delegatedScope.segmentIds, {
-    actor: sessionId, afterEventId: Number.MAX_SAFE_INTEGER,
+  const coverage = db.segments.getStageDecisionCoverage(stage, binding.delegatedScope.segmentIds, {
+    actor: sessionId, afterEventId: evidenceState?.plan.decisionEventBoundary ?? Number.MAX_SAFE_INTEGER,
   })
   return {
     role: binding.role, stage, ...coverage,
-    status: evidence && evidence.status !== 'complete' ? evidence.status : coverage.status,
+    status: coverage.pending > 0 ? 'in_progress' : evidence && evidence.status !== 'complete'
+      ? evidence.status === 'in_progress' ? 'in_progress' : 'completed_with_blocks'
+      : coverage.status,
     decided: coverage.total - coverage.pending,
     ...(evidence ? { evidence: {
       status: evidence.status,

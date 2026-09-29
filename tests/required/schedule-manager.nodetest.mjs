@@ -21,14 +21,14 @@ function harness(required) {
       useState(initial) { const index = cursor++; if (!(index in state)) state[index] = initial; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }] },
       useEffect(run, deps) { const index = effectCursor++; if (!effects[index] || deps.some((value, i) => value !== effects[index].deps[i])) pending.push(() => { effects[index]?.cleanup?.(); effects[index] = { deps, cleanup: run() } }) },
     }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: ({ variant, size, ...props }) => React.createElement('button', props) }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: ({ variant, size, ...props }) => React.createElement('button', props), Modal: ({ open, children, footer }) => open ? React.createElement('section', null, children, footer) : null }
     if (name === './api') return { required }
     if (name === './ui-locale') return { useT: () => (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, key) => String(params[key])) }
     if (name.endsWith('.module.css')) return { default: {} }
     throw new Error(`Unexpected schedule manager import: ${name}`)
   } })
   const props = { sessionId: 'source-session', refresh: 0, editable: true, onEdit() {}, onDestinations() {} }
-  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)]
+  const nodes = node => typeof node !== 'object' || node === null ? [] : node.props?.open === false ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes)]
   const button = label => nodes(tree).find(node => node.props?.onClick && React.Children.toArray(node.props.children).join('') === label)
   return {
     render() { cursor = 0; effectCursor = 0; tree = exports.ScheduleManager(props); pending.splice(0).forEach(run => run()); return renderToStaticMarkup(tree) },

@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { atom, Provider, useAtom, type PrimitiveAtom } from 'jotai'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistAssetInfo,
   LinguistCatConfirmStageBulkResult,
@@ -11,6 +11,7 @@ import type {
   LinguistAssetsQueryResult,
   LinguistContextDocInfo,
   LinguistProjectInfo,
+  LinguistProjectMutationEvent,
   LinguistProjectOpenResult,
   LinguistProjectSummary,
   LinguistQaFindingInfo,
@@ -50,12 +51,12 @@ const dockItems: readonly { id: Dock; label: string }[] = [
 interface Dataset { signature: string; total: number; ids: string[]; rows: ReadonlyMap<number, LinguistSegmentInfo> }
 interface RowSignal { proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingInfo['severity'] }
 
-export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode }): React.ReactElement {
+export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
   const editorState = getCatEditorState(sessionId, projectId)
-  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} capabilities={capabilities} editorState={editorState} /></Provider>
+  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onCancelRun={onCancelRun} capabilities={capabilities} editorState={editorState} /></Provider>
 }
 
-function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
+function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
   const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
@@ -83,10 +84,14 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [inspectorOpen, setInspectorOpen] = React.useState(false)
   const workbenchRef = React.useRef<HTMLElement>(null)
   const compactLayout = React.useRef<boolean>()
+  const [displayOpen, setDisplayOpen] = React.useState(false)
+  const navigationTrigger = React.useRef<HTMLButtonElement>(null)
+  const displayTrigger = React.useRef<HTMLButtonElement>(null)
   const [dataset, setDataset] = React.useState<Dataset>()
   const [loading, setLoading] = React.useState(true)
   const [reload, setReload] = React.useState(0)
   const [mutation, setMutation] = React.useState(0)
+  const [jobUpdates, setJobUpdates] = React.useState<ReadonlyMap<string, LinguistProjectMutationEvent>>(new Map())
   const [focusIndex, setFocusIndex] = React.useState<number>()
   const [visibleRange, setVisibleRange] = React.useState({ start: 0, end: 20 })
   const [rowSignals, setRowSignals] = React.useState<ReadonlyMap<string, RowSignal>>(new Map())
@@ -209,7 +214,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       const width = entry!.contentRect.width
       const compact = width < 980
       if (compactLayout.current === undefined) { compactLayout.current = compact; if (compact) setAssetNavigatorOpen(false) }
-      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact) }
+      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact); if (compact) setInspectorOpen(false) }
       setInspectorOpen((current) => width > 1080 ? true : current && width > 740)
     })
     observer.observe(element)
@@ -241,9 +246,14 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     return () => { live = false }
   }, [projectId, openRetry])
 
+  React.useEffect(() => { setJobUpdates(new Map()) }, [projectId, sessionId])
   React.useEffect(() => subscribeProject(projectId, 0, (event) => {
+    if (event.kind === 'job-updated' && event.sessionId === sessionId && event.jobId && event.job) {
+      setJobUpdates((current) => new Map(current).set(event.jobId!, event))
+      if (event.job.status === 'running' || event.job.status === 'pending') return
+    }
     setMutation((current) => Math.max(current + 1, event.sequence ?? 0))
-  }, () => setMutation((current) => current + 1)), [projectId])
+  }, () => setMutation((current) => current + 1)), [projectId, sessionId])
 
   React.useEffect(() => {
     if (mutation === 0) return
@@ -447,7 +457,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   React.useEffect(() => {
     if (navigation === undefined) return
     if (navigation.dock) { setDock(navigation.dock); setDockOpen(true) }
-    if (navigation.inspector) setInspectorOpen(true)
+    if (navigation.inspector) { setInspectorOpen(true); if (compactLayout.current) setAssetNavigatorOpen(false) }
     if (navigation.segmentId) {
       pendingNavigation.current = navigation.segmentId
       setAssetId(undefined)
@@ -464,11 +474,15 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   if (loadError && project === undefined) return <div role="alert" className={styles.center}>{loadError}<Button variant="outline" onClick={() => { setLoadError(''); setOpenRetry((value) => value + 1) }}>{t("重试")}</Button></div>
   if (project === undefined) return <div role="status" className={styles.center}>{t("正在打开本地化项目…")}</div>
 
-  return <section ref={workbenchRef} className={styles.workbench} style={{ '--source-fr': `${sourceShare}fr`, '--target-fr': `${100 - sourceShare}fr` } as React.CSSProperties} aria-label={`${project.name} ${t('CAT 工作台')}`}>
+  return <section ref={workbenchRef} className={styles.workbench} style={{ '--source-fr': `${sourceShare}fr`, '--target-fr': `${100 - sourceShare}fr` } as React.CSSProperties} aria-label={`${project.name} ${t('CAT 工作台')}`} onKeyDown={(event) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || !compactLayout.current) return
+    if (inspectorOpen) { setInspectorOpen(false); displayTrigger.current?.focus(); event.preventDefault() }
+    else if (assetNavigatorOpen) { setAssetNavigatorOpen(false); navigationTrigger.current?.focus(); event.preventDefault() }
+  }}>
     <header className={styles.header}>
-      <div className={styles.title}><strong>{project.name}</strong><small>{project.sourceLocale} → {project.targetLocale}</small><small>{t('当前阶段')}：{t(stageName(workflowStage))}</small><small>Session {sessionId.slice(0, 8)}</small></div>
+      <div className={styles.title}><strong>{project.name}</strong><small>{project.sourceLocale} → {project.targetLocale}</small><small>{t('当前阶段')}：{t(stageName(workflowStage))}</small></div>
       <div className={styles.controls}>
-        <Button variant="outline" size="sm" aria-pressed={assetNavigatorOpen} onClick={() => setAssetNavigatorOpen((value) => !value)}>{t('批次导航')}</Button>
+        <Button ref={navigationTrigger} variant="ghost" size="sm" aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}>{t('批次导航')}</Button>
         <select aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
           <option value="">{t("全部批次")}</option>
           {summary?.assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
@@ -477,13 +491,20 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <select aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
           <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
         </select>
-        <Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t("刷新")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => setReload((value) => value + 1)}>{t("刷新")}</Button>
         <Button variant="outline" size="sm" disabled={jumpBusy} onClick={() => void nextUntouched()}>{t(nextStageItemLabel(workflowStage))}</Button>
         <Button variant="outline" size="sm" disabled={jumpBusy} onClick={() => void nextQa()}>{t('下一个 QA 问题')}</Button>
-        <details className={styles.displayOptions}><summary>{t('显示选项')}</summary><label>{t('Source / Target 比例')}<input type="range" min="30" max="70" step="5" value={sourceShare} onChange={(event) => setSourceShare(Number(event.target.value))} aria-valuetext={`${sourceShare} / ${100 - sourceShare}`} /></label></details>
-        <Button variant="outline" size="sm" aria-expanded={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}>{inspectorOpen ? t("收起参考检查器") : t("参考检查器")}</Button>
-        <Button variant="outline" size="sm" aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}>{dockOpen ? t('收起辅助区') : t('展开辅助区')}</Button>
-        <Button variant="outline" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size === 0 || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>
+        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Button ref={displayTrigger} variant="ghost" size="sm" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}>{t('显示选项')}</Button>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : []), `ratio-${sourceShare}`]} items={[
+          { id: 'inspector', label: t('参考检查器') },
+          { id: 'dock', label: t('辅助区') },
+          { id: 'ratio', label: t('Source / Target 比例'), submenu: [30, 35, 40, 45, 50, 55, 60, 65, 70].map((value) => ({ id: `ratio-${value}`, label: `${value} / ${100 - value}` })) },
+        ]} onSelect={(id) => {
+          if (id === 'inspector') { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }
+          else if (id === 'dock') setDockOpen((value) => !value)
+          else setSourceShare(Number(id.slice(6)))
+          setDisplayOpen(false)
+        }} />
+        <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size === 0 || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>
         {(selectedIds.size > 0 || agentReference) && <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>}
       </div>
     </header>
@@ -491,12 +512,12 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
     <div className={styles.body}>
       {assetNavigatorOpen && <nav ref={assetNavigatorRef} className={styles.assets} style={{ width: assetNavigatorWidth }} aria-label={t("批次导航")}>
-        <strong>{t("工作批次")} {summary?.assetCount ?? ''}</strong>
+        <div className={styles.contextHeading}><strong>{t("工作批次")} {summary?.assetCount ?? ''}</strong><Button variant="ghost" size="sm" aria-label={t("收起批次导航")} onClick={() => { setAssetNavigatorOpen(false); navigationTrigger.current?.focus() }}>×</Button></div>
         <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('管理批次')}</Button>
         <Input aria-label={t('搜索批次')} placeholder={t('搜索批次')} value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
-        {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry}><button type="button" className={assetId === asset.assetId ? styles.assetActive : styles.asset} onClick={() => setAssetId(asset.assetId)}>
+        {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry}><Button variant="ghost" size="sm" className={assetId === asset.assetId ? styles.assetActive : styles.asset} onClick={() => setAssetId(asset.assetId)}>
           <span>{asset.filename}</span><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small>
-        </button><button type="button" className={styles.assetPreview} aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</button></div>)}
+        </Button><Button variant="ghost" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button></div>)}
         {summary?.assets.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
         {summary && summary.assets.length > 0 && !summary.assets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
       </nav>}
@@ -513,28 +534,28 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
               const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next
             })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId })} onFocusSettled={() => setFocusIndex(undefined)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
-      {inspectorOpen && <aside className={styles.inspector} aria-label={t("句段参考检查器")}><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></aside>}
+      {inspectorOpen && <aside className={styles.inspector} aria-label={t("句段参考检查器")}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></aside>}
     </div>
     <div ref={dockOpen ? dockRef : undefined} className={dockOpen ? styles.dock : styles.dockCollapsed} style={dockOpen ? { height: dockHeight } : undefined}>
-      <div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <button key={item.id} type="button" role="tab" aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
+      <div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <Button key={item.id} variant="ghost" size="sm" role="tab" aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
         const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? dockItems.length - 1 : event.key === 'ArrowRight' ? (index + 1) % dockItems.length : event.key === 'ArrowLeft' ? (index + dockItems.length - 1) % dockItems.length : -1
         if (nextIndex < 0) return
         event.preventDefault()
         setDock(dockItems[nextIndex]!.id)
         setDockOpen(true)
         event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
-      }}>{t(item.label)}</button>)}</div>
+      }}>{t(item.label)}</Button>)}</div>
       {dockOpen && <div role="tabpanel" className={styles.dockBody}>
         {dock === 'qa' && <QaPanel projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'proposals' && <ProposalPanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'references' && <ReferencePanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
         {dock === 'assets' && <AssetsPanel projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
         {dock === 'delivery' && <DeliveryPanel projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
-        {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
-    {notice && <div role="status" className={styles.notice}>{notice}<button type="button" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</button></div>}
+    {notice && <div role="status" className={styles.notice}>{notice}<Button variant="ghost" size="sm" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</Button></div>}
   </section>
 }
 
@@ -569,7 +590,8 @@ function SegmentRows(props: RowsProps): React.ReactElement {
   React.useEffect(() => {
     if (props.focusIndex !== undefined) { virtualizer.scrollToIndex(props.focusIndex); props.onFocusSettled() }
   }, [props.focusIndex, virtualizer, props.onFocusSettled])
-  return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total} ref={scroller}>
+  return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total + 1} ref={scroller}>
+    <div className={styles.gridHeading} role="row" aria-rowindex={1}><span role="columnheader">#</span><span role="columnheader">{t('源文')}</span><span role="columnheader">{t('译文')}</span><span role="columnheader">{t('操作')}</span></div>
     <div className={styles.gridInner} style={{ height: virtualizer.getTotalSize() }}>
       {items.map((item) => {
         const segment = props.data.rows.get(item.index)
@@ -586,8 +608,8 @@ function SegmentRows(props: RowsProps): React.ReactElement {
           props.drafts.set(draftKey, draft)
         }
         const signal = props.signals.get(id)
-        return <div key={id} ref={virtualizer.measureElement} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" tabIndex={id === props.selectedId || item.index === 0 ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
-          if (editingId === id) return
+        return <div key={id} ref={virtualizer.measureElement} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} tabIndex={id === props.selectedId || item.index === 0 ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
+          if (editingId === id || event.target !== event.currentTarget) return
           const action = gridRowKeyAction({ key: event.key, currentIndex: item.index, total: props.data.total, pageSize: 8, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey })
           if (action === null) return
           event.preventDefault()
@@ -596,19 +618,19 @@ function SegmentRows(props: RowsProps): React.ReactElement {
           else if (segment && !segment.locked && !props.archived) setEditingId(id)
         }}>
           {segment === undefined ? <span role="status">{t("正在读取 #")}{item.index + 1}…</span> : <>
-            <div className={styles.rowMeta} role="gridcell"><input type="checkbox" aria-label={t('选择句段 {number}', { number: item.index + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} /><span>#{item.index + 1}</span>{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span>{signal?.qaCount && signal.highestSeverity ? <button type="button" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</button> : null}{signal?.proposal && <button type="button" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</button>}</div>
-            <div className={styles.source} role="gridcell" lang={segment.sourceLocale} dir="auto">{splitProtectedText(segment.source, props.tagProfile).map((part, index) => <span key={index} className={part.kind === 'text' ? undefined : styles.inlineTag}>{part.value}</span>)}</div>
-            <div className={styles.target} role="gridcell" lang={segment.targetLocale} dir="auto">
-              {editingId === id ? <TargetEditor draftAtom={draft!} index={item.index} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
+            <div className={styles.rowMeta} role="gridcell"><Checkbox label={`#${segment.ordinal + 1}`} title={t('选择句段 {number}', { number: segment.ordinal + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} />{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span>{signal?.qaCount && signal.highestSeverity ? <Button variant="ghost" size="sm" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</Button> : null}{signal?.proposal && <Button variant="ghost" size="sm" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</Button>}</div>
+            <div className={styles.source} role="gridcell" data-label={t("源文")} lang={segment.sourceLocale} dir="auto">{splitProtectedText(segment.source, props.tagProfile).map((part, index) => <span key={index} className={part.kind === 'text' ? undefined : styles.inlineTag}>{part.value}</span>)}</div>
+            <div className={styles.target} role="gridcell" data-label={t("译文")} lang={segment.targetLocale} dir="auto">
+              {editingId === id ? <TargetEditor draftAtom={draft!} index={segment.ordinal} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
                 : <button type="button" className={styles.targetButton} disabled={segment.locked || props.archived} onClick={() => {
                   props.onSelect(id)
                   setEditingId(id)
                 }} onFocus={() => props.onSelect(id)}>{segment.target || t("编辑译文…")}</button>}
             </div>
             <div className={styles.rowActions} role="gridcell">
-              <Button variant="outline" size="sm" onClick={() => props.onReferenceAgent(segment)}>{t('为 Agent 引用')}</Button>
+              <Button variant="ghost" size="sm" onClick={() => props.onReferenceAgent(segment)}>{t('为 Agent 引用')}</Button>
               {signal?.proposal && <><Button variant="outline" size="sm" disabled={props.archived || props.reviewingIds.has(signal.proposal.id) || segment.locked || signal.proposal.baseRevision !== segment.revision} onClick={() => void props.onReviewProposal(segment, signal.proposal!, 'accept')}>{t('接受')}</Button><Button variant="outline" size="sm" disabled={props.archived || props.reviewingIds.has(signal.proposal.id)} onClick={() => void props.onReviewProposal(segment, signal.proposal!, 'reject')}>{t('拒绝建议')}</Button></>}
-              {segment.currentStageState === 'confirmed' ? <Button variant="outline" size="sm" onClick={() => void props.onUnconfirm(segment)} disabled={props.archived}>{t("撤销确认")}</Button>
+              {segment.currentStageState === 'confirmed' ? <Button variant="ghost" size="sm" onClick={() => void props.onUnconfirm(segment)} disabled={props.archived}>{t("撤销确认")}</Button>
                 : <Button variant="outline" size="sm" onClick={() => void props.onConfirm(segment)} disabled={props.archived || segment.locked}>{t(stageActionLabel(props.workflowStage))}</Button>}
             </div>
           </>}
@@ -653,11 +675,11 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
     try { await required('linguistAssetsSetContextDocSegmentLink', { projectId, docId, segmentId, linked }); setRefresh((value) => value + 1) }
     catch (cause) { setActionError(String(cause)) }
   }
-  const applyTm = (target: string, action: 'replace' | 'insert') => {
+  const applyReference = (target: string, action: 'replace' | 'insert') => {
     if (!editorHandle || archived || data?.segment.locked) return
     const applied = action === 'replace' ? editorHandle.replace(target) : editorHandle.insert(target)
-    if (applied) editorHandle.focus()
-    else setActionError(t('TM 译文未写入草稿；请核对 Tag、锁和输入法状态。'))
+    if (applied) { editorHandle.focus(); setActionError('') }
+    else setActionError(t('参考译文未写入草稿；请核对 Tag、锁和输入法状态。'))
   }
   const addExemplar = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -670,15 +692,22 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
     finally { setSaving(false) }
   }
   if (!segmentId) return <p>{t("选择句段后查看 TM、术语、上下文和阶段历史。")}</p>
-  if (error) return <p role="alert">{error}</p>
+  if (error) return <div role="alert"><p>{error}</p><Button variant="outline" size="sm" onClick={() => { setError(''); setRefresh((value) => value + 1) }}>{t("重试")}</Button></div>
   if (!data) return <p role="status">{t("正在读取句段参考…")}</p>
   return <div className={styles.contextGrid}>
-    {actionError && <p role="alert">{actionError}<button type="button" onClick={() => setActionError('')}>{t('关闭提示')}</button></p>}
-    <section><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyTm(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyTm(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
-    <section><h3>{t("术语")}</h3>{data.termMatches.length === 0 ? <p>{t("没有匹配")}</p> : data.termMatches.map((item) => <article key={item.id}><strong>{item.term} → {item.translation}</strong><small>{item.status}{item.conflict ? t(" · 冲突") : ''}</small></article>)}</section>
-    <section><h3>Style Guide · {styleRules.length}</h3>{styleRules.map((item) => <article key={item.id}><strong>{item.groupKey ?? t('未指定分组')}</strong><p>{item.ruleText}</p>{item.goodExample && <small>{t('正例')}：{item.goodExample}</small>}{item.badExample && <small>{t('反例')}：{item.badExample}</small>}</article>)}</section>
-    <section><h3>Voice · {voiceProfiles.length + data.approvedExemplars.length}</h3>{voiceProfiles.map((item) => <article key={item.id}><strong>{item.speaker}</strong><p>{[item.register, item.textType, ...(item.toneMarkers ?? [])].filter(Boolean).join(' · ')}</p>{item.notes && <small>{item.notes}</small>}</article>)}{data.approvedExemplars.map((item) => <article key={item.id}><strong>{item.speaker} · {item.textType} · {t('批准样例')}</strong><p>{item.source} → {item.target}</p>{item.note && <small>{item.note}</small>}</article>)}</section>
-    <section><h3>{t("上下文与历史")}</h3>{data.segment.context?.origin && <p>{t('来源')}：{data.segment.context.origin}</p>}{data.segment.context?.note && <p>{data.segment.context.note}</p>}{Object.entries(data.segment.context?.meta ?? {}).map(([key, value]) => <p key={key}>{key}：{value}</p>)}{allDocs.map((doc) => <p key={doc.id}>{doc.originalFilename} · {doc.note ?? (doc.hasTextExtract ? t('可阅读') : t('无文本抽取'))}</p>)}{data.stageEvents?.map((event, index) => <p key={index}>{event.stage} · {event.action} · {event.actor ?? t("未知操作人")} · {event.createdAt}</p>)}</section>
+    {actionError && <p role="alert">{actionError}<Button variant="ghost" size="sm" onClick={() => setActionError('')}>{t('关闭提示')}</Button></p>}
+    {!editorHandle && !archived && !data.segment.locked && <p className={styles.contextNotice}>{t('先打开当前句段的译文编辑器，再插入参考内容。')}</p>}
+    {(archived || data.segment.locked) && <p className={styles.contextNotice}>{t(archived ? '项目已归档，仅可查看参考内容。' : '当前句段已锁定，仅可查看参考内容。')}</p>}
+    <section><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
+    <section><h3>{t("术语")}</h3>{data.termMatches.length === 0 ? <p>{t("没有匹配")}</p> : data.termMatches.map((item) => <article key={item.id}>
+      <strong>{item.term} → {item.translation}</strong>
+      <small>{t({ allowed: '允许', preferred: '首选', required: '必需', forbidden: '禁用', deprecated: '废弃' }[item.status])} · {t(item.matchType === 'exact' ? '精确匹配' : '包含匹配')} · {t(item.caseSensitive ? '区分大小写' : '不区分大小写')}{item.conflict ? ` · ${t('译文冲突')}` : ''}</small>
+      {(item.module || item.category) && <small>{[item.module, item.category].filter(Boolean).join(' · ')}</small>}{item.note && <p>{item.note}</p>}
+      <Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.translation, 'insert')}>{t('插入草稿')}</Button>
+    </article>)}</section>
+    <details className={styles.contextSection}><summary>Style Guide · {styleRules.length}</summary>{styleRules.length === 0 && <p>{t("尚无风格规则")}</p>}{styleRules.map((item) => <article key={item.id}><strong>{item.groupKey ?? t('未指定分组')}</strong><p>{item.ruleText}</p>{item.goodExample && <small>{t('正例')}：{item.goodExample}</small>}{item.badExample && <small>{t('反例')}：{item.badExample}</small>}</article>)}</details>
+    <details className={styles.contextSection}><summary>Voice · {voiceProfiles.length + data.approvedExemplars.length}</summary>{voiceProfiles.length + data.approvedExemplars.length === 0 && <p>{t("尚无角色声线或批准样例")}</p>}{voiceProfiles.map((item) => <article key={item.id}><strong>{item.speaker}</strong><p>{[item.register, item.textType, ...(item.toneMarkers ?? [])].filter(Boolean).join(' · ')}</p>{item.notes && <small>{item.notes}</small>}</article>)}{data.approvedExemplars.map((item) => <article key={item.id}><strong>{item.speaker} · {item.textType} · {t('批准样例')}</strong><p>{item.source} → {item.target}</p>{item.note && <small>{item.note}</small>}</article>)}</details>
+    <details className={styles.contextSection}><summary>{t("上下文与历史")}</summary>{data.segment.context?.origin && <p>{t('来源')}：{data.segment.context.origin}</p>}{data.segment.context?.note && <p>{data.segment.context.note}</p>}{Object.entries(data.segment.context?.meta ?? {}).map(([key, value]) => <p key={key}>{key}：{value}</p>)}{allDocs.map((doc) => <p key={doc.id}>{doc.originalFilename} · {doc.note ?? (doc.hasTextExtract ? t('可阅读') : t('无文本抽取'))}</p>)}{data.stageEvents?.map((event, index) => <p key={index}>{event.stage} · {event.action} · {event.actor ?? t("未知操作人")} · {event.createdAt}</p>)}</details>
     <section><h3>{t('建议的证据来源')}</h3>{data.pendingProposal ? data.pendingProposal.evidenceRefs.length + data.pendingProposal.termRefs.length === 0 ? <p>{t('当前建议没有证据引用')}</p> : [...data.pendingProposal.evidenceRefs, ...data.pendingProposal.termRefs].map((reference, index) => <p key={`${reference}:${index}`}><code>{reference}</code> <Button variant="outline" size="sm" onClick={onOpenTerms}>{t('查看参考库')}</Button></p>) : <p>{t('当前句段没有待审建议')}</p>}</section>
     <section><div className={styles.contextHeading}><h3>{t("关联文档与图像")}</h3><Button variant="outline" size="sm" disabled={archived} onClick={() => setPickerOpen((value) => !value)}>{pickerOpen ? t('收起候选') : t('关联资料')}</Button></div>{docs.length === 0 && <p>{t("当前句段没有显式关联的资料。")}</p>}{docs.map((doc) => <article key={doc.id}><strong>{doc.originalFilename}</strong>{doc.note && <p>{doc.note}</p>}{doc.kind === 'image' && doc.previewUrl?.startsWith('/la/v1/files/') && <img className={styles.contextImage} alt={doc.originalFilename} src={doc.previewUrl} />}<div><Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistAssetsPreviewContextDoc', input: { projectId, docId: doc.id } })}>{t("预览原件")}</Button><Button variant="outline" size="sm" disabled={archived} onClick={() => void setLink(doc.id, false)}>{t("取消关联")}</Button></div></article>)}
       {pickerOpen && <div className={styles.contextCandidates}>{candidates.length === 0 ? <p>{t('没有可关联的 Context Doc。')}</p> : candidates.map((doc) => <p key={doc.id}>{doc.originalFilename} <Button variant="outline" size="sm" onClick={() => void setLink(doc.id, true)}>{t('关联')}</Button></p>)}</div>}

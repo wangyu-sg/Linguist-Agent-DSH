@@ -1,37 +1,31 @@
 # 当前进度与接续（2026-09-29）
 
-**当前包已安装启用，完整交付仍未完成。** 正式入口为 `/Applications/DeepSeek Harness.app`；Linguist 和 BrowserSkill 是其中的原生插件。
+## 已核实
 
-## 当前版本与证据
+- 官方 `/Applications/DeepSeek Harness.app` 已更新 **0.2.0-rc.2**，签名/Gatekeeper/固定DMG验证通过。证据 `artifacts/evidence/dsh-rc2-official-desktop.json`。
+- 按本地只读源仓库列出 **68项领域能力、137项界面动作**，分别记录来源、目标入口、实现差异与安装状态。两个清单有交叉，不能相加冒称功能数或完成率。用户可读入口 `audit-2026-09-29/功能迁移总览.html`。
+- 本轮整合代码已完成构建，**8组类型检查、228项Node、21项Bun**通过。BrowserSkill rc.2薄适配 `.3` 的382项检查通过、重复构建hash一致。全部为源/合成检查，尚非新安装验收。
+- 统一控件与容器布局、项目Modal、分类设置、术语插入、QA对照、任务进度/停止、调度冷恢复、复制失败恢复反馈、模型来源、委派结果与七项内置Skills已进入候选。
 
-| 项目 | 已核实状态 |
-| --- | --- |
-| 当前安装 | `43f143cb3529`，源码 `d645fea`。用户动作时确认后，官方管理器 Install → 立即启用成功；回执记录于 2026-09-29T10:38:35Z。 |
-| 登记与安装检查 | `install-local` 已登记 `la-43f143cb3529-b4f81677`；`smoke-installed` **9/9 PASS**，Linguist 21/21、BrowserSkill 14/14 包文件匹配。当前没有旧安装确认或 e4 登记待办。 |
-| 源码检查 | 205 Node、21 Bun、8 项类型检查及构建/打包通过；源隔离与目标 copied-domain 各 151 通过。 |
-| 真实模型 | 完整退出并由 Finder 双击重开后，显式 CAT 引用已通过真实 RPC Host 准入；DeepSeek-V41-Flash（`deepseek-account/deepseek-flash`）Max 读到项目 XML 并返回正确 projectId。该项目无选中句段，不能据此认定专业审校完成。 |
+## 当前安装状态
 
-当前包包含：语言下拉/自定义及冻结、创建 QA 场景/创建后进入、目录选择/备份详情、空项目导入入口、项目能力与 Workspace 标识、独立自动任务 owner/冻结授权/旧任务需重建/owner 回执，以及显式 CAT 原生引用。
+上次安装为rc.1的LA `9e362081d5d9`；宿主升级后插件未加载。`current.json`仍登记旧安装，不代表rc.2已安装。整合候选 `0461faede705` 已打包暂存，尚未原生安装；旧READY为FAILED且已过时。
 
-## 宿主接管边界
+## 下一步直接执行
 
-按实施规范 §16（第584行），Skills、MCP、项目指令、文件和终端保持 DSH 原生方式。当前能力区提供真实 Skills、SKILL.md、默认指令候选及 Plugins/Files 入口；默认候选不代表会话实际全部加载。
+1. 对完整待提交diff执行Ponytail最终审查，只有 `Lean already. Ship.` 才本地提交。两个分范围预审已通过，不代替最终完整审查。
+2. 打包并暂存一组LA+BrowserSkill rc.2候选，官方Desktop原生插件管理更新。不能通过CLI修改reserved desktop profile。
+3. 冷停止/官方图标双击，完整UI、四岗位、三路径、真实模型、BrowserSkill localhost及逐能力验收。G13要求完整来源清单每个必需能力均有当前安装观察，不能用源码存在代替。
+4. 更新证据/状态后运行verify:ready。仅全部必需门禁通过才可通知完整完成。
 
-旧 Proma 的 Memory 按钮打开工作区 `memory/` Markdown 编辑窗口，是通用宿主能力，不是 LA 领域数据库；按宿主接管处理，不另建 Memory 后端或编辑器。固定 DSH Files/文档面板只读，这不能证明旧手工编辑等价。MCP 管理由原生 Plugins 接管；profile 插件清单不等于当前 Workspace 的有效服务器集合，不显示猜测的项目 MCP 数量。
+## 尚未闭合的宿主接口边界
 
-## 继续执行
+- 普通原生Composer每次发送自动冻结CAT显式引用/选区：rc.2公开API没有同步capture+实际requestId+await准入的提交扩展；显式@CAT与LA主动发起任务路径可用，不能当作默认行为等价。
+- 复制失败后的原生Session删除事务：公开API缺失；LA绑定/工具会清理，并准确报告残留Session ID，不能声称已删除。
 
-1. 本轮两处根因修复待新包安装：Host 补充 `sessions` 注入，修复自动任务列表与执行的原生服务错误；CAT 草稿与 Undo/Redo 改由 Session/project 内存状态保留，关闭重开工作台不丢失，插件卸载时清理。本轮211 Node、21 Bun、8类型检查已通过；统一打包，安装后必须冷重启再验收。
-   - 当前43包冷启动、显式CAT Host准入已通过；60秒合成任务实际触发但报 `cannot get property "sessions" without inject`，保留真实失败记录。
-   - 当前 BrowserSkill localhost CLI 扩展链与文件边界各10项通过；DSH Agent 工具调用及取消/重载仍需最终安装态验证。
-2. **默认每次普通发送自动附带CAT上下文仍未实现。** 固定 `0.2.0-rc.1` 缺同步捕获、真实requestId及等待Host准入的公开发送扩展；边界已核对于 `native-composer-public-api-audit.json`。不能把显式引用或自动塞chip称为默认发送等价。
-3. 对同一最终安装版完成全部工作台、四岗位、CAT/工作副本/浏览器三方式、复制/子任务/自动任务/取消、浅深色/窄窗/键盘/IME、真实Provider文字/图片/长上下文/工具说明、BrowserSkill localhost及生命周期验证。DSH原生Workspace行内徽章未找到公开Slot，项目列表Workspace标识不冒充该Slot。
-4. 归并隐私范围证据并运行 `verify:ready`；只有当前安装产物全部必需门禁通过，才能发完整完成通知。
+继续完成不受阻的安装和验收。源仓库只读，不触碰真实Phrase/客户数据库，不修改官方DSH核心，不公开发布。用户于2026-09-29新增授权：已建私有仓库 https://github.com/wangyu-sg/Linguist-Agent-DSH ，本轮完成后推送供网页Pro分析；尚未推送。旧9e安装原始记录不补写；历史截图、旧版本模型证据不冒充新包。
 
-## 历史与验收限度
+## 最新补充
 
-2026-09-29T10:25:20Z核对的df66及更早ba/e4均为历史安装。df66曾实际检查30语言/自定义、日语切换还原、语言冻结提示、单输入框边框及outline按钮；e4有真实模型与BrowserSkill证据。它们不自动计作43完整验收。台前调度关闭后-3811已解除；此前Finder双击、停止重开和CAT恢复也须按最终安装身份归并。
-
-`READY.json`仍为早于当前安装的旧FAILED；32工具标complete、20功能面pending，不据此计算完成百分比。源只读、不操作真实Phrase/客户数据、不远端发布；缺失历史隐私基线按实际可核范围记录。
-
-证据：`artifacts/evidence/native-install-43f143cb3529.json`、`installed-smoke.json`、`provider-43f143-coldstart-observation.json`、`desktop-43f143-coldstart.json`。历史记录保留于 `docs/migration/history/2026-09-29-before-status-reconciliation.json`。
+- 首候选 c05335d56c18 已暂存但从未安装。完整Ponytail审查发现可直接复用官方 FileSystemSkillProvider，已删除自写加载器；新候选 `0461faede705` 已重建，8组类型检查、228项Node、21项Bun全过；仍须重新完整审查，旧hash未获放行。
+- 用户接受当前CAT上下文开销，本轮不做上下文内容优化；核对结果见 `docs/CONTEXT_COST.md`。

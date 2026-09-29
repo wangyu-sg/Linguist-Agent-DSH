@@ -16,6 +16,7 @@ export interface LinguistProjectMutationEvent {
     | 'job-updated'
     | 'run-undone'
   runId?: string
+  sessionId?: string
   toolCallId?: string
   segmentIds?: readonly string[]
   proposalIds?: readonly string[]
@@ -50,6 +51,7 @@ export const LINGUIST_IPC_ERROR_CODES = {
   PROJECT_DELETE_CONFIRMATION_MISMATCH: 'PROJECT_DELETE_CONFIRMATION_MISMATCH',
   PROJECT_ORDER_CONFLICT: 'PROJECT_ORDER_CONFLICT',
   SESSION_COPY_BLOCKED: 'SESSION_COPY_BLOCKED',
+  SESSION_COPY_FAILED: 'SESSION_COPY_FAILED',
   IMPORT_VERIFICATION_FAILED: 'IMPORT_VERIFICATION_FAILED',
   IMPORT_UNDO_BLOCKED: 'IMPORT_UNDO_BLOCKED',
   PROJECT_LOCALE_CHANGE_BLOCKED: 'PROJECT_LOCALE_CHANGE_BLOCKED',
@@ -148,6 +150,10 @@ export interface LinguistIpcError {
    */
   details?: Record<string, number>
   formatDetails?: LinguistFormatErrorDetails
+  sessionCopyDetails?: {
+    sessionId: string
+    cleanup: 'not-started' | 'completed' | 'failed'
+  }
 }
 
 export type LinguistIpcResult<T> =
@@ -1101,6 +1107,19 @@ export interface LinguistRunChangeSummary {
 
 export interface LinguistLatestRunSummaryResult {
   summary: LinguistRunChangeSummary | null
+}
+
+export interface LinguistJobProgressResult {
+  job: {
+    jobId: string
+    sessionId: string
+    runId: string
+    status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
+    cursor: number
+    total: number
+    completed: number
+    failed: number
+  } | null
 }
 
 export interface LinguistRunUndoResult {

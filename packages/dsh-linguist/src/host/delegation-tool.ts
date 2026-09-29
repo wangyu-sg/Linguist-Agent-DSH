@@ -111,7 +111,7 @@ export function createLinguistDelegationTool(input: {
 
   const listTool: ToolDefinition = {
     name: 'linguist_delegations_list',
-    description: 'List direct continuable Linguist children from the native DSH catalog. This lists identity and frozen scope; it does not assert task completion.',
+    description: 'List direct continuable Linguist children and their current professionalOutcome over the full frozen CAT scope. The outcome includes current-revision decisions and required evidence coverage; native child completion alone does not prove professional completion.',
     parameters: { type: 'object', properties: {}, additionalProperties: false }, output: output(),
     async execute(_args, exec) {
       if (exec.agent !== input.agent) throw new Error('Delegation caller is not the bound DSH Agent')

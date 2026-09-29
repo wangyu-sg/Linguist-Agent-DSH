@@ -14,6 +14,7 @@ const messages: Record<LinguistIpcErrorCode, string> = {
   PROJECT_DELETE_CONFIRMATION_MISMATCH: '项目名称确认不匹配，已取消删除',
   PROJECT_ORDER_CONFLICT: '项目顺序已变化，请刷新后重试',
   SESSION_COPY_BLOCKED: '当前会话状态不能安全复制到其他项目',
+  SESSION_COPY_FAILED: '会话复制未完成',
   IMPORT_VERIFICATION_FAILED: '导入未通过回读验证，已整批回滚',
   IMPORT_UNDO_BLOCKED: '该批次已有下游工作引用，无法撤销导入',
   PROJECT_LOCALE_CHANGE_BLOCKED: '项目已有批次或 TM/TB，语言方向已冻结；请新建项目',
@@ -64,6 +65,11 @@ export function describeProjectError(cause: unknown, t: Translate): string {
     return `${description} (${error.code})`
   }
   const base = t(messages[error.code])
+  if (error.code === 'SESSION_COPY_FAILED' && error.sessionCopyDetails) {
+    const { sessionId, cleanup } = error.sessionCopyDetails
+    const detail = { 'not-started': '历史复制失败，尚未建立 Linguist 绑定。', completed: 'Linguist 绑定已清理，原生会话仍保留。', failed: 'Linguist 绑定清理失败，请勿继续使用此副本。' }[cleanup]
+    return `${base}：${t(detail)} ${t('残留会话')} ${sessionId} (${error.code})`
+  }
   if (error.code === 'IMPORT_UNDO_BLOCKED' && error.details) {
     const references = Object.entries(referenceLabels)
       .filter(([key]) => (error.details?.[key] ?? 0) > 0)

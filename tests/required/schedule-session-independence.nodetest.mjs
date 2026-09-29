@@ -95,7 +95,8 @@ test('native task owner survives source removal with frozen project, model and p
       assert(actors.has(id), 'authorized Session must exist')
       assert.equal(bindings.session(id)?.projectId, projectId)
     }, async id => id === sourceId && !sourceEventsAvailable ? undefined : actors.get(id)?.session.ownEvents(), runtime, async (id, message) => { deliveredManually.push({ id, message }) })
-    const created = await manager.create({ sessionId: sourceId, projectId: project.id, title: 'Independent review', prompt: 'Review synthetic selection', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
+    const instruction = 'Review synthetic selection.\nPreserve {player}, <b>tags</b> and 中文.\nReply exactly SYNTHETIC-SCHEDULE-COMPLETE.'
+    const created = await manager.create({ sessionId: sourceId, projectId: project.id, title: 'Independent review', prompt: instruction, executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
     assert.notEqual(created.sessionId, sourceId, 'native Schedule must have its own owner before the first due run')
     assert.equal(native.rows[0].sessionId, created.sessionId)
     const owner = actors.get(created.sessionId)
@@ -118,7 +119,7 @@ test('native task owner survives source removal with frozen project, model and p
       await assert.rejects(manager.update({ ...request, scheduleId: legacy.scheduleId, expectedVersion: legacy.version }), /cancel.*recreate/i)
       await assert.rejects(manager.runNow(sourceId, legacy.scheduleId, legacy.version), /cancel.*recreate/i)
       const due = { id: 'obsolete-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(row) }] }
-      await assert.rejects(manager.dispatchDue(source, { kind: 'enter', messages: [due] }, 1), /cancel.*recreate/i)
+      await assert.rejects(manager.dispatchDue(source, { kind: 'enter', messages: [due] }, 1, [due]), /cancel.*recreate/i)
       await assert.rejects(manager.onPreStep(source, { kind: 'enter', messages: [due] }, 1, 0), /cancel.*recreate/i)
       assert.equal(native.updates, 0)
       assert.deepEqual(deliveredManually, [])
@@ -131,7 +132,7 @@ test('native task owner survives source removal with frozen project, model and p
         writeFileSync(path, JSON.stringify(partial))
         await assert.rejects(manager.update({ ...request, scheduleId: legacy.scheduleId, expectedVersion: legacy.version }), /cancel.*recreate/i)
         await assert.rejects(manager.runNow(sourceId, legacy.scheduleId, legacy.version), /cancel.*recreate/i)
-        await assert.rejects(manager.dispatchDue(source, { kind: 'enter', messages: [due] }, 1), /cancel.*recreate/i)
+        await assert.rejects(manager.dispatchDue(source, { kind: 'enter', messages: [due] }, 1, [due]), /cancel.*recreate/i)
       }
       writeFileSync(path, before)
       sourceEventsAvailable = false
@@ -160,7 +161,9 @@ test('native task owner survives source removal with frozen project, model and p
     const due = { id: 'independent-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
     owner.session.append('turn/start', { turn: 1 })
     manager.recordAttempts(owner, [due], 1)
-    assert.deepEqual((await manager.dispatchDue(owner, { kind: 'enter', messages: [due] }, 1)).messages, [])
+    assert.doesNotThrow(() => validateStoredEvents(stored.get(owner.id).header, structuredClone(owner.session.ownEvents())), 'task admission must remain readable after a native cold restart')
+    assert.deepEqual(await manager.dispatchDue(owner, { kind: 'enter', messages: [due, { id: 'native-context', role: 'user', source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Synthetic native context injection' }] }] }, 1, [due]), { kind: 'reject' }, 'the owner must not run a model with only native context injections after dispatch')
+    assert.doesNotThrow(() => validateStoredEvents(stored.get(owner.id).header, structuredClone(owner.session.ownEvents())), 'task dispatch must remain readable after a native cold restart')
     const child = [...actors.values()].find(actor => actor !== owner)
     assert(child)
     assert.equal(bindings.session(child.id).projectId, project.id)
@@ -171,10 +174,15 @@ test('native task owner survives source removal with frozen project, model and p
     child.session.append('turn/start', { turn: 1 })
     const admitted = await manager.onPreStep(child, { kind: 'enter', messages: [delivered] }, 1, 0)
     assert.equal(admitted.messages[0].source.projectId, project.id)
+    assert.equal(admitted.messages[0].content[0].text.split('\n\n')[0], instruction)
+    child.session.append('user/message', admitted.messages[0], { surfaceOp: 'append' })
+    const childEvents = validateStoredEvents(stored.get(child.id).header, structuredClone(child.session.ownEvents()))
+    const restoredChild = Session.create(child.id, childEvents, stored.get(child.id).header)
+    assert.equal(restoredChild.deriveMessages().find(message => message.source.kind === 'linguist-schedule-execution').content[0].text, admitted.messages[0].content[0].text, 'the complete scheduled instruction must survive native cold read on the exact model-request surface')
     await manager.validateModelRequest(child, 1, 0, { provider: 'synthetic', model: 'chosen' }, async (provider, model) => assert.deepEqual([provider, model], ['synthetic', 'chosen']))
     assert(!reads.includes(sourceId), 'no execution read depends on deleted source')
     await native.stopSessionTasks(owner.id)
-    await assert.rejects(manager.dispatchDue(owner, { kind: 'enter', messages: [due] }, 2), /deleted or changed/)
+    await assert.rejects(manager.dispatchDue(owner, { kind: 'enter', messages: [due] }, 2, [due]), /deleted or changed/)
     assert.equal(native.rows.length, 0, 'archiving/stopping task owner never recreates its native schedule')
     const sessionCount = stored.size
     ctx.sessionController.projections = async () => ({ values: {} })

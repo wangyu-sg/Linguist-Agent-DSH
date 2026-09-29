@@ -7,16 +7,16 @@
     "npmIntegrity": "sha512-iYZFvXebovk25EVcE9tHmAroP40bz2fMwXKGjvaGGTtWU++yoFUoWiWNKzO6hadMg6iJiarc1H6myGXzMe+ERQ==",
     "license": "MIT"
   },
-  "adaptedPluginVersion": "0.3.1-la-dsh.2",
-  "dshVersion": "0.2.0-rc.1",
+  "adaptedPluginVersion": "0.3.1-la-dsh.3",
+  "dshVersion": "0.2.0-rc.2",
   "pnpmVersion": "10.17.0",
   "upstreamPluginTreeSha256": "c1c6a6ee4a82460bef494860f6e40fbc02d6d7730d944ad398631876f97831c1",
   "upstreamUiTreeSha256": "34c462dfe4db17b30447974e249b3504e3825f5aa908b67c04375475fbdecbd8",
   "upstreamLockSha256": "0b8a862165ef7d5fc27ae1378066d3ce998f7a51641aecbe72774f52d649c2cd",
   "upstreamRootPackageSha256": "10c251044fb6c558f014db0274b07927deae3267d0f66220ee15d96e986a856c",
   "upstreamWorkspaceSha256": "4a961a61ba41b508649ffeaf552bcfaeacd0b6418c5b539756419308ce141a0e",
-  "patchSha256": "532af6e29e91c5466bee6b1af68556babeb51819f730623ee0863b88df6435b8",
-  "adaptedTarballSha256": "b4f81677216bc0464a6b16ceb9c9046fb56dfc8e2e521636fb7a9b1a14a6a83a",
+  "patchSha256": "ab5f7c28c41c2e527a04c1a404295457fc5dc58e44d64efdfbd8baae91cc50a6",
+  "adaptedTarballSha256": "a61fd813bed53154f6555dbad046924f6820912ee469d7191bd25fa47aad350e",
   "cliRelease": {
     "tag": "cli-v0.3.1",
     "commit": "da6bf4eed2dd7256567e152df8c903c87f6598c3",
@@ -32,5 +32,5 @@
     "archiveSha256": "9d41a8450653dbdcea365b611a163d9ddbbf0c0078bff42dbe8e2cf5910cbb8e",
     "manifestVersion": "0.3.1"
   },
-  "adaptedLockSha256": "b643ce9d054afd496b9dd910be378c2d1f0e1a76115722d3f8452dca71aab9e4"
+  "adaptedLockSha256": "e9452fa8aa11f8059dd60d483121fb5f8692f3a97556c2fca206aa3b417600f4"
 }

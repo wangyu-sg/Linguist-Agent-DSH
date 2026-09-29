@@ -1,10 +1,8 @@
-.badge { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; color: var(--dsw-alias-label-secondary); font-size: 11px; white-space: nowrap; }
-.badge button { border: 0; border-radius: 4px; background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); color: var(--dsw-alias-brand-primary); padding: 3px 6px; cursor: pointer; }
-.badge button:focus-visible { outline: 2px solid var(--dsw-alias-border-focus); }
-.badge select { max-width: 92px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 2px 4px; font-size: 11px; }
-.detachConfirm { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; display: flex; width: min(360px, 80vw); flex-wrap: wrap; gap: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); padding: 10px; box-shadow: 0 8px 24px #0002; color: var(--dsw-alias-label-primary); white-space: normal; }
-.notice, .error { color: var(--dsw-alias-label-error); font-size: 12px; padding: 8px; }
-.contextChips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 0 6px 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.contextChip { display: inline-flex; align-items: center; max-width: 100%; gap: 3px; border-radius: 999px; background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); color: var(--dsw-alias-brand-primary); padding: 3px 7px; overflow-wrap: anywhere; }
-.contextChip button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 2px; font: inherit; }
-.contextChips small { width: 100%; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.badge { composes: surface from './Controls.module.css'; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.identity { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.notice { composes: notice from './Controls.module.css'; padding: 16px; }
+.error { composes: error from './Controls.module.css'; padding: 8px; }
+.contextChips { composes: surface from './Controls.module.css'; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 8px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.contextChip { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); padding: 4px 8px; overflow-wrap: anywhere; }
+.contextChips small { width: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; }

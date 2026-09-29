@@ -3,10 +3,10 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { Value } from 'typebox/value'
-import type { LinguistToolDefinition } from '@linguist/cat-tools'
+import type { LinguistToolDefinition, LinguistToolResult } from '@linguist/cat-tools'
 
 /** Preserve the original TypeBox validation at the model-input boundary. */
-export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => void, onExecuting?: (callId: string, rootCallId: string) => void): ToolDefinition {
+export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => void, onExecuting?: (callId: string, rootCallId: string) => void, onUpdate?: (callId: string, update: LinguistToolResult) => void): ToolDefinition {
   const parameters = JSON.parse(JSON.stringify(source.parameters)) as Record<string, unknown>
   return {
     name: source.name,
@@ -34,7 +34,7 @@ export function adaptCatTool(source: LinguistToolDefinition, attachments: Attach
         throw new Error(`Invalid ${source.name} arguments: ${first?.message ?? ''}`)
       }
       onExecuting?.(exec.callId, exec.rootCallId ?? exec.callId)
-      const result = await source.execute(exec.callId, args as never, exec.signal)
+      const result = await source.execute(exec.callId, args as never, exec.signal, update => onUpdate?.(exec.callId, update))
       const content: ContentBlock[] = []
       for (const item of result.content) {
         if (item.type === 'text') content.push(item)

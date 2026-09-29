@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { classifyReceipt } from '../../scripts/notify.mjs'
 import { runInstalledSmoke } from '../../scripts/smoke-installed.mjs'
+import { privatePushProof } from '../../scripts/verify-ready.mjs'
 
 const now = Date.parse('2026-09-28T15:00:00.000Z')
 const pack = { dshVersion: '0.2.0-rc.1', linguist: { sha256: 'a'.repeat(64) }, browserSkill: { sha256: 'b'.repeat(64) } }
@@ -16,7 +18,7 @@ const receipt = {
   acceptanceSha256: 'f'.repeat(64), smokeSha256: '1'.repeat(64),
   installed: { installationId: current.installationId, dshVersion: current.dshVersion, desktopProfile: 'desktop', desktopArtifactSha256: desktopArtifact.sha256, pluginHash: pack.linguist.sha256, browserSkill: { plugin: pack.browserSkill.sha256 }, desktopArtifact },
   targetCodeIdentity: { treeHash: 'e'.repeat(64) },
-  gates: [...Array.from({ length: 12 }, (_, index) => ({ id: `G${String(index + 1).padStart(2, '0')}`, outcome: 'pass' })), { id: 'V30', outcome: 'pass' }],
+  gates: [...Array.from({ length: 13 }, (_, index) => ({ id: `G${String(index + 1).padStart(2, '0')}`, outcome: 'pass' })), { id: 'V30', outcome: 'pass' }],
   blockers: [], customerDataTouched: false, remotePublished: false, launch: { appPath: current.appPath, url: 'dsh-app://app/', dataRoot: current.dataRoot, reopenVerified: true },
 }
 const input = {
@@ -48,6 +50,42 @@ test('success notification requires the matching current receipt and every manda
 test('blocked environment receipt never becomes a success notification', () => {
   const blocked = { ...receipt, status: 'BLOCKED_ENV', gates: receipt.gates.map(item => item.id === 'G08' ? { ...item, outcome: 'blocked' } : item), blockers: [{ code: 'G08', detail: 'extension is disconnected' }] }
   assert.equal(classifyReceipt({ ...input, receipt: blocked }).status, 'BLOCKED_ENV')
+})
+
+test('authorized private push requires hashed evidence of the exact repository and current local/remote commit', () => {
+  const dir = mkdtempSync(new URL('../../artifacts/evidence/private-push-test-', import.meta.url))
+  const commit = '3'.repeat(40)
+  const authorization = { repository: 'https://github.com/wangyu-sg/Linguist-Agent-DSH', visibility: 'private', userAuthorized: true }
+  const pushed = { schemaVersion: 1, status: 'PUSHED', repository: authorization.repository, visibility: 'private', pushExitCode: 0, localCommit: commit, remoteCommit: commit }
+  const path = join(dir, 'push.json')
+  const proofFor = value => {
+    writeFileSync(path, JSON.stringify(value))
+    return { receiptPath: path, receiptSha256: createHash('sha256').update(readFileSync(path)).digest('hex') }
+  }
+  try {
+    const proof = proofFor(pushed)
+    const published = { ...receipt, remotePublished: true, remotePushAuthorization: authorization, privatePush: proof, targetCodeIdentity: { ...receipt.targetCodeIdentity, commit } }
+    const check = extra => classifyReceipt({ ...input, codeCommit: commit, receipt: published, ...extra })
+    assert.deepEqual(privatePushProof(false, undefined, undefined, undefined), [])
+    assert.deepEqual(privatePushProof(true, authorization, proof, commit), [path])
+    assert.equal(check().status, 'READY')
+    assert.equal(check({ receipt: { ...published, status: 'BLOCKED_ENV', blockers: [{ code: 'G08', detail: 'extension missing' }] } }).status, 'BLOCKED_ENV')
+    assert.equal(check({ receipt: { ...published, customerDataTouched: true } }).status, 'FAILED')
+    assert.equal(check({ receipt: { ...published, gates: receipt.gates.map(gate => gate.id === 'G09' ? { ...gate, outcome: 'fail' } : gate) } }).status, 'FAILED')
+    assert.equal(check({ receipt: { ...published, remotePushAuthorization: { ...authorization, userAuthorized: false } } }).status, 'FAILED')
+    assert.equal(check({ receipt: { ...published, targetCodeIdentity: { ...published.targetCodeIdentity, commit: '4'.repeat(40) } } }).status, 'FAILED')
+    assert.equal(check({ codeCommit: undefined }).status, 'FAILED')
+    assert.equal(check({ codeCommit: '4'.repeat(40) }).status, 'FAILED')
+    for (const change of [{ visibility: 'public' }, { repository: 'https://github.com/wangyu-sg/another-repo' }, { localCommit: '4'.repeat(40) }, { remoteCommit: '4'.repeat(40) }, { pushExitCode: 1 }, { status: 'CREATED' }]) {
+      const invalid = proofFor({ ...pushed, ...change })
+      assert.throws(() => privatePushProof(true, authorization, invalid, commit))
+      assert.equal(check({ receipt: { ...published, privatePush: invalid } }).status, 'FAILED')
+    }
+    const valid = proofFor(pushed)
+    writeFileSync(path, JSON.stringify({ ...pushed, visibility: 'public' }))
+    assert.throws(() => privatePushProof(true, authorization, valid, commit), /hash changed/)
+    assert.equal(check({ receipt: { ...published, privatePush: valid } }).status, 'FAILED')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('installed smoke rejects missing or Web carrier installations without fabricating Desktop evidence', async () => {

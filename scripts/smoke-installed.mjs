@@ -13,8 +13,8 @@ export const productRoot = join(homedir(), 'Library/Application Support/Linguist
 export const currentPath = join(productRoot, 'current.json')
 export const smokePath = join(sourceRoot, 'artifacts/evidence/installed-smoke.json')
 const officialDesktop = {
-  sha256: '86cea83e41f516bbfb71d634bf62b965e5944723224abf41606ba8d636fe9858',
-  bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.1', teamId: 'NAN929V4UM',
+  sha256: '7c32c459c403d8a035ac60600f240ed2025312f0a7afde283f454f30ec4ed96e',
+  bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.2', teamId: 'NAN929V4UM',
 }
 
 const digest = value => createHash('sha256').update(value).digest('hex')
@@ -124,13 +124,14 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
         'lib/index.mjs', 'lib/client.cjs', 'lib/cat-job-worker.js', 'lib/integrity-scrub-worker.js',
         'resources/linguist-roles/general.md', 'resources/linguist-roles/translator.md',
         'resources/linguist-roles/reviewer.md', 'resources/linguist-roles/proofreader.md',
+        ...['cultural-lqa', 'game-localization', 'localization-readiness', 'release-lqa',
+          'terminology-candidate-mining', 'translator-brief'].map(name => `resources/skills/${name}/SKILL.md`),
         'resources/skills/phrase-platform-review-ops/SKILL.md',
         'resources/skills/phrase-platform-review-ops/references/workspace-update.md', 'cordis.patch.yml',
       ], current.home)
       const client = readFileSync(join(location, 'lib/client.cjs'), 'utf8')
       if (!client.includes('data-linguist-css') || !client.includes('registerLinguistLocale')) throw new Error('installed Client CSS or locale code is missing')
-      if (!existsSync(join(current.home, 'skills/phrase-platform-review-ops/SKILL.md'))) throw new Error('Phrase skill is missing from the DSH skill root')
-      return `${count} tarball files match installed LA package including Host, Client, CSS, locale, workers, roles and skill`
+      return `${count} tarball files match installed LA package including Host, Client, CSS, locale, workers, roles and seven bundled skills`
     })
     await check('browser-skill-files', async () => {
       const location = join(current.home, 'profiles/desktop/node_modules/@wxg-prc-cpg/browser-skill-dsh-plugin')

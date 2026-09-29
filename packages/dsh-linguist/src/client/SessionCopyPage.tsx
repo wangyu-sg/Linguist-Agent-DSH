@@ -3,6 +3,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LinguistProjectInfo } from '@linguist/domain-service/contracts'
 import { getBinding, required, type LinguistBinding } from './api'
 import { useT } from './ui-locale'
+import { describeProjectError } from './project-errors'
 import styles from './SessionCopyPage.module.css'
 
 type Project = LinguistProjectInfo & { workspaceId?: string }
@@ -37,7 +38,7 @@ export function SessionCopyPage({ sessionId, onCopied }: {
       setBinding(nextBinding)
       setProjects(nextProjects)
       setLoading(false)
-    }).catch((cause: unknown) => { if (live) { setError(String(cause)); setLoading(false) } })
+    }).catch((cause: unknown) => { if (live) { setError(describeProjectError(cause, t)); setLoading(false) } })
     return () => { live = false }
   }, [sessionId])
 
@@ -48,7 +49,7 @@ export function SessionCopyPage({ sessionId, onCopied }: {
     setEligibility(undefined)
     required<Eligibility>('linguistSessionsCopyEligibility', { sessionId, ...(targetProjectId ? { targetProjectId } : {}) })
       .then((result) => { if (live) { setEligibility(result); setChecking(false) } })
-      .catch((cause: unknown) => { if (live) { setError(String(cause)); setChecking(false) } })
+      .catch((cause: unknown) => { if (live) { setError(describeProjectError(cause, t)); setChecking(false) } })
     return () => { live = false }
   }, [binding, sessionId, targetProjectId])
 
@@ -57,14 +58,14 @@ export function SessionCopyPage({ sessionId, onCopied }: {
   const target = candidates.find((project) => project.id === targetProjectId)
   const mismatchedLocales = source && target && (source.sourceLocale !== target.sourceLocale || source.targetLocale !== target.targetLocale)
   const copy = async () => {
-    if (!target || !eligibility?.eligible || copying || copied) return
+    if (copying || (!copied && (!target || !eligibility?.eligible))) return
     setCopying(true)
     setError('')
     try {
-      const result = await required<SessionCopyResult>('linguistSessionsCopyToProject', { sessionId, targetProjectId: target.id })
+      const result = copied ?? await required<SessionCopyResult>('linguistSessionsCopyToProject', { sessionId, targetProjectId: target!.id })
       setCopied(result)
       await onCopied(result)
-    } catch (cause) { setError(String(cause)) }
+    } catch (cause) { setError(describeProjectError(cause, t)) }
     finally { setCopying(false) }
   }
 
@@ -88,7 +89,7 @@ export function SessionCopyPage({ sessionId, onCopied }: {
         : t('此会话没有对话历史；将在目标 Workspace 创建空白 DSH Session。')}</p>}
       {mismatchedLocales && <p role="status" className={styles.warning}>{t('目标项目的语言方向与源项目不同；后续上下文将使用目标项目策略。')}</p>}
       {copied && <p role="status">{t('已创建 DSH Session')}：{copied.sessionId}</p>}
-      <Button variant="primary" disabled={!target || !eligibility?.eligible || checking || copying || !!copied} onClick={() => void copy()}>{copying ? t('正在复制…') : t('复制并打开')}</Button>
+      <Button variant="primary" disabled={copying || (!copied && (!target || !eligibility?.eligible || checking))} onClick={() => void copy()}>{copying ? t('正在打开…') : copied ? t('打开已创建会话') : t('复制并打开')}</Button>
     </>}
   </section>
 }

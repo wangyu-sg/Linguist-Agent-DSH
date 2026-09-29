@@ -50,7 +50,9 @@ Implement all W00–W12 packages and all locally inventoried features. Work pack
 
 Allowed: target code, necessary pinned dependencies, bounded compatibility patches, isolated synthetic tests, limited real-model smoke using configured routes, installation of the matching official DSH Desktop at /Applications/DeepSeek Harness.app and native plugins in its default desktop profile, own-service start/stop, local git commits and final local notification. The official Desktop owns its reserved `desktop` profile; CLI may not mutate it. Web profile checks are development evidence only.
 
-Forbidden: source mutations, old LA/Proma replacement or deletion of existing DSH profile data, real OSgame/customer database writes, real Phrase operations, user-data deletion, Cookie/key extraction, auth bypass, remote push/release/publication, unrelated global upgrades and system security changes.
+Forbidden: source mutations, old LA/Proma replacement or deletion of existing DSH profile data, real OSgame/customer database writes, real Phrase operations, user-data deletion, Cookie/key extraction, auth bypass, public release/publication, unrelated global upgrades and system security changes.
+
+User authorization added 2026-09-29: create the private GitHub repository `https://github.com/wangyu-sg/Linguist-Agent-DSH` and push this target project after completing the work, for analysis by the user's web GPT Pro. This supersedes the earlier prohibition on remote push for that repository only. Exclude credentials, runtime profiles, customer data and local evidence containing private data. Ponytail review remains required before each commit and push. Record the actual destination, private visibility and pushed commit.
 
 Use no customer content in fixtures, logs or model tests. Never dump environment variables, credentials or browser profiles. Do not silently change model/provider/effort to pass a test.
 
