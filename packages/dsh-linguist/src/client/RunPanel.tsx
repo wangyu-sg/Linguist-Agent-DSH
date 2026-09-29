@@ -98,7 +98,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
   }
 
   return <form className={styles.scheduleForm} onSubmit={(event) => void create(event)}>
-    <h3>{t(editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
+    <h3>{t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
     <p>{t('到期在当前 DSH Session 执行，沿用当前模型和权限；需要登录或授权时会停在原生交互。')}</p>
     {editing && <p>{t('编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。')}{kind === 'after' && ` ${t('若修改延迟秒数，会从保存时重新计时并转换为绝对时间。')}`}</p>}
     <label>{t('任务名称')}<Input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
@@ -125,8 +125,8 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       {kind === 'cron' && <label>Cron<Input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<Input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
-    <div className={styles.toolbar}><Button variant="outline" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
-    {created && <p role="status">{t(editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
+    <div className={styles.toolbar}><Button variant="outline" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
+    {created && <p role="status">{t(editing?.pausedAfterFailures ? '已恢复 DSH 调度' : editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
     {error && <p role="alert">{error}</p>}
   </form>
 }

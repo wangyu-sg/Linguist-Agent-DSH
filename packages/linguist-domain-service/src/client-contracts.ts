@@ -1259,6 +1259,8 @@ export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   maxRuns?: number
   runCount: number
   limitReached: boolean
+  consecutiveFailures: number
+  pausedAfterFailures: boolean
   timing: LinguistScheduleTiming
   scopeSnapshot: { assetId?: string; selectedSegmentIds: string[] }
   status: 'active' | 'inactive'

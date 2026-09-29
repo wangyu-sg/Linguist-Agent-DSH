@@ -2,6 +2,9 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '已恢复 DSH 调度': 'DSH schedule resumed',
+  '重新核验并恢复': 'Revalidate and resume',
+  '连续失败已暂停': 'Paused after consecutive failures', '连续失败次数': 'Consecutive failures',
   '错误代码': 'Error code',
   '最多执行次数（留空不限）': 'Maximum runs (blank for unlimited)',
   '已达到执行次数上限': 'Run limit reached',

@@ -20,7 +20,7 @@ import type { BindingStore } from './bindings'
 declare module '@deepseek-ai/dsh-llm/message' {
   interface MessageSourceMap {
     'linguist-schedule-execution': { kind: 'linguist-schedule-execution'; scheduleId: string; projectId: string }
-    'linguist-schedule-manual': { kind: 'linguist-schedule-manual'; scheduleId: string; requestedAt: string }
+    'linguist-schedule-manual': { kind: 'linguist-schedule-manual'; scheduleId: string; nativeScheduleId: string; requestedAt: string }
   }
 }
 
@@ -33,6 +33,10 @@ interface StoredScheduleContext {
   version: 1
   token: string
   scheduleId?: string
+  rootScheduleId?: string
+  retainedHistory?: LinguistScheduleHistoryResult
+  failureResetAfter?: string
+  pendingResume?: { prompt: string; rule: ScheduleRule; at?: string }
   sessionId: string
   workspaceId: string
   executeAtDue: true
@@ -45,7 +49,7 @@ interface StoredScheduleContext {
   expectedRule: ScheduleRule
   initialScheduledAt?: string
   maxRuns?: number
-  completed?: { native: ScheduleCatalogEntry; history: LinguistScheduleHistoryResult }
+  stopped?: { reason: 'max-runs' | 'consecutive-failures'; native: ScheduleCatalogEntry; history: LinguistScheduleHistoryResult }
   pendingUpdate?: true
   createdAt: string
 }
@@ -87,8 +91,8 @@ function rule(record: ScheduleRecord): ScheduleRule {
   }
 }
 
-function version(record: ScheduleRecord, maxRuns?: number): string {
-  return createHash('sha256').update(JSON.stringify({ id: record.id, scheduledAt: record.scheduledAt, rule: rule(record), maxRuns })).digest('hex')
+function version(record: ScheduleRecord, maxRuns?: number, stopReason?: NonNullable<StoredScheduleContext['stopped']>['reason']): string {
+  return createHash('sha256').update(JSON.stringify({ id: record.id, scheduledAt: record.scheduledAt, rule: rule(record), maxRuns, stopReason })).digest('hex')
 }
 
 function timingOf(record: ScheduleRecord): LinguistScheduleTiming {
@@ -166,11 +170,42 @@ export function scheduleExecutions(events: readonly SessionEvent[], scheduleId: 
   return runs
 }
 
+/** Match LA's five-failure stop rule using only committed native execution endings. */
+export function scheduleRunPolicy(executions: LinguistScheduleHistoryResult['executions'], maxRuns?: number, resetAfter?: string): {
+  runCount: number; consecutiveFailures: number; stopReason?: 'max-runs' | 'consecutive-failures'
+} {
+  const ended = executions.filter(run => run.endedAt)
+  let consecutiveFailures = 0
+  for (const run of ended.slice().reverse()) {
+    if (run.messageId === resetAfter || run.outcome !== 'error') break
+    consecutiveFailures++
+  }
+  const stopReason = maxRuns !== undefined && ended.length >= maxRuns ? 'max-runs'
+    : consecutiveFailures >= 5 ? 'consecutive-failures' : undefined
+  return { runCount: ended.length, consecutiveFailures, ...(stopReason ? { stopReason } : {}) }
+}
+
+function matchesResume(entry: ScheduleRecord, pending: NonNullable<StoredScheduleContext['pendingResume']>): boolean {
+  return entry.prompt === pending.prompt && isDeepStrictEqual(rule(entry), pending.rule)
+    && (pending.at === undefined || entry.scheduledAt === pending.at)
+}
+
+function logicalId(saved: StoredScheduleContext): string { return (saved.rootScheduleId ?? saved.scheduleId)! }
+
+function executionHistory(saved: StoredScheduleContext, events: readonly SessionEvent[]): LinguistScheduleHistoryResult['executions'] {
+  if (saved.stopped) return [...saved.stopped.history.executions].reverse()
+  const retained = [...(saved.retainedHistory?.executions ?? [])].reverse()
+  const current = scheduleExecutions(events, logicalId(saved))
+  const currentIds = new Set(current.map(run => run.messageId))
+  return [...retained.filter(run => !currentIds.has(run.messageId)), ...current]
+}
+
 /** Sidecar holds LA authorization only; native Schedule owns time, delivery, and Session followup. */
 export class ScheduleContextManager {
   private readonly directory: string
   private readonly modelChecks = new Set<string>()
-  private readonly limitChecks = new Map<string, Promise<void>>()
+  private readonly resuming = new Set<string>()
+  private readonly policyChecks = new Map<string, Promise<void>>()
 
   constructor(
     dataRoot: string,
@@ -185,7 +220,7 @@ export class ScheduleContextManager {
     mkdirSync(this.directory, { recursive: true, mode: 0o700 })
   }
 
-  async create(request: LinguistScheduleCreateRequest): Promise<LinguistScheduleCreateResult> {
+  private async capture(request: LinguistScheduleCreateRequest) {
     const binding = this.bindings.session(request.sessionId)
     if (!binding?.projectId || binding.projectId !== request.projectId || binding.workMode !== 'cat') throw new Error('Schedule needs a bound Linguist CAT Session')
     await this.assertProjectSession(request.sessionId, request.projectId)
@@ -195,11 +230,16 @@ export class ScheduleContextManager {
     if (!context?.scope) throw new Error('Schedule requires an explicit project scope')
     const segmentIds = [...(revalidateAutomationLinguistContext(context, binding, binding.workspaceId, this.bindings, this.service) ?? [])]
     const projectRevision = computeLinguistProjectRevision(project, this.service.openProject(project.id))
+    return { context, segmentIds, projectRevision, workspaceId: binding.workspaceId }
+  }
+
+  async create(request: LinguistScheduleCreateRequest): Promise<LinguistScheduleCreateResult> {
+    const { context, segmentIds, projectRevision, workspaceId } = await this.capture(request)
     const token = randomUUID()
     const nativePrompt = `${request.prompt}${MARKER}${token}]`
     const preview = previewRecord(request.timing, request.title, nativePrompt, Date.now())
     const saved: StoredScheduleContext = {
-      version: 1, token, maxRuns: request.maxRuns, sessionId: request.sessionId, workspaceId: binding.workspaceId, executeAtDue: true,
+      version: 1, token, maxRuns: request.maxRuns, sessionId: request.sessionId, workspaceId, executeAtDue: true,
       context, segmentIds, projectRevision, title: request.title, instruction: request.prompt, nativePrompt,
       expectedRule: rule(preview), ...(preview.kind === 'at' ? { initialScheduledAt: preview.scheduledAt } : {}), createdAt: new Date().toISOString(),
     }
@@ -219,12 +259,12 @@ export class ScheduleContextManager {
     const binding = this.bindings.session(sessionId)
     if (!binding?.projectId) throw new Error('Session is not bound to a Linguist project')
     await this.assertProjectSession(sessionId, binding.projectId)
-    await this.enforceRunLimits(sessionId)
+    await this.enforceRunPolicy(sessionId)
     const items: LinguistScheduleInfo[] = []
     const catalog = [...await this.schedule.catalog()]
     for (const name of readdirSync(this.directory).filter(name => /^[0-9a-f-]+\.json$/i.test(name))) {
       const saved = this.read(name.slice(0, -5))
-      if (saved.sessionId === sessionId && saved.completed && !catalog.some(item => item.id === saved.scheduleId)) catalog.push({ ...saved.completed.native, status: 'inactive' })
+      if (saved.sessionId === sessionId && saved.stopped && !catalog.some(item => item.id === saved.scheduleId)) catalog.push({ ...saved.stopped.native, status: 'inactive' })
     }
     const events = await this.readSessionEvents(sessionId)
     for (const native of catalog) {
@@ -236,83 +276,96 @@ export class ScheduleContextManager {
         || (saved.initialScheduledAt !== undefined && (native.kind === 'after' || native.kind === 'at') && native.scheduledAt !== saved.initialScheduledAt)
         || binding.role !== saved.context.role || binding.workspaceId !== saved.workspaceId || project.archivedAt !== undefined
         || computeLinguistProjectRevision(project, this.service.openProject(project.id)) !== saved.projectRevision
-      items.push({ scheduleId: native.id, sessionId, projectId: saved.context.projectId, title: saved.title, prompt: saved.instruction,
+      const policy = scheduleRunPolicy(executionHistory(saved, events), saved.maxRuns, saved.failureResetAfter)
+      items.push({ scheduleId: logicalId(saved), sessionId, projectId: saved.context.projectId, title: saved.title, prompt: saved.instruction,
         kind: native.kind, scheduledAt: native.scheduledAt, timing: timingOf(native), role: saved.context.role, scope: saved.context.scope!.kind,
         scopeSnapshot: { ...(saved.context.scope!.kind === 'project' ? {} : { assetId: saved.context.scope!.assetId }),
           selectedSegmentIds: saved.context.scope!.kind === 'segments' ? [...saved.context.scope!.segmentIds] : [] },
-        executeAtDue: true, version: version(native, saved.maxRuns), status: native.status,
-        maxRuns: saved.maxRuns, runCount: (saved.completed?.history.executions ?? scheduleExecutions(events, native.id)).filter(run => run.endedAt).length, limitReached: saved.completed !== undefined,
+        executeAtDue: true, version: version(native, saved.maxRuns, saved.stopped?.reason), status: native.status,
+        maxRuns: saved.maxRuns, runCount: policy.runCount, consecutiveFailures: policy.consecutiveFailures,
+        limitReached: saved.stopped?.reason === 'max-runs', pausedAfterFailures: saved.stopped?.reason === 'consecutive-failures',
         authorizationStatus: saved.pendingUpdate ? 'pending-update' : changed ? 'changed' : 'ready',
         ...(native.lastDelivery ? { lastDeliveredAt: native.lastDelivery.deliveredAt } : {}) })
     }
     return { items }
   }
 
-  async cancel(sessionId: string, scheduleId: string): Promise<LinguistScheduleCancelResult> {
+  private task(scheduleId: string): StoredScheduleContext {
     const token = this.tokenForSchedule(scheduleId)
     if (!token) throw new Error('Schedule does not belong to Linguist Agent')
     const saved = this.read(token)
+    if (logicalId(saved) !== scheduleId) throw new Error('Use the stable LA Schedule identity')
+    return saved
+  }
+
+  async cancel(sessionId: string, scheduleId: string): Promise<LinguistScheduleCancelResult> {
+    const saved = this.task(scheduleId)
     await this.assertProjectSession(sessionId, saved.context.projectId)
     if (saved.sessionId !== sessionId) throw new Error('Schedule belongs to another DSH Session')
-    const result = await this.schedule.delete({ sessionId: sessionId as SessionId, id: ScheduleId(scheduleId) })
+    const result = await this.schedule.delete({ sessionId: sessionId as SessionId, id: ScheduleId(saved.scheduleId!) })
     return { scheduleId, cancelled: result.deleted }
   }
 
   async history(sessionId: string, scheduleId: string, limit: number, before?: string): Promise<LinguistScheduleHistoryResult> {
-    const token = this.tokenForSchedule(scheduleId)
-    if (!token) throw new Error('Schedule does not belong to Linguist Agent')
-    const saved = this.read(token)
+    const saved = this.task(scheduleId)
     await this.assertProjectSession(sessionId, saved.context.projectId)
     if (saved.sessionId !== sessionId) throw new Error('Schedule belongs to another DSH Session')
-    if (saved.completed) {
-      const history = saved.completed.history
-      const start = before ? history.records.findIndex(record => record.messageId === before) + 1 : 0
-      if (before && start === 0) throw new Error('Schedule history cursor not found')
-      const records = history.records.slice(start, start + limit)
-      return { ...history, records, executions: history.executions.slice(0, limit),
-        nextBefore: start + limit < history.records.length ? records.at(-1)!.messageId : undefined }
+    let history = saved.stopped?.history
+    if (!history) {
+      const records: LinguistScheduleHistoryResult['records'] = []
+      let cursor: string | undefined
+      let earlierRecordsUnavailable = saved.retainedHistory?.earlierRecordsUnavailable ?? false
+      let earlierRecordsPruned = saved.retainedHistory?.earlierRecordsPruned ?? false
+      do {
+        const result = await this.schedule.history({ sessionId: sessionId as SessionId, id: ScheduleId(saved.scheduleId!), limit: 100,
+          ...(cursor ? { before: cursor as import('@deepseek-ai/dsh-llm').MessageId } : {}) })
+        if (!('records' in result)) throw new Error('Native DSH Schedule history is unavailable')
+        records.push(...result.records.map(record => ({ scheduledAt: record.scheduledAt, deliveredAt: record.deliveredAt,
+          messageId: record.messageId, ...(record.prompt === saved.nativePrompt ? { prompt: saved.instruction } : {}) })))
+        earlierRecordsUnavailable ||= result.earlierRecordsUnavailable
+        earlierRecordsPruned ||= result.earlierRecordsPruned
+        cursor = result.nextBefore
+      } while (cursor)
+      // ponytail: merge retained history in memory; index it if repeated resumes make it large.
+      const ids = new Set(records.map(record => record.messageId))
+      records.push(...(saved.retainedHistory?.records ?? []).filter(record => !ids.has(record.messageId)))
+      history = { scheduleId, records, earlierRecordsUnavailable, earlierRecordsPruned,
+        executions: executionHistory(saved, await this.readSessionEvents(sessionId)).reverse() }
     }
-    const result = await this.schedule.history({ sessionId: sessionId as SessionId, id: ScheduleId(scheduleId), limit,
-      ...(before ? { before: before as import('@deepseek-ai/dsh-llm').MessageId } : {}) })
-    if (!('records' in result)) throw new Error('Native DSH Schedule history is unavailable')
-    return { scheduleId, executions: scheduleExecutions(await this.readSessionEvents(sessionId), scheduleId).slice(-limit).reverse(), records: result.records.map(record => ({ scheduledAt: record.scheduledAt, deliveredAt: record.deliveredAt,
-      messageId: record.messageId, ...(record.prompt === saved.nativePrompt ? { prompt: saved.instruction } : {}) })),
-      earlierRecordsUnavailable: result.earlierRecordsUnavailable, earlierRecordsPruned: result.earlierRecordsPruned,
-      ...(result.nextBefore ? { nextBefore: result.nextBefore } : {}) }
+    const start = before ? history.records.findIndex(record => record.messageId === before) + 1 : 0
+    if (before && start === 0) throw new Error('Schedule history cursor not found')
+    const records = history.records.slice(start, start + limit)
+    return { ...history, records, executions: history.executions.slice(0, limit),
+      nextBefore: start + limit < history.records.length ? records.at(-1)!.messageId : undefined }
   }
 
   /** Queue an explicit run in the original DSH Session without changing its native cadence. */
   async runNow(sessionId: string, scheduleId: string, expectedVersion: string): Promise<{ scheduleId: string; messageId: string; status: 'accepted'; sessionId: string }> {
     if (!this.deliverManual) throw new Error('Native DSH Session delivery is unavailable')
-    const native = (await this.schedule.catalog()).find(item => item.id === scheduleId && item.sessionId === sessionId)
+    const task = this.task(scheduleId)
+    const native = (await this.schedule.catalog()).find(item => item.id === task.scheduleId && item.sessionId === sessionId)
     if (!native) throw new Error('Native DSH Schedule changed since it was listed')
     const saved = this.contextFor(native)
     if (!saved || saved.sessionId !== sessionId) throw new Error('Schedule does not belong to Linguist Agent')
     if (version(native, saved.maxRuns) !== expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
-    await this.authorizeExecution(sessionId, { scheduleId, occurrenceAt: new Date().toISOString(), prompt: saved.nativePrompt }, 'manual')
+    await this.authorizeExecution(sessionId, { scheduleId: native.id, occurrenceAt: new Date().toISOString(), prompt: saved.nativePrompt }, 'manual')
     const message = createUserMessage({
       content: [{ type: 'text', text: saved.instruction }],
-      source: { kind: 'linguist-schedule-manual', scheduleId, requestedAt: new Date().toISOString() },
+      source: { kind: 'linguist-schedule-manual', scheduleId, nativeScheduleId: native.id, requestedAt: new Date().toISOString() },
     })
     await this.deliverManual(sessionId, message)
     return { scheduleId, messageId: message.id, status: 'accepted', sessionId }
   }
 
   async update(request: LinguistScheduleUpdateRequest): Promise<LinguistScheduleCreateResult> {
-    const native = (await this.schedule.catalog()).find(item => item.id === request.scheduleId && item.sessionId === request.sessionId)
+    const task = this.task(request.scheduleId)
+    if (task.stopped?.reason === 'consecutive-failures') return this.resume(request)
+    const native = (await this.schedule.catalog()).find(item => item.id === task.scheduleId && item.sessionId === request.sessionId)
     if (!native || native.status !== 'active') throw new Error('Native DSH Schedule is not active')
     const saved = this.contextFor(native)
     if (!saved || saved.context.projectId !== request.projectId || version(native, saved.maxRuns) !== request.expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
-    if (saved.completed) throw new Error('LA Schedule has reached its maximum run count')
-    const binding = this.bindings.session(request.sessionId)
-    if (!binding?.projectId || binding.projectId !== request.projectId || binding.workMode !== 'cat') throw new Error('Schedule needs a bound Linguist CAT Session')
-    await this.assertProjectSession(request.sessionId, request.projectId)
-    const project = this.service.getProject(request.projectId)
-    if (project.archivedAt !== undefined || !this.service.checkProjectHealth(project.id).healthy) throw new Error('Scheduled project is archived or unhealthy')
-    const context = captureAutomationLinguistContext({ scope: request.scope, role: binding.role, turnContext: request.turnContext }, binding, binding.workspaceId, this.bindings, this.service)
-    if (!context?.scope) throw new Error('Schedule requires an explicit project scope')
-    const segmentIds = [...(revalidateAutomationLinguistContext(context, binding, binding.workspaceId, this.bindings, this.service) ?? [])]
-    const projectRevision = computeLinguistProjectRevision(project, this.service.openProject(project.id))
+    if (saved.stopped) throw new Error('LA Schedule is stopped')
+    const { context, segmentIds, projectRevision, workspaceId } = await this.capture(request)
     const change = isDeepStrictEqual(request.timing, timingOf(native)) ? undefined : updateTiming(request.timing)
     const effectiveTiming: LinguistScheduleTiming = change?.kind === 'at' ? { kind: 'at', at: change.at as string } : request.timing
     const nativePrompt = `${request.prompt}${MARKER}${saved.token}]`
@@ -323,42 +376,83 @@ export class ScheduleContextManager {
       title: request.title, prompt: nativePrompt, ...(change ? { change } : {}) })
     if (!('record' in result) || !isDeepStrictEqual(rule(result.record), rule(preview))) throw new Error('Native DSH Schedule update was rejected or changed')
     await this.assertProjectSession(request.sessionId, request.projectId)
-    this.save({ ...saved, maxRuns: request.maxRuns, pendingUpdate: undefined, context, segmentIds, projectRevision, workspaceId: binding.workspaceId,
+    this.save({ ...saved, maxRuns: request.maxRuns, pendingUpdate: undefined, context, segmentIds, projectRevision, workspaceId,
       title: request.title, instruction: request.prompt, nativePrompt, expectedRule: rule(result.record), initialScheduledAt: result.record.scheduledAt })
-    return { scheduleId: result.record.id, sessionId: request.sessionId, projectId: request.projectId, title: request.title,
+    return { scheduleId: logicalId(saved), sessionId: request.sessionId, projectId: request.projectId, title: request.title,
       prompt: request.prompt, kind: result.record.kind, scheduledAt: result.record.scheduledAt, role: context.role,
       scope: request.scope, executeAtDue: true, version: version(result.record, request.maxRuns) }
   }
 
-  /** Preserve retained evidence before removing a completed native reminder. */
-  enforceRunLimits(sessionId: string): Promise<void> {
-    const current = this.limitChecks.get(sessionId)
+  private async resume(request: LinguistScheduleUpdateRequest): Promise<LinguistScheduleCreateResult> {
+    if (this.resuming.has(request.scheduleId)) throw new Error('LA Schedule resume is already in progress')
+    this.resuming.add(request.scheduleId)
+    try {
+      await this.policyChecks.get(request.sessionId)
+      const saved = this.task(request.scheduleId)
+      if (saved.sessionId !== request.sessionId || saved.context.projectId !== request.projectId
+        || saved.stopped?.reason !== 'consecutive-failures' || version(saved.stopped.native, saved.maxRuns, saved.stopped.reason) !== request.expectedVersion) throw new Error('Paused LA Schedule changed since it was listed')
+      const captured = await this.capture(request)
+      const history = saved.stopped.history
+      if (request.maxRuns !== undefined && history.executions.filter(run => run.endedAt).length >= request.maxRuns) throw new Error('LA Schedule has reached its maximum run count')
+      const nativePrompt = `${request.prompt}${MARKER}${saved.token}]`
+      const preview = previewRecord(request.timing, request.title, nativePrompt, Date.now())
+      const expectedRule = rule(preview)
+      const resumePlan = { prompt: nativePrompt, rule: expectedRule, ...(preview.kind === 'at' ? { at: preview.scheduledAt } : {}) }
+      let candidate: ScheduleRecord | undefined
+      for (const entry of await this.schedule.catalog()) {
+        if (entry.sessionId !== saved.sessionId) continue
+        if (entry.id === saved.scheduleId) {
+          if (entry.prompt !== saved.nativePrompt || !isDeepStrictEqual(rule(entry), saved.expectedRule)) throw new Error('Stopped native Schedule changed')
+          await this.schedule.delete({ sessionId: request.sessionId as SessionId, id: entry.id })
+        } else if (saved.pendingResume && matchesResume(entry, saved.pendingResume)) {
+          if (matchesResume(entry, resumePlan)) {
+            if (candidate) throw new Error('Multiple pending native Schedules require reconciliation')
+            candidate = entry
+          } else {
+            await this.schedule.delete({ sessionId: request.sessionId as SessionId, id: entry.id })
+          }
+        }
+      }
+      const pending: StoredScheduleContext = { ...saved, pendingUpdate: true, pendingResume: resumePlan }
+      this.save(pending)
+      const native = candidate ?? await this.schedule.create(request.sessionId as SessionId, nativeRequest(request.timing, request.title, nativePrompt))
+      if (!matchesResume(native, resumePlan)) throw new Error('Native DSH Schedule resumed with a different task rule')
+      const current = await this.capture(request)
+      if (current.projectRevision !== captured.projectRevision || current.workspaceId !== captured.workspaceId
+        || current.context.role !== captured.context.role || !isDeepStrictEqual(current.segmentIds, captured.segmentIds)
+        || !isDeepStrictEqual(this.read(saved.token), pending)) throw new Error('LA Schedule changed during resume; retry after revalidation')
+      this.save({ ...saved, ...captured, rootScheduleId: logicalId(saved), scheduleId: native.id,
+        retainedHistory: history, failureResetAfter: history.executions.find(run => run.endedAt)?.messageId,
+        stopped: undefined, pendingUpdate: undefined, pendingResume: undefined, maxRuns: request.maxRuns,
+        title: request.title, instruction: request.prompt, nativePrompt, expectedRule, initialScheduledAt: native.scheduledAt })
+      return { scheduleId: logicalId(saved), sessionId: request.sessionId, projectId: request.projectId, title: request.title,
+        prompt: request.prompt, kind: native.kind, scheduledAt: native.scheduledAt, role: captured.context.role,
+        scope: request.scope, executeAtDue: true, version: version(native, request.maxRuns) }
+    } finally { this.resuming.delete(request.scheduleId) }
+  }
+
+  /** Preserve retained evidence before stopping native reminders at a policy boundary. */
+  enforceRunPolicy(sessionId: string): Promise<void> {
+    const current = this.policyChecks.get(sessionId)
     if (current) return current
-    const work = this.stopCompletedSchedules(sessionId).finally(() => this.limitChecks.delete(sessionId))
-    this.limitChecks.set(sessionId, work)
+    const work = this.stopScheduledRuns(sessionId).finally(() => this.policyChecks.delete(sessionId))
+    this.policyChecks.set(sessionId, work)
     return work
   }
 
-  private async stopCompletedSchedules(sessionId: string): Promise<void> {
+  private async stopScheduledRuns(sessionId: string): Promise<void> {
     const events = await this.readSessionEvents(sessionId)
     for (const native of await this.schedule.catalog()) {
       if (native.sessionId !== sessionId) continue
       const saved = this.contextFor(native)
-      if (!saved || saved.maxRuns === undefined || saved.pendingUpdate) continue
-      const count = scheduleExecutions(events, native.id).filter(run => run.endedAt).length
-      if (!saved.completed && count < saved.maxRuns) continue
-      if (!saved.completed) {
-        const history = await this.history(sessionId, native.id, 100)
-        let before = history.nextBefore
-        while (before) {
-          const page = await this.history(sessionId, native.id, 100, before)
-          history.records.push(...page.records)
-          before = page.nextBefore
-        }
-        history.nextBefore = undefined
-        history.executions = scheduleExecutions(events, native.id).reverse()
+      if (!saved || saved.pendingUpdate) continue
+      const { stopReason } = scheduleRunPolicy(executionHistory(saved, events), saved.maxRuns, saved.failureResetAfter)
+      if (!saved.stopped && !stopReason) continue
+      if (!saved.stopped) {
+        const history = await this.history(sessionId, logicalId(saved), Number.MAX_SAFE_INTEGER)
+        history.executions = executionHistory(saved, events).reverse()
         if (!isDeepStrictEqual(this.read(saved.token), saved)) throw new Error('LA Schedule changed while preserving completion history')
-        saved.completed = { native, history }
+        saved.stopped = { reason: stopReason!, native, history }
         this.save(saved)
       }
       // Concurrent end/list recovery may have already removed this exact record.
@@ -371,11 +465,13 @@ export class ScheduleContextManager {
     for (const entry of await this.schedule.catalog()) {
       if (entry.sessionId !== sessionId || entry.status !== 'active') continue
       const marker = entry.prompt.match(/\n\[LA-SCHEDULE-CONTEXT v1 token=([0-9a-f-]+)\]$/i)
-      if (!marker && !this.tokenForSchedule(entry.id)) continue
+      const token = this.tokenForSchedule(entry.id) ?? marker?.[1]
+      if (!token) continue
+      const saved = this.read(token)
       const result = await this.schedule.delete({ sessionId: sessionId as SessionId, id: entry.id })
-      if (result.deleted) cancelled.push(entry.id)
+      if (result.deleted) cancelled.push(logicalId(saved))
     }
-    return cancelled
+    return [...new Set(cancelled)]
   }
 
   async onPreStep(agent: Agent, decision: PreStepDecision, turn: number, step: number): Promise<PreStepDecision> {
@@ -389,9 +485,10 @@ export class ScheduleContextManager {
         const savedToken = this.tokenForSchedule(message.source.scheduleId)
         if (!savedToken) throw new Error('Manual LA Schedule no longer exists')
         const saved = this.read(savedToken)
+        if (message.source.nativeScheduleId !== saved.scheduleId) throw new Error('Manual LA Schedule generation changed')
         if (textOf(message) !== saved.instruction) throw new Error('Manual LA Schedule instruction changed')
         admitted.push(await this.authorizeExecution(agent.id, {
-          scheduleId: message.source.scheduleId, occurrenceAt: message.source.requestedAt, prompt: saved.nativePrompt,
+          scheduleId: saved.scheduleId!, occurrenceAt: message.source.requestedAt, prompt: saved.nativePrompt,
         }, 'manual'))
         scheduledExecution = true
       }
@@ -423,9 +520,10 @@ export class ScheduleContextManager {
     if (!marker || !TOKEN.test(marker[1]!)) throw new Error('Invalid LA Schedule context token')
     const saved = this.read(marker[1]!)
     if (saved.executeAtDue !== true || saved.nativePrompt !== item.prompt || saved.sessionId !== sessionId || (saved.scheduleId && saved.scheduleId !== item.scheduleId)) throw new Error('LA Schedule identity changed')
-    if (saved.completed || (saved.maxRuns !== undefined && scheduleExecutions(await this.readSessionEvents(sessionId), item.scheduleId).filter(run => run.endedAt).length >= saved.maxRuns)) {
-      await this.enforceRunLimits(sessionId)
-      throw new Error('LA Schedule has reached its maximum run count')
+    const stopReason = saved.stopped?.reason ?? scheduleRunPolicy(executionHistory(saved, await this.readSessionEvents(sessionId)), saved.maxRuns, saved.failureResetAfter).stopReason
+    if (stopReason) {
+      await this.enforceRunPolicy(sessionId)
+      throw new Error(stopReason === 'max-runs' ? 'LA Schedule has reached its maximum run count' : 'LA Schedule paused after five consecutive failures')
     }
     const native = (await this.schedule.catalog()).find(record => record.id === item.scheduleId)
     if (!native || native.sessionId !== saved.sessionId || native.prompt !== saved.nativePrompt || native.title !== saved.title || !isDeepStrictEqual(rule(native), saved.expectedRule)) throw new Error('Native DSH Schedule was deleted or changed')
@@ -443,13 +541,13 @@ export class ScheduleContextManager {
     return createUserMessage({
       content: [{ type: 'text', text: [
         '<linguist_schedule_execution version="1" trust="host-authorized">',
-        JSON.stringify({ scheduleId: item.scheduleId, trigger, ...(trigger === 'due' ? { occurrenceAt: item.occurrenceAt } : { requestedAt: item.occurrenceAt }),
+        JSON.stringify({ scheduleId: logicalId(saved), trigger, ...(trigger === 'due' ? { occurrenceAt: item.occurrenceAt } : { requestedAt: item.occurrenceAt }),
           projectId: saved.context.projectId, role: saved.context.role, scope: saved.context.scope, projectRevision: saved.projectRevision,
           segmentCount: saved.segmentIds.length, ...(saved.context.scope?.kind === 'segments' ? { segmentIds: saved.segmentIds } : {}),
           capturedAt: saved.context.capturedAt, instruction: saved.instruction }),
         '</linguist_schedule_execution>',
       ].join('\n') }],
-      source: { kind: 'linguist-schedule-execution', scheduleId: item.scheduleId, projectId: saved.context.projectId },
+      source: { kind: 'linguist-schedule-execution', scheduleId: logicalId(saved), projectId: saved.context.projectId },
     })
   }
 
@@ -478,6 +576,7 @@ export class ScheduleContextManager {
     if (!token) return undefined
     if (!TOKEN.test(token)) throw new Error('Invalid LA Schedule context token')
     const saved = this.read(token)
+    if (saved.pendingResume && entry.id !== saved.scheduleId && entry.sessionId === saved.sessionId && matchesResume(entry, saved.pendingResume)) return undefined
     if (saved.scheduleId && saved.scheduleId !== entry.id) throw new Error('LA Schedule sidecar identity changed')
     return saved
   }
@@ -495,8 +594,8 @@ export class ScheduleContextManager {
   }
 
   private save(value: StoredScheduleContext): void {
-    if (value.scheduleId) {
-      const index = this.indexPath(value.scheduleId)
+    for (const id of new Set([value.scheduleId, value.rootScheduleId].filter((id): id is string => id !== undefined))) {
+      const index = this.indexPath(id)
       const indexTemp = `${index}.${randomUUID()}.tmp`
       writeFileSync(indexTemp, value.token, { flag: 'wx', mode: 0o600 })
       renameSync(indexTemp, index)

@@ -31,8 +31,8 @@ import { deliverDelegationInputs, preflightDelegationInputs } from '../../packag
 import { createLinguistDelegationTool } from '../../packages/dsh-linguist/src/host/delegation-tool.ts'
 import { copyLinguistSessionToProject, sessionCopyEligibility } from '../../packages/dsh-linguist/src/host/session-copy.ts'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
-import { ScheduleContextManager, scheduleExecutions } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
-import { ScheduleId, createAfterScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
+import { ScheduleContextManager, scheduleExecutions, scheduleRunPolicy } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
+import { ScheduleId, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
 
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
 const requireDsh = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
@@ -227,7 +227,7 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
       rows: [],
       async create(sessionId, request) {
         const id = ScheduleId(`schedule-${randomUUID()}`)
-        const record = request.after_seconds === undefined
+        const record = request.at !== undefined ? createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title) : request.after_seconds === undefined
           ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
           : createAfterScheduleRecord(id, request.prompt, request.after_seconds, Date.now(), request.title)
         this.rows.push({ ...record, sessionId, status: 'active' })
@@ -243,7 +243,7 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
         this.rows = this.rows.map(item => item === row ? { ...record, sessionId, status: 'active' } : item)
         return { id, updated: true, record }
       },
-      async history({ id }) { return { id, records: [{ scheduledAt: new Date().toISOString(), deliveredAt: new Date().toISOString(), messageId: 'message-synthetic', prompt: this.rows.find(item => item.id === id)?.prompt }], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 } } },
+      async history({ id }) { return { id, records: [{ scheduledAt: new Date().toISOString(), deliveredAt: new Date().toISOString(), messageId: `message-${id}`, prompt: this.rows.find(item => item.id === id)?.prompt }], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 } } },
       async delete({ sessionId, id }) {
         const row = this.rows.find(item => item.sessionId === sessionId && item.id === id)
         if (!row) return { id, deleted: false, code: 'schedule_not_found' }
@@ -358,13 +358,13 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     events.push(event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
     const nativeDelete = native.delete
     native.delete = async () => { throw new Error('synthetic delete failure') }
-    const removal = limitedManager.enforceRunLimits('session-schedule')
-    assert.equal(limitedManager.enforceRunLimits('session-schedule'), removal, 'end and list checks share one removal')
+    const removal = limitedManager.enforceRunPolicy('session-schedule')
+    assert.equal(limitedManager.enforceRunPolicy('session-schedule'), removal, 'end and list checks share one removal')
     await assert.rejects(removal, /synthetic delete failure/)
     assert.equal((await limitedManager.history('session-schedule', limited.scheduleId, 10)).records.length, 1, 'history is durable before native removal')
     native.delete = nativeDelete
     await assert.rejects(limitedManager.runNow('session-schedule', limited.scheduleId, limitRestored.version), /maximum run count/)
-    await Promise.all([limitedManager.enforceRunLimits('session-schedule'), limitedManager.enforceRunLimits('session-schedule')])
+    await Promise.all([limitedManager.enforceRunPolicy('session-schedule'), limitedManager.enforceRunPolicy('session-schedule')])
     assert(!native.rows.some(item => item.id === limited.scheduleId))
     limitedInfo = (await limitedManager.list('session-schedule')).items.find(item => item.scheduleId === limited.scheduleId)
     assert.equal(limitedInfo.runCount, 2, 'both failure and success count')
@@ -376,6 +376,87 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     assert.equal(kept.records[0].prompt, base.payload.prompt, 'native history is preserved before deletion')
     assert.deepEqual(kept.executions.map(run => run.outcome), ['completed', 'error'])
     await assert.rejects(coldLimited.history('session-schedule', limited.scheduleId, 10, 'foreign-cursor'), /cursor/)
+    const failing = await limitedManager.create({ ...base.payload, title: 'Synthetic failing recurring task', timing: { kind: 'every', seconds: 60 } })
+    await reopened.runNow('session-schedule', failing.scheduleId, failing.version)
+    const staleManual = manualMessages.at(-1)
+    const failingNative = native.rows.find(item => item.id === failing.scheduleId)
+    const failingDue = { id: 'failing-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(failingNative) }] }
+    for (let turn = 3; turn < 8; turn++) {
+      events.push(event('turn/start', { turn }), event('user/message', { id: `failed-${turn}`, source: { kind: 'linguist-schedule-execution', scheduleId: failing.scheduleId } }),
+        event('turn/end', { turn, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'synthetic failure' } } }))
+      await limitedManager.enforceRunPolicy('session-schedule')
+      assert.equal(native.rows.some(item => item.id === failing.scheduleId), turn < 7, 'fifth consecutive failure removes the native timer')
+    }
+    const failedInfo = (await limitedManager.list('session-schedule')).items.find(item => item.scheduleId === failing.scheduleId)
+    assert.equal(failedInfo.pausedAfterFailures, true)
+    assert.equal(failedInfo.limitReached, false)
+    assert.equal(failedInfo.consecutiveFailures, 5)
+    assert.equal(failedInfo.status, 'inactive')
+    await assert.rejects(limitedManager.onPreStep(agent, { kind: 'enter', messages: [failingDue] }, 8, 1), /five consecutive failures/)
+    const coldFailure = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => [])
+    assert.equal((await coldFailure.list('session-schedule')).items.find(item => item.scheduleId === failing.scheduleId).consecutiveFailures, 5)
+    assert.equal((await coldFailure.history('session-schedule', failing.scheduleId, 10)).executions.length, 5)
+    const resumeRequest = { ...base.payload, scheduleId: failing.scheduleId, expectedVersion: failedInfo.version, timing: { kind: 'every', seconds: 60 } }
+    assert.notEqual(failedInfo.version, failing.version, 'pausing invalidates an active-task edit form')
+    await assert.rejects(limitedManager.update({ ...resumeRequest, expectedVersion: failing.version }), /changed since it was listed/)
+    native.beforeReturn = async () => {
+      await assert.rejects(limitedManager.update(resumeRequest), /already in progress/)
+      throw new Error('synthetic response lost after native create')
+    }
+    await assert.rejects(limitedManager.update(resumeRequest), /response lost/)
+    const pendingTimer = native.rows.find(item => item.id !== created.scheduleId && item.id !== recurring.scheduleId)
+    assert(pendingTimer, 'native timer committed before lost response')
+    const pendingList = (await limitedManager.list('session-schedule')).items.filter(item => item.scheduleId === failing.scheduleId)
+    assert.equal(pendingList.length, 1)
+    assert.equal(pendingList[0].pausedAfterFailures, true)
+    native.beforeReturn = undefined
+    const nativeCount = native.rows.length
+    const resumedManager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => events,
+      async (_sessionId, message) => manualMessages.push(message))
+    const resumed = await resumedManager.update(resumeRequest)
+    assert.equal(native.rows.length, nativeCount, 'retry reuses the committed pending timer')
+    assert.equal(resumed.scheduleId, failing.scheduleId, 'resume preserves the public LA task identity')
+    assert.notEqual(pendingTimer.id, resumed.scheduleId)
+    const resumedInfo = (await resumedManager.list('session-schedule')).items.find(item => item.scheduleId === failing.scheduleId)
+    assert.equal(resumedInfo.status, 'active')
+    assert.equal(resumedInfo.consecutiveFailures, 0)
+    assert.equal(resumedInfo.runCount, 5, 'resume does not reset lifetime run limit accounting')
+    await assert.rejects(resumedManager.onPreStep(agent, { kind: 'enter', messages: [failingDue] }, 8, 1), /identity changed/)
+    const resumedDue = { id: 'resumed-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(pendingTimer) }] }
+    await assert.rejects(resumedManager.onPreStep(agent, { kind: 'enter', messages: [staleManual] }, 8, 1), /generation changed/)
+    const resumedAdmission = await resumedManager.onPreStep(agent, { kind: 'enter', messages: [resumedDue] }, 8, 1)
+    assert.equal(resumedAdmission.messages[1].source.scheduleId, failing.scheduleId)
+    await resumedManager.runNow('session-schedule', failing.scheduleId, resumed.version)
+    assert.equal(manualMessages.at(-1).source.scheduleId, failing.scheduleId)
+    const resumedHistory = await resumedManager.history('session-schedule', failing.scheduleId, 1)
+    assert.equal(resumedHistory.records[0].messageId, `message-${pendingTimer.id}`)
+    const previousHistory = await resumedManager.history('session-schedule', failing.scheduleId, 1, resumedHistory.nextBefore)
+    assert.equal(previousHistory.records[0].messageId, `message-${failing.scheduleId}`)
+    for (let turn = 8; turn < 13; turn++) {
+      events.push(event('turn/start', { turn }), event('user/message', { id: `failed-${turn}`, source: { kind: 'linguist-schedule-execution', scheduleId: failing.scheduleId } }),
+        event('turn/end', { turn, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'synthetic failure' } } }))
+      await resumedManager.enforceRunPolicy('session-schedule')
+      assert.equal(native.rows.some(item => item.id === pendingTimer.id), turn < 12, 'only new failures count after explicit resume')
+    }
+    const stoppedAgain = (await resumedManager.list('session-schedule')).items.find(item => item.scheduleId === failing.scheduleId)
+    assert.equal(stoppedAgain.runCount, 10)
+    assert.equal(stoppedAgain.consecutiveFailures, 5)
+    const secondHistory = await resumedManager.history('session-schedule', failing.scheduleId, 100)
+    assert.equal(secondHistory.records.length, 2)
+    assert.equal(secondHistory.executions.length, 10)
+    await assert.rejects(resumedManager.update({ ...resumeRequest, expectedVersion: stoppedAgain.version, maxRuns: 10 }), /maximum run count/)
+    const atRequest = { ...resumeRequest, expectedVersion: stoppedAgain.version, timing: { kind: 'at', at: new Date(Date.now() + 600_000).toISOString() } }
+    native.beforeReturn = async () => { throw new Error('synthetic second response lost') }
+    await assert.rejects(resumedManager.update(atRequest), /second response lost/)
+    const orphan = native.rows.find(item => item.id !== created.scheduleId && item.id !== recurring.scheduleId)
+    native.beforeReturn = undefined
+    const newAt = new Date(Date.now() + 900_000).toISOString()
+    const resumedAt = await resumedManager.update({ ...atRequest, timing: { kind: 'at', at: newAt } })
+    assert.equal(resumedAt.scheduleId, failing.scheduleId)
+    assert.equal(resumedAt.scheduledAt, newAt, 'retry with a changed absolute time cannot reuse the old deadline')
+    assert(!native.rows.some(item => item.id === orphan.id))
+    assert.equal((await resumedManager.cancel('session-schedule', failing.scheduleId)).cancelled, true, 'stable public identity cancels the replacement native timer')
+
     await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\nb,结束,End\n'), filename: 'changed.csv' })
     await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 5, 1), /project revision changed/)
     assert.deepEqual(await reopened.stopSessionSchedules('session-schedule'), [created.scheduleId, recurring.scheduleId])
@@ -1218,4 +1299,13 @@ test('Schedule execution history follows committed native turns, not delivery or
   assert(!JSON.stringify(result).includes('private error text'))
   assert(!JSON.stringify(result).includes('private-request-id'))
   assert.deepEqual(scheduleExecutions(events, 'another-schedule'), [])
+})
+
+
+test('Schedule pauses after five consecutive failures, resets after success, and ignores unfinished runs', () => {
+  const run = (outcome, index) => ({ messageId: `run-${index}`, outcome, ...(outcome === 'unfinished' ? {} : { endedAt: '2026-09-29T00:00:00Z' }) })
+  assert.deepEqual(scheduleRunPolicy(['error', 'error', 'error', 'error', 'unfinished'].map(run)), { runCount: 4, consecutiveFailures: 4 })
+  assert.deepEqual(scheduleRunPolicy(['error', 'error', 'error', 'error', 'error'].map(run)), { runCount: 5, consecutiveFailures: 5, stopReason: 'consecutive-failures' })
+  assert.deepEqual(scheduleRunPolicy(['error', 'error', 'completed', 'error'].map(run)), { runCount: 4, consecutiveFailures: 1 })
+  assert.deepEqual(scheduleRunPolicy(['error', 'completed'].map(run), 2), { runCount: 2, consecutiveFailures: 0, stopReason: 'max-runs' })
 })
