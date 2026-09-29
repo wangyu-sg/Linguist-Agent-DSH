@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   ScheduleId, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord,
   createDailyScheduleRecord, createWeeklyScheduleRecord, createCronScheduleRecord,
@@ -139,6 +139,27 @@ function dueItems(text: string): DueItem[] | undefined {
   return undefined
 }
 
+/** Derive execution state from native committed events; an inbox delivery alone is not a run. */
+export function scheduleExecutions(events: readonly SessionEvent[], scheduleId: string): LinguistScheduleHistoryResult['executions'] {
+  const runs: LinguistScheduleHistoryResult['executions'] = []
+  let turn: number | undefined
+  let active: LinguistScheduleHistoryResult['executions'][number] | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') { turn = event.data.turn; active = undefined }
+    if (event.type === 'user/message' && event.data.source.kind === 'linguist-schedule-execution'
+      && event.data.source.scheduleId === scheduleId && turn !== undefined && !active) {
+      active = { turn, messageId: event.data.id, admittedAt: new Date(event.time).toISOString(), outcome: 'unfinished' }
+      runs.push(active)
+    }
+    if (event.type === 'turn/end' && active?.turn === event.data.turn) {
+      active.outcome = event.data.reason.kind
+      active.endedAt = new Date(event.time).toISOString()
+      active = undefined
+    }
+  }
+  return runs
+}
+
 /** Sidecar holds LA authorization only; native Schedule owns time, delivery, and Session followup. */
 export class ScheduleContextManager {
   private readonly directory: string
@@ -150,6 +171,7 @@ export class ScheduleContextManager {
     private readonly service: LinguistProjectService,
     private readonly bindings: BindingStore,
     private readonly assertProjectSession: (sessionId: string, projectId: string) => Promise<void>,
+    private readonly readSessionEvents: (sessionId: string) => Promise<readonly SessionEvent[]>,
     private readonly deliverManual?: (sessionId: string, message: UserMessage) => Promise<void>,
   ) {
     this.directory = join(dataRoot, 'linguist-schedule-context')
@@ -230,7 +252,7 @@ export class ScheduleContextManager {
     const result = await this.schedule.history({ sessionId: sessionId as SessionId, id: ScheduleId(scheduleId), limit,
       ...(before ? { before: before as import('@deepseek-ai/dsh-llm').MessageId } : {}) })
     if (!('records' in result)) throw new Error('Native DSH Schedule history is unavailable')
-    return { scheduleId, records: result.records.map(record => ({ scheduledAt: record.scheduledAt, deliveredAt: record.deliveredAt,
+    return { scheduleId, executions: scheduleExecutions(await this.readSessionEvents(sessionId), scheduleId).slice(-limit).reverse(), records: result.records.map(record => ({ scheduledAt: record.scheduledAt, deliveredAt: record.deliveredAt,
       messageId: record.messageId, ...(record.prompt === saved.nativePrompt ? { prompt: saved.instruction } : {}) })),
       earlierRecordsUnavailable: result.earlierRecordsUnavailable, earlierRecordsPruned: result.earlierRecordsPruned,
       ...(result.nextBefore ? { nextBefore: result.nextBefore } : {}) }

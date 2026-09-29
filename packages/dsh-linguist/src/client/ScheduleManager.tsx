@@ -81,12 +81,16 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
       <div className={styles.toolbar}>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active'} onClick={() => onEdit(schedule)}>{t('编辑并重新核验')}</Button>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
-        <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('投递历史')}</Button>
+        <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('执行与投递历史')}</Button>
         {cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button variant="outline" size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button variant="outline" size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>
           : <Button variant="outline" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
       </div>
       {accepted?.scheduleId === schedule.scheduleId && <p role="status">{t('已受理立即运行请求，消息 {id} 已交给 DSH Session；专业任务是否完成需查看实际结果。', { id: accepted.messageId })}</p>}
       {historyId === schedule.scheduleId && history && <div className={styles.callout}>
+        <strong>{t('最近执行记录')}</strong>
+        <p>{t('执行状态来自 DSH 会话结束事件；专业完成情况请查看对应岗位决策。')}</p>
+        {history.executions.length === 0 && <p>{t('暂无执行记录。')}</p>}
+        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(({ unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}</p>)}
         <strong>{t('原生投递记录')}</strong>
         {history.records.length === 0 && <p>{t('暂无投递记录。')}</p>}
         {history.records.map((record) => <p key={record.messageId}>{t('到期')} {new Date(record.scheduledAt).toLocaleString()} · {t('投递')} {new Date(record.deliveredAt).toLocaleString()} · {record.messageId}</p>)}

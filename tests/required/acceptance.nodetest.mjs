@@ -31,7 +31,7 @@ import { deliverDelegationInputs, preflightDelegationInputs } from '../../packag
 import { createLinguistDelegationTool } from '../../packages/dsh-linguist/src/host/delegation-tool.ts'
 import { copyLinguistSessionToProject, sessionCopyEligibility } from '../../packages/dsh-linguist/src/host/session-copy.ts'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from '../../packages/dsh-linguist/src/host/turn-context.ts'
-import { ScheduleContextManager } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
+import { ScheduleContextManager, scheduleExecutions } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
 import { ScheduleId, createAfterScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
 
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
@@ -251,7 +251,7 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
         return { id, deleted: true }
       },
     }
-    const manager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession)
+    const manager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => [])
     native.beforeReturn = async record => {
       const early = { id: 'early-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(record) }] }
       assert.equal((await manager.onPreStep({ id: 'session-schedule' }, { kind: 'enter', messages: [early] }, 0, 0)).messages[1].source.kind, 'linguist-schedule-execution')
@@ -277,7 +277,7 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     const message = { id: 'due-message', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
     const agent = { id: 'session-schedule' }
     const manualMessages = []
-    const reopened = new ScheduleContextManager(root, native, service, bindings, assertProjectSession,
+    const reopened = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => [],
       async (sessionId, manualMessage) => { assert.equal(sessionId, 'session-schedule'); manualMessages.push(manualMessage) })
     const manual = await dispatchOperation({ ...base, scheduleContext: reopened, operation: 'linguistScheduleRunNow',
       payload: { sessionId: 'session-schedule', scheduleId: created.scheduleId, expectedVersion: titleOnly.version } })
@@ -1153,4 +1153,25 @@ test('all eight shipped CAT adapters detect and round-trip synthetic original by
     ids.push(adapter.id)
   }
   assert.equal(new Set(ids).size, 8)
+})
+
+
+test('Schedule execution history follows committed native turns, not delivery or assistant claims', () => {
+  let seq = 0
+  const event = (type, data) => ({ type, data, seq: seq++, time: 1000 + seq })
+  const admitted = id => event('user/message', { id, source: { kind: 'linguist-schedule-execution', scheduleId: 'scheduled-A' } })
+  const events = [event('turn/start', { turn: 1 }), event('user/message', { id: 'delivery', source: { kind: 'schedule' } })]
+  assert.deepEqual(scheduleExecutions(events, 'scheduled-A'), [])
+  events.push(admitted('run-A'), admitted('duplicate-step'))
+  assert.equal(scheduleExecutions(events, 'scheduled-A').length, 1)
+  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].outcome, 'unfinished')
+  events.push(event('assistant/message', { message: { content: [{ type: 'text', text: 'complete' }] } }))
+  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].outcome, 'unfinished')
+  events.push(event('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'private error text' } } }))
+  events.push(event('turn/start', { turn: 2 }), admitted('run-B'), event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  const result = scheduleExecutions(events, 'scheduled-A')
+  assert.deepEqual(result.map(run => run.outcome), ['error', 'completed'])
+  assert(result.every(run => run.endedAt))
+  assert(!JSON.stringify(result).includes('private error text'))
+  assert.deepEqual(scheduleExecutions(events, 'another-schedule'), [])
 })

@@ -216,6 +216,13 @@ export function apply(ctx: Context, config: Config): void {
   for (const agent of ctx.agents.list()) bindAgent(agent)
 
   const scheduleContext = new ScheduleContextManager(config.dataRoot, ctx.schedule, service, bindings, assertProjectSession,
+    async sessionId => {
+      const live = ctx.sessions.get(sessionId as SessionId)
+      if (live) return live.ownEvents()
+      const handle = await ctx.sessionPersistence.open(sessionId as SessionId, 'read')
+      try { return (await handle.read(handle.inheritedEventCount)).events }
+      finally { await handle.close() }
+    },
     async (sessionId, message) => {
       const resolved = await ctx.sessionController.resolveAgent(sessionId as SessionId)
       if ('error' in resolved) throw resolved.error
