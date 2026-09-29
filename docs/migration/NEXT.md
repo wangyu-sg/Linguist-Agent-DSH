@@ -15,6 +15,10 @@
 
 - 本轮修正 installer：仅在原生 profile 已装候选且安装回执存在时更新运行配置身份。实际运行暂存回归通过：退出码2、NATIVE_INSTALL_PENDING，当前配置和 current.json 字节不变；此前提前写入543的配置已按真实478安装 manifest 恢复。桌面绑定重试仍 -3811，未伪填 UI 证据。
 
+- 最新 BrowserSkill：用户已安装启用0.3.1，真实扩展链 CLI_CHAIN_PASS，10项全部通过，含 AgentWindow、localhost读写、上传、下载摘要和关闭。回执 `artifacts/evidence/browser-skill-localhost.json` 及 action trace 对应安装478。下一步是当前候选原生安装后的 DSH Agent browser_* 实际调用与Skill发现；扩展连接阻塞已解除。
+
+- 最新候选 `la-1739a774a38a-b4f81677` 已重建：原生 layout navigation 取消旧工作台等待及迟到的会话创建导航，回归直接执行实际 Client apply 注册，必需检查已纳入并通过；Host/Client类型检查和构建通过。当前原生安装仍478，须更新后重新采集最终验收。
+
 ## 先前记录
 
 状态：IMPLEMENTING，未达到 READY。只读源 `/Users/wangyu/Desktop/linguist-agent-next` 未改动；目标代码和独立产品数据根在 `/Users/wangyu/Desktop/Linguist-Agent-DSH` 与 `/Users/wangyu/Library/Application Support/Linguist-Agent-DSH`。

@@ -88,6 +88,7 @@ const checks = [
       'tests/copied-renderer/cat-editor-logic.nodetest.ts',
       'tests/copied-renderer/client-api.nodetest.ts',
       'tests/copied-renderer/workbench-location.nodetest.ts',
+      'tests/copied-renderer/session-navigation.nodetest.mjs',
       'packages/dsh-linguist/src/client/Workbench.layout.test.mjs',
       'tests/required/acceptance.nodetest.mjs'],
   },

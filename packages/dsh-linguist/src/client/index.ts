@@ -231,22 +231,28 @@ export function apply(ctx: Context): void {
     const id = binding.sessionId as Parameters<typeof ctx.uiWorkspace.openSession>[0]
     ctx.layout.selectPanel(null)
     ctx.uiWorkspace.openSession(id)
+    const navigation = ctx.layout.beginNavigation()
     await new Promise<void>((resolve, reject) => {
       if (ctx.sidebarRight.mounted.getSnapshot() === id) { resolve(); return }
       let timer: ReturnType<typeof setTimeout>
       const unsubscribe = ctx.sidebarRight.mounted.subscribe(() => {
-        if (ctx.sidebarRight.mounted.getSnapshot() === id) { clearTimeout(timer); unsubscribe(); resolve() }
+        if (ctx.sidebarRight.mounted.getSnapshot() === id) { cleanup(); resolve() }
       })
-      timer = setTimeout(() => { unsubscribe(); reject(new Error(t('会话已建立，但右侧工作台尚未就绪'))) }, 15000)
+      const cancel = () => { cleanup(); resolve() }
+      const cleanup = () => { clearTimeout(timer); unsubscribe(); navigation.removeEventListener('abort', cancel) }
+      navigation.addEventListener('abort', cancel, { once: true })
+      timer = setTimeout(() => { cleanup(); reject(new Error(t('会话已建立，但右侧工作台尚未就绪'))) }, 15000)
     })
+    if (navigation.aborted) return
     if (binding.workMode === 'cat' && binding.projectId) openCat(binding.sessionId, binding.projectId)
     if (binding.workMode === 'working-copy') openWorkingCopy(binding.sessionId)
     if (binding.workMode === 'browser') openBrowser(binding.sessionId)
   }
   const enter = async (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => {
+    const navigation = ctx.layout.beginNavigation()
     const id = await ctx.sessions.create({ workspaceId: input.workspaceId })
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
-    await openBoundSession(binding)
+    if (!navigation.aborted) await openBoundSession(binding)
   }
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))

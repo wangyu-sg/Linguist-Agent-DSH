@@ -3492,7 +3492,8 @@
         "targetPath": "packages/dsh-linguist/src/client/projects/open-linguist-session.test.ts",
         "featureIds": [],
         "status": "pending",
-        "auditNote": "Source test exists in the read-only snapshot; an equivalent target test for this exact behavior has not yet been confirmed."
+        "auditNote": "新增真实 Client apply 注册回归：DSH layout 导航取消会释放 pending 右栏监听，迟到的会话创建保留绑定而不抢焦点；正常挂载打开正确 Session。原生 Desktop 快速切换/关闭/解绑视觉验收仍 pending。",
+        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/open-linguist-session.ts",
@@ -3622,7 +3623,8 @@
           "FEATURE-04"
         ],
         "status": "pending",
-        "auditNote": "Source test exists in the read-only snapshot; an equivalent target test for this exact behavior has not yet been confirmed."
+        "auditNote": "新增真实 Client apply 注册回归：DSH layout 导航取消会释放 pending 右栏监听，迟到的会话创建保留绑定而不抢焦点；正常挂载打开正确 Session。原生 Desktop 快速切换/关闭/解绑视觉验收仍 pending。",
+        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-utils.ts",
