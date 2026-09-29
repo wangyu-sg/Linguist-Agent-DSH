@@ -4,7 +4,7 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
-import { sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
+import { isAbsoluteWorkspacePath, relativizeToCwd, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -177,6 +177,15 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
 export function apply(ctx: Context): void {
   ctx.effect(() => registerLinguistLocale(ctx.locale), 'linguist: locale dictionaries')
   const t = ctx.locale.bind('linguist')
+  const pickDirectory = async (workspaceId: string) => {
+    const workspace = ctx.workspaces.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId)
+    if (!workspace) throw new Error(t('请选择 DSH Workspace，或先为项目建立关联。'))
+    const selected = await ctx.uiWorkspace.pickDirectory()
+    if (selected === null) return null
+    const relative = selected === workspace.path ? '.' : relativizeToCwd(selected, workspace.path)
+    if (isAbsoluteWorkspacePath(relative)) throw new Error(t('请选择当前 Workspace 内的目录'))
+    return relative
+  }
   const openCat = (sessionId: string, projectId: string) => {
     ctx.sidebarRight.openResourceIn(sessionId as Parameters<typeof ctx.sidebarRight.openResourceIn>[0], `${CAT_PREFIX}${encodeURIComponent(projectId)}`, { kind: CAT_KIND })
   }
@@ -254,7 +263,7 @@ export function apply(ctx: Context): void {
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding)
   }
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession }))))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession, onPickDirectory: pickDirectory }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, onOpenFiles: openFiles }))))

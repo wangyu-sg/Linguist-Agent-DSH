@@ -10,7 +10,7 @@ import { required, subscribeMigration } from './api'
 import { useT } from './ui-locale'
 import styles from './LegacyMigrationPanel.module.css'
 
-export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId: string; onImported: () => void }): React.ReactElement {
+export function LegacyMigrationPanel({ workspaceId, onImported, onPickDirectory }: { workspaceId: string; onImported: () => void; onPickDirectory: (workspaceId: string) => Promise<string | null> }): React.ReactElement {
   const t = useT()
   const [legacyRootPath, setLegacyRootPath] = React.useState('.')
   const [scan, setScan] = React.useState<LinguistMigrationWorkspaceScanResult>()
@@ -27,6 +27,14 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
   const [progressError, setProgressError] = React.useState('')
 
   React.useEffect(() => { setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setMessage(''); setPhaseProgress(undefined); setProgressError(''); setTotalSelected(0) }, [workspaceId])
+
+  const changeRoot = (value: string) => { setLegacyRootPath(value); setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setTotalSelected(0) }
+  const chooseRoot = async () => {
+    setRunning(true)
+    try { const value = await onPickDirectory(workspaceId); if (value !== null) changeRoot(value) }
+    catch (error) { setMessage(String(error)) }
+    finally { setRunning(false) }
+  }
 
   const scanRoot = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -84,7 +92,8 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
     <h2>{t('旧 LA 数据根迁移')}</h2>
     <p>{t('先将旧数据根的副本放在所选 DSH Workspace 内。扫描只读；导入逐项目执行并逐项目验证。旧聊天保留为只读转录。')}</p>
     <form className={styles.form} onSubmit={(event) => void scanRoot(event)}>
-      <label>{t('Workspace 内旧数据根相对目录')}<Input required disabled={running} value={legacyRootPath} onChange={(event) => { setLegacyRootPath(event.target.value); setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setTotalSelected(0) }} placeholder="." /></label>
+      <label>{t('Workspace 内旧数据根相对目录')}<Input required disabled={running} value={legacyRootPath} onChange={(event) => changeRoot(event.target.value)} placeholder="." /></label>
+      <Button variant="outline" type="button" size="sm" disabled={!workspaceId || running} onClick={() => void chooseRoot()}>{t('选择目录')}</Button>
       <Button variant="outline" type="submit" size="sm" disabled={!workspaceId || running || !legacyRootPath.trim()}>{t('扫描旧数据根')}</Button>
     </form>
     {message && <p role="alert">{message}</p>}

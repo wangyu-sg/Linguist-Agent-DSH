@@ -30,12 +30,15 @@
 .sessionGroup > strong { overflow-wrap: anywhere; }
 .sessionRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 6px; }
 .sessionRow span { min-width: 0; overflow-wrap: anywhere; }
+.sessionRow > button { flex-shrink: 0; white-space: nowrap; }
 .sessionRow small { color: var(--dsw-alias-label-tertiary); }
 .form { display: flex; flex-direction: column; gap: 10px; }
+.formHint { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
 .form input { width: 100%; }
-.locale { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.locale { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .roles, .modes { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .roles label, .modes label { display: inline-flex; align-items: center; gap: 4px; }
 .roles input, .modes input { accent-color: var(--dsw-alias-brand-primary); }
 .message { position: sticky; bottom: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); padding: 8px 12px; box-shadow: 0 8px 24px #0002; }
 @media (max-width: 850px) { .columns { grid-template-columns: 1fr; } }
+@media (max-width: 440px) { .locale { grid-template-columns: 1fr; } }

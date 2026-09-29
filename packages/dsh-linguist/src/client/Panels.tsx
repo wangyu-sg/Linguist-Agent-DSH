@@ -1,10 +1,11 @@
-import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
+import { PROJECT_NAME_MAX_LENGTH } from '../project-input'
 import * as React from 'react'
 import { Button, Input, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistAssetInfo,
   LinguistAssetsQueryResult,
   LinguistBackupInfo,
+  LinguistRestorePreview,
   LinguistCatContextResult,
   LinguistCatListQaFindingsResult,
   LinguistContextDocInfo,
@@ -35,10 +36,12 @@ import type {
 import { fileUrl, required, stageFiles } from './api'
 import { describeLinguistFormat, isGenericXliffFallback } from './format-labels'
 import { PreviewView, type PreviewRequest } from './PreviewView'
+import { BackupRestorePreview } from './BackupRestorePreview'
 import { describeProjectError } from './project-errors'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { groupProposalRuns, textDiffParts } from './proposal-view'
 import { useT } from './ui-locale'
+import { ProjectLocaleSelect } from './ProjectLocaleSelect'
 import styles from './Panels.module.css'
 
 export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSegmentId, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentId?: string; focusFindingId?: string; focusSegmentId?: string; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
@@ -642,7 +645,8 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
   const [qaProfile, setQaProfile] = React.useState(project.qaProfile ?? 'general')
   const [confirmName, setConfirmName] = React.useState('')
   const [backups, setBackups] = React.useState<LinguistBackupInfo[]>([])
-  const [restorePreview, setRestorePreview] = React.useState<{backupName:string;restorable:boolean;notice?:string}>()
+  const [restorePreview, setRestorePreview] = React.useState<LinguistRestorePreview>()
+  const [restoreBusy, setRestoreBusy] = React.useState(false)
   const [integrityJob, setIntegrityJob] = React.useState('')
   const [integrityStatus, setIntegrityStatus] = React.useState('')
   const [integrityComplete, setIntegrityComplete] = React.useState(false)
@@ -708,12 +712,12 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
       <label>{t("名称")}<Input required maxLength={PROJECT_NAME_MAX_LENGTH} disabled={archived} value={name} onChange={(event) => setName(event.target.value)} /></label>
       <Button variant="outline" type="submit" size="sm" disabled={archived || !name.trim() || name === project.name}>{t("重命名")}</Button>
     </form>
-    <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void mutate('linguistProjectsSetLocales', { projectId, sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim() }) }}>
-      <label>Source locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} disabled={archived || hasBatches} value={sourceLocale} onChange={(event) => setSourceLocale(event.target.value)} /></label>
-      <label>Target locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} disabled={archived || hasBatches} value={targetLocale} onChange={(event) => setTargetLocale(event.target.value)} /></label>
+    <form className={styles.localeForm} onSubmit={(event) => { event.preventDefault(); void mutate('linguistProjectsSetLocales', { projectId, sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim() }) }}>
+      <ProjectLocaleSelect label={t('源语言')} disabled={archived || hasBatches} value={sourceLocale} onValueChange={setSourceLocale} />
+      <ProjectLocaleSelect label={t('目标语言')} disabled={archived || hasBatches} value={targetLocale} onValueChange={setTargetLocale} />
       <Button variant="outline" type="submit" size="sm" disabled={archived || hasBatches || (sourceLocale === project.sourceLocale && targetLocale === project.targetLocale)}>{t("保存语言")}</Button>
     </form>
-    {hasBatches && <p>{t('已有批次，不能修改项目语言。')}</p>}
+    <p className={styles.notice}>{t(hasBatches ? '已有批次，不能修改项目语言。' : '导入首个批次或 TM/TB 后，语言方向将冻结以避免数据不一致。')}</p>
     <div className={styles.toolbar}><label>{t("阶段")}<select disabled={archived} value={workflowStage} onChange={(event) => { const next = event.target.value as LinguistWorkflowStage; setWorkflowStage(next); setOutputStatus((project.outputStatusPolicy?.sdlxliff_1_2?.[next] as 'Translated' | 'ApprovedTranslation' | 'ApprovedSignOff' | undefined) ?? 'default') }}><option value="translation">Translator</option><option value="editing">Reviewer</option><option value="proofreading">Proofreader</option></select></label><label>{t('SDLXLIFF 确认输出')}<select disabled={archived} value={outputStatus} onChange={(event) => setOutputStatus(event.target.value as typeof outputStatus)}><option value="default">{t('随 T / E / P 阶段')}</option><option value="Translated">Translated</option><option value="ApprovedTranslation">ApprovedTranslation</option><option value="ApprovedSignOff">ApprovedSignOff</option></select></label><label>{t("QA 配置")}<select disabled={archived} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general'|'subtitle')}><option value="general">{t("通用")}</option><option value="subtitle">{t("字幕")}</option></select></label><Button variant="outline" size="sm" disabled={archived || (workflowStage === (project.workflowStage ?? 'translation') && qaProfile === (project.qaProfile ?? 'general') && outputStatus === ((project.outputStatusPolicy?.sdlxliff_1_2?.[workflowStage] as typeof outputStatus | undefined) ?? 'default'))} onClick={() => void mutate('linguistProjectsSetWorkflowConfig', { projectId, workflowStage, outputStatusPolicy: outputStatus === 'default' ? null : { sdlxliff_1_2: { [workflowStage]: outputStatus } }, qaProfile })}>{t("保存工作流")}</Button></div>
     <h3>Tag Profile</h3>
     <p>{t("候选只给软提示；批准后才成为编辑、QA 和导出的硬保护规则。")}</p>
@@ -729,8 +733,9 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
     </form>
     {project.tagProfile?.candidates?.map((candidate) => <div key={candidate.id} className={styles.item}><div className={styles.toolbar}><strong>{candidate.name}</strong><span>{candidate.status}</span><small>{candidate.explanation}</small></div><Input disabled={archived} aria-label={t('{name} 正则', { name: candidate.name })} value={candidatePatterns[candidate.id] ?? candidate.pattern} onChange={(event) => setCandidatePatterns((current) => ({ ...current, [candidate.id]: event.target.value }))} /><div className={styles.toolbar}><Button variant="outline" size="sm" disabled={archived || (candidatePatterns[candidate.id] ?? candidate.pattern) === candidate.pattern} onClick={() => void mutate('linguistProjectsUpdateTagProfile', { projectId, action: 'save', replaceId: candidate.id, candidate: { name: candidate.name, regex: candidatePatterns[candidate.id], kind: candidate.kind, pairKey: candidate.pairKey, evidenceExampleIds: [...candidate.evidenceExampleIds], confidence: candidate.confidence, explanation: candidate.explanation } })}>{t("保存正则")}</Button>{candidate.status === 'candidate' ? <><Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistProjectsUpdateTagProfile', { projectId, action: 'activate', entryId: candidate.id })}>{t("批准硬保护")}</Button><Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistProjectsUpdateTagProfile', { projectId, action: 'ignore', entryId: candidate.id })}>{t("忽略候选")}</Button></> : <span>{t("已忽略")}</span>}</div></div>)}
     <h3>{t("备份与恢复")}</h3><div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => void mutate('linguistProjectsBackup', { projectId }, t("备份已创建"))}>{t("创建备份")}</Button><Button variant="outline" size="sm" onClick={() => void refreshBackups()}>{t("刷新备份")}</Button></div>
-    {backups.map((backup) => <div key={backup.name} className={styles.toolbar}><span>{backup.name} · {backup.format} · {backup.sizeBytes} bytes</span><Button variant="outline" size="sm" disabled={archived} onClick={() => { void required<{restorable:boolean;notice?:string}>('linguistBackupsPreviewRestore', { projectId, backupName: backup.name }).then((preview) => setRestorePreview({ ...preview, backupName: backup.name })).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t("预览恢复")}</Button></div>)}
-    {restorePreview && <div className={styles.callout}><strong>{restorePreview.backupName}</strong><p>{restorePreview.notice ?? (restorePreview.restorable ? t("验证通过，可恢复") : t("此备份不可恢复"))}</p><Button variant="outline" size="sm" disabled={archived || !restorePreview.restorable} onClick={() => void mutate('linguistBackupsRestore', { projectId, backupName: restorePreview.backupName }, t("项目已从备份恢复"))}>{t("确认恢复")}</Button></div>}
+    {backups.map((backup) => <div key={backup.name} className={styles.toolbar}><span>{backup.name} · {backup.format} · {backup.sizeBytes} bytes</span><Button variant="outline" size="sm" disabled={archived || restoreBusy} onClick={() => { setRestorePreview(undefined); setRestoreBusy(true); void required<LinguistRestorePreview>('linguistBackupsPreviewRestore', { projectId, backupName: backup.name }).then(setRestorePreview).catch((error: unknown) => setMessage(describeProjectError(error, t))).finally(() => setRestoreBusy(false)) }}>{t("预览恢复")}</Button></div>)}
+    {restoreBusy && !restorePreview && <p role="status">{t('正在校验备份并生成预览…')}</p>}
+    {restorePreview && <BackupRestorePreview preview={restorePreview} archived={archived} busy={restoreBusy} onClose={() => setRestorePreview(undefined)} onConfirm={() => { setRestoreBusy(true); void mutate('linguistBackupsRestore', { projectId, backupName: restorePreview.backupName }, t("项目已从备份恢复")).then((restored) => { if (restored) setRestorePreview(undefined) }).finally(() => setRestoreBusy(false)) }} />}
     <h3>{t("完整性与诊断")}</h3><div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => void startIntegrity()}>{t("运行全量完整性检查")}</Button>{integrityJob && !integrityComplete && <Button variant="outline" size="sm" onClick={() => void mutate('linguistIntegrityCancel', { projectId, jobId: integrityJob })}>{t("取消全检")}</Button>}<span role="status">{integrityStatus}</span>{integrityComplete && <Button variant="outline" size="sm" onClick={() => void exportManagedFile('linguistIntegrityExportReport', { projectId, jobId: integrityJob })}>{t("下载脱敏全检报告")}</Button>}<Button variant="outline" size="sm" onClick={() => { void required<ProjectDiagnosticsStatus>('linguistDiagnosticsGetStatus', { projectId, ...(sessionId ? { sessionId } : {}) }).then(setDiagnostics).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t("检查运行状态")}</Button><Button variant="outline" size="sm" onClick={() => { void required<unknown>('linguistDiagnosticsPreviewBundle', { projectId, ...(sessionId ? { sessionId } : {}) }).then(setDiagnosticsPreview).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t("预览脱敏诊断包")}</Button>{diagnosticsPreview !== undefined && <Button variant="outline" size="sm" onClick={() => void exportManagedFile('linguistDiagnosticsExportBundle', { projectId, ...(sessionId ? { sessionId } : {}) })}>{t("下载诊断包")}</Button>}</div>{diagnostics && <div className={styles.callout} role="status"><strong>{t('Prompt 状态')}</strong><p>Version {diagnostics.prompt.promptVersion} · {t('岗位')} {diagnostics.prompt.role} · {t('项目版本')} {diagnostics.projectRevision}</p><p>{t('项目摘要状态')}：{diagnostics.prompt.projectDigestStatus}{diagnostics.prompt.projectDigestTruncated ? ` · ${t('摘要已按预算裁减')}` : ''}</p><p>Hash {diagnostics.prompt.promptHash} · {diagnostics.prompt.charCount} {t('字符')}</p></div>}{diagnosticsPreview !== undefined && <details><summary>{t("诊断包预览")}</summary><pre>{JSON.stringify(diagnosticsPreview, null, 2)}</pre></details>}{download && <p><a href={fileUrl(download.token)} download={download.filename} onClick={() => setDownload(undefined)}>{t("下载")} {download.filename}</a></p>}
     <h3>{t("归档与移入回收区")}</h3><div className={styles.toolbar}><Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistProjectsArchive', { projectId }, t("项目已归档"))}>{t("归档项目")}</Button><Input disabled={!archived} aria-label={t("输入项目名称确认移入回收区")} placeholder={t("输入完整项目名")} value={confirmName} onChange={(event) => setConfirmName(event.target.value)} /><Button variant="outline" size="sm" disabled={!archived || confirmName !== project.name} onClick={() => void mutate('linguistProjectsDelete', { projectId, confirmationName: confirmName }, t("项目已移入回收区"))}>{t("移入回收区")}</Button></div>
     {message && <p role="status">{message}</p>}

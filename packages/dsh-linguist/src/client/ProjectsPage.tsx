@@ -1,4 +1,4 @@
-import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
+import { PROJECT_NAME_MAX_LENGTH } from '../project-input'
 import * as React from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -13,6 +13,7 @@ import { describeHealthCheck, describeProjectError } from './project-errors'
 import { useT } from './ui-locale'
 import { stageName } from './workflow-ui'
 import { ProjectSessions } from './ProjectSessions'
+import { ProjectLocaleSelect } from './ProjectLocaleSelect'
 import styles from './ProjectsPage.module.css'
 
 export type Role = 'general' | 'translator' | 'reviewer' | 'proofreader'
@@ -21,8 +22,9 @@ type Project = LinguistProjectInfo & { workspaceId?: string }
 type ImportedBackup = { project: Project; importedFrom: string; schemaVersion: number }
 type ProjectDetail = { summary?: LinguistProjectSummary; health?: LinguistProjectHealthReport; summaryError?: string; healthError?: string }
 
-export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession }: {
+export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onPickDirectory }: {
   workspaces: IWorkspaces
+  onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
   onEnter: (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
   onOpenSession: (binding: LinguistBinding) => Promise<void>
@@ -41,6 +43,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession }: {
   const [sourceLocale, setSourceLocale] = React.useState('en-US')
   const [targetLocale, setTargetLocale] = React.useState('zh-CN')
   const [workflowStage, setWorkflowStage] = React.useState<LinguistWorkflowStage>('translation')
+  const [qaProfile, setQaProfile] = React.useState<'general' | 'subtitle'>('general')
   const [role, setRole] = React.useState<Role>('general')
   const [workMode, setWorkMode] = React.useState<WorkMode>('cat')
   const [includeArchived, setIncludeArchived] = React.useState(false)
@@ -85,10 +88,11 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession }: {
     if (!workspaceId) return
     setBusy(true)
     try {
-      const created = await required<Project>('linguistProjectsCreate', { name: name.trim(), sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim(), workflowStage, qaProfile: 'general', workspaceId })
+      const created = await required<Project>('linguistProjectsCreate', { name: name.trim(), sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim(), workflowStage, qaProfile, workspaceId })
       setName('')
       setRefresh((value) => value + 1)
       setMessage(t('已创建 {name}', { name: created.name }))
+      await enter(created)
     } catch (error) { setMessage(describeProjectError(error, t)) }
     finally { setBusy(false) }
   }
@@ -163,9 +167,33 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession }: {
         {settingsProject && <div className={styles.settings}><div className={styles.toolbar}><h2>{settingsProject.name} · {t('项目设置')}</h2><Button variant="outline" size="sm" onClick={() => setSettingsProjectId(undefined)}>{t('关闭设置')}</Button></div><ProjectSettingsPanel key={settingsProject.id} project={settingsProject} hasBatches={(details[settingsProject.id]?.summary?.assetCount ?? 0) > 0} onChanged={() => setRefresh((value) => value + 1)} /></div>}
       </section>
       <div className={styles.right}>
-        <section className={styles.section} aria-label={t("新建项目")}><h2>{t("新建项目")}</h2><form className={styles.form} onSubmit={(event) => void create(event)}><label>{t("名称")}<Input required maxLength={PROJECT_NAME_MAX_LENGTH} value={name} onChange={(event) => setName(event.target.value)} /></label><div className={styles.locale}><label>Source locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} value={sourceLocale} onChange={(event) => setSourceLocale(event.target.value)} /></label><label>Target locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} value={targetLocale} onChange={(event) => setTargetLocale(event.target.value)} /></label></div><label>{t("当前工作阶段")}<select value={workflowStage} onChange={(event) => setWorkflowStage(event.target.value as LinguistWorkflowStage)}><option value="translation">{t("翻译")}</option><option value="editing">{t("编辑审校")}</option><option value="proofreading">{t("校对")}</option></select></label><Button type="submit" variant="primary" disabled={busy || !workspaceId || !name.trim()}>{t("创建")}</Button></form></section>
-        <section className={styles.section} aria-label={t('导入备份目录')}><h2>{t('导入备份目录')}</h2><p>{t('输入所选 DSH Workspace 内的相对目录。导入后会自动关联该 Workspace；原备份不会改动。')}</p><form className={styles.form} onSubmit={(event) => void importBackup(event)}><label>{t('Workspace 相对备份目录')}<Input required placeholder="backup-YYYY-MM-DDTHH-MM-SS-mmmZ" value={backupPath} onChange={(event) => setBackupPath(event.target.value)} /></label><Button variant="outline" type="submit" disabled={busy || !workspaceId || !backupPath.trim()}>{t('导入备份')}</Button></form></section>
-        <LegacyMigrationPanel workspaceId={workspaceId} onImported={() => setRefresh((value) => value + 1)} />
+        <section className={styles.section} aria-label={t("新建项目")}>
+          <h2>{t("新建项目")}</h2>
+          <form className={styles.form} onSubmit={(event) => void create(event)}>
+            <label>{t("名称")}<Input required disabled={busy} maxLength={PROJECT_NAME_MAX_LENGTH} placeholder={t('例如：官网本地化')} value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <div className={styles.locale}>
+              <ProjectLocaleSelect label={t('源语言')} disabled={busy} value={sourceLocale} onValueChange={setSourceLocale} />
+              <ProjectLocaleSelect label={t('目标语言')} disabled={busy} value={targetLocale} onValueChange={setTargetLocale} />
+            </div>
+            <label>{t("当前工作阶段")}<select disabled={busy} value={workflowStage} onChange={(event) => setWorkflowStage(event.target.value as LinguistWorkflowStage)}><option value="translation">{t("翻译")}</option><option value="editing">{t("编辑审校")}</option><option value="proofreading">{t("校对")}</option></select></label>
+            <small className={styles.formHint}>{t('已有目标译文不会自动算作本轮完成；确认后会按此阶段写回双语文件状态。')}</small>
+            <label>{t('QA 场景')}<select disabled={busy} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general' | 'subtitle')}><option value="general">{t('通用本地化')}</option><option value="subtitle">{t('字幕 / 对白')}</option></select></label>
+            <small className={styles.formHint}>{t('字幕模式只降低省略号、强调标点和长度比例噪声；数字、标签与占位符硬门不变。')}</small>
+            <Button type="submit" variant="primary" disabled={busy || !workspaceId || !name.trim()}>{t("创建")}</Button>
+          </form>
+        </section>
+        <section className={styles.section} aria-label={t('导入备份目录')}>
+          <h2>{t('导入备份目录')}</h2>
+          <p>{t('选择所选 DSH Workspace 内的备份目录。导入后会自动关联该 Workspace；原备份不会改动。')}</p>
+          <form className={styles.form} onSubmit={(event) => void importBackup(event)}>
+            <label>{t('Workspace 相对备份目录')}<Input required placeholder="backup-YYYY-MM-DDTHH-MM-SS-mmmZ" value={backupPath} onChange={(event) => setBackupPath(event.target.value)} /></label>
+            <div className={styles.toolbar}>
+              <Button variant="outline" type="button" disabled={busy || !workspaceId} onClick={() => { void onPickDirectory(workspaceId).then((path) => { if (path !== null) setBackupPath(path) }).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t('选择目录')}</Button>
+              <Button variant="outline" type="submit" disabled={busy || !workspaceId || !backupPath.trim()}>{t('导入备份')}</Button>
+            </div>
+          </form>
+        </section>
+        <LegacyMigrationPanel workspaceId={workspaceId} onPickDirectory={onPickDirectory} onImported={() => setRefresh((value) => value + 1)} />
         <section className={styles.section} aria-label={t("岗位与工作方式")}><h2>{t("进入会话")}</h2><p>{t("岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。")}</p><div className={styles.roles} role="radiogroup" aria-label={t("岗位")}>{([['general',t("通用")],['translator',t("译者")],['reviewer',t("审校")],['proofreader',t("校对")]] as const).map(([id,label]) => <label key={id}><input type="radio" name="linguist-role" value={id} checked={role === id} onChange={() => setRole(id)} />{label}</label>)}</div><div className={styles.modes} role="radiogroup" aria-label={t("工作方式")}>{([['cat','CAT'],['working-copy',t("工作副本")],['browser',t("浏览器")]] as const).map(([id,label]) => <label key={id}><input type="radio" name="linguist-mode" value={id} checked={workMode === id} onChange={() => setWorkMode(id)} />{label}</label>)}</div>{workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t("新建无项目会话")}</Button>}</section>
         <section className={styles.section} aria-label={t("格式验证与平台资格")}><h2>{t("格式资格")}</h2><p>{t("内部验证与平台资格分别记录；“未验证”不代表不兼容。")}</p>{formatError && <p role="alert">{formatError}</p>}{formats.map((format) => <p key={format.formatId}>{t(describeLinguistFormat(format.formatId))} · {format.extensions.join(' ')} {t("· 内部")}{format.internalVerification === 'passed' ? t("通过") : t("失败")} {t("· 平台")}{format.platformQualification}{describeFormatCapability(format.formatId) && <small> · {t(describeFormatCapability(format.formatId)!)}</small>}</p>)}</section>
       </div>

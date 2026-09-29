@@ -6,6 +6,8 @@
 .panel pre { max-height: 260px; overflow: auto; white-space: pre-wrap; }
 .toolbar, .form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .form { align-items: end; }
+.localeForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 640px; align-items: start; }
+.localeForm > button { grid-column: 1 / -1; justify-self: start; }
 .formFields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .toolbar label, .form label { display: inline-flex; align-items: center; gap: 5px; }
 .toolbar select, .form select { min-height: 28px; max-width: 240px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 2px 6px; font: inherit; }
@@ -42,3 +44,4 @@
 .scheduleManager h3 { margin: 0; }
 .proposalRun { display: grid; gap: 6px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
 @media (max-width: 760px) { .compare { grid-template-columns: 1fr; } .compare > div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0 0; } }
+@media (max-width: 440px) { .localeForm { grid-template-columns: 1fr; } }

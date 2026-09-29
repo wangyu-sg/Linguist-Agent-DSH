@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import * as workspacePaths from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-util-workspace-path/lib/index.js'
 
 // Execute the real Client registration without mounting React or a desktop window.
 test('native navigation cancels pending LA opens and late session creation', async () => {
@@ -12,6 +13,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
   let mounted
   let navigation = new AbortController()
   let completeCreate
+  let pickedDirectory = '/synthetic/workspace/backups/check'
   const ctx = {
     effect() {},
     locale: { bind: () => text => text },
@@ -23,7 +25,8 @@ test('native navigation cancels pending LA opens and late session creation', asy
       selectPanel: () => navigation.abort(),
       beginNavigation: () => { navigation.abort(); navigation = new AbortController(); return navigation.signal },
     },
-    uiWorkspace: { openSession: () => navigation.abort() },
+    uiWorkspace: { openSession: () => navigation.abort(), pickDirectory: async () => pickedDirectory },
+    workspaces: { list: { getSnapshot: () => ({ items: [{ workspaceId: 'workspace-A', path: '/synthetic/workspace' }] }) } },
     sidebarRight: {
       mounted: { getSnapshot: () => mounted, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } },
       openResourceIn: (...args) => opened.push(args),
@@ -40,12 +43,20 @@ test('native navigation cancels pending LA opens and late session creation', asy
     if (name === './ui-locale') return {}
     if (name === './Native.module.css') return { default: {} }
     if (name === './CatToolResult') return { catToolNames: [] }
-    if (name === './cat-navigation' || name === '@deepseek-ai/dsh-util-workspace-path' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
+    if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
+    if (name === './cat-navigation' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
     if (components.some(component => name === `./${component}`)) return {}
     throw new Error(`Unexpected Client import: ${name}`)
   } })
   exports.apply(ctx)
-  const { onOpenSession, onEnter } = registrations.get('main')().child.props
+  const { onOpenSession, onEnter, onPickDirectory } = registrations.get('main')().child.props
+  assert.equal(await onPickDirectory('workspace-A'), 'backups/check')
+  pickedDirectory = '/synthetic/workspace'
+  assert.equal(await onPickDirectory('workspace-A'), '.')
+  pickedDirectory = null
+  assert.equal(await onPickDirectory('workspace-A'), null)
+  pickedDirectory = '/synthetic/workspace-other/backup'
+  await assert.rejects(onPickDirectory('workspace-A'), /Workspace/)
   const binding = { sessionId: 'synthetic-A', projectId: 'project-A', workMode: 'cat' }
   const pending = onOpenSession(binding)
   assert.equal(listeners.size, 1)
