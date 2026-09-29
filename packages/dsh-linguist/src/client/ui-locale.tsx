@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '复制 SHA-256': 'Copy SHA-256', 'SHA-256 已复制': 'SHA-256 copied', '无法复制 SHA-256': 'Could not copy SHA-256', '归档于 {time}': 'Archived {time}',
   '建议': 'Proposals', '资料': 'Assets', '交付': 'Delivery', '运行': 'Runs', '项目设置': 'Project settings',
   '译文已保存': 'Translation saved', '当前阶段已确认': 'Current stage confirmed', '已撤销当前阶段确认': 'Current stage confirmation removed',
   '所选句段均无法读取，未执行阶段确认': 'None of the selected segments could be read; nothing was confirmed',

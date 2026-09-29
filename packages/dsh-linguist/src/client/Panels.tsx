@@ -1,5 +1,6 @@
+import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
 import * as React from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistAssetInfo,
   LinguistAssetsQueryResult,
@@ -520,7 +521,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, archived, onChan
       <span>{summary.length} {t("个批次")}</span>
     </div>
     {importing && <p role="status">{t('导入中（读取并解析文件）…')}</p>}
-    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…</small> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><Button size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
+    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><Button size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
     {mapCandidate && <div className={styles.callout} aria-label={t('XLSX 映射确认')}>
       <div className={styles.toolbar}><strong>{mapCandidate.filename} {t("需要映射列")}</strong><Button size="sm" disabled={importing} onClick={() => setImportResult(undefined)}>{t('取消')}</Button></div>
@@ -702,7 +703,16 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
   return <section className={styles.panel} aria-label={t("项目设置与维护")}>
     {archived && <p className={styles.callout}>{t('归档项目为只读；仍可查看、备份和诊断。')}</p>}
     {onOpenFiles && <div className={styles.toolbar}><strong>{t('DSH Workspace 文件')}</strong><Button size="sm" onClick={onOpenFiles}>{t('打开原生 Files')}</Button></div>}
-    <h3>{t("项目")}</h3><div className={styles.form}><label>{t("名称")}<Input disabled={archived} value={name} onChange={(event) => setName(event.target.value)} /></label><Button size="sm" disabled={archived || !name.trim() || name === project.name} onClick={() => void mutate('linguistProjectsRename', { projectId, name: name.trim() })}>{t("重命名")}</Button><label>Source locale<Input disabled={archived || hasBatches} value={sourceLocale} onChange={(event) => setSourceLocale(event.target.value)} /></label><label>Target locale<Input disabled={archived || hasBatches} value={targetLocale} onChange={(event) => setTargetLocale(event.target.value)} /></label><Button size="sm" disabled={archived || hasBatches || (sourceLocale === project.sourceLocale && targetLocale === project.targetLocale)} onClick={() => void mutate('linguistProjectsSetLocales', { projectId, sourceLocale, targetLocale })}>{t("保存语言")}</Button></div>
+    <h3>{t("项目")}</h3>
+    <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void mutate('linguistProjectsRename', { projectId, name: name.trim() }) }}>
+      <label>{t("名称")}<Input required maxLength={PROJECT_NAME_MAX_LENGTH} disabled={archived} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <Button type="submit" size="sm" disabled={archived || !name.trim() || name === project.name}>{t("重命名")}</Button>
+    </form>
+    <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void mutate('linguistProjectsSetLocales', { projectId, sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim() }) }}>
+      <label>Source locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} disabled={archived || hasBatches} value={sourceLocale} onChange={(event) => setSourceLocale(event.target.value)} /></label>
+      <label>Target locale<Input required maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} disabled={archived || hasBatches} value={targetLocale} onChange={(event) => setTargetLocale(event.target.value)} /></label>
+      <Button type="submit" size="sm" disabled={archived || hasBatches || (sourceLocale === project.sourceLocale && targetLocale === project.targetLocale)}>{t("保存语言")}</Button>
+    </form>
     {hasBatches && <p>{t('已有批次，不能修改项目语言。')}</p>}
     <div className={styles.toolbar}><label>{t("阶段")}<select disabled={archived} value={workflowStage} onChange={(event) => { const next = event.target.value as LinguistWorkflowStage; setWorkflowStage(next); setOutputStatus((project.outputStatusPolicy?.sdlxliff_1_2?.[next] as 'Translated' | 'ApprovedTranslation' | 'ApprovedSignOff' | undefined) ?? 'default') }}><option value="translation">Translator</option><option value="editing">Reviewer</option><option value="proofreading">Proofreader</option></select></label><label>{t('SDLXLIFF 确认输出')}<select disabled={archived} value={outputStatus} onChange={(event) => setOutputStatus(event.target.value as typeof outputStatus)}><option value="default">{t('随 T / E / P 阶段')}</option><option value="Translated">Translated</option><option value="ApprovedTranslation">ApprovedTranslation</option><option value="ApprovedSignOff">ApprovedSignOff</option></select></label><label>{t("QA 配置")}<select disabled={archived} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general'|'subtitle')}><option value="general">{t("通用")}</option><option value="subtitle">{t("字幕")}</option></select></label><Button size="sm" disabled={archived || (workflowStage === (project.workflowStage ?? 'translation') && qaProfile === (project.qaProfile ?? 'general') && outputStatus === ((project.outputStatusPolicy?.sdlxliff_1_2?.[workflowStage] as typeof outputStatus | undefined) ?? 'default'))} onClick={() => void mutate('linguistProjectsSetWorkflowConfig', { projectId, workflowStage, outputStatusPolicy: outputStatus === 'default' ? null : { sdlxliff_1_2: { [workflowStage]: outputStatus } }, qaProfile })}>{t("保存工作流")}</Button></div>
     <h3>Tag Profile</h3>

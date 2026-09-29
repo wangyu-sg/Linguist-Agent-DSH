@@ -19,6 +19,8 @@
 
 - 最新候选 `la-1739a774a38a-b4f81677` 已重建：原生 layout navigation 取消旧工作台等待及迟到的会话创建导航，回归直接执行实际 Client apply 注册，必需检查已纳入并通过；Host/Client类型检查和构建通过。当前原生安装仍478，须更新后重新采集最终验收。
 
+- 最新候选 `la-628578201bb3-b4f81677` 已构建暂存：项目新建/重命名/语言设置采用共享Host限制与原生表单校验；批次SHA显示末4位并可复制完整值，拒绝复制会明确提示失败；列表补归档时间。175 Node、21 Bun、8类型检查及构建通过。原生安装仍478，最终UI/Provider/BrowserSkill Agent工具证据仍须新包更新后采集。
+
 ## 先前记录
 
 状态：IMPLEMENTING，未达到 READY。只读源 `/Users/wangyu/Desktop/linguist-agent-next` 未改动；目标代码和独立产品数据根在 `/Users/wangyu/Desktop/Linguist-Agent-DSH` 与 `/Users/wangyu/Library/Application Support/Linguist-Agent-DSH`。

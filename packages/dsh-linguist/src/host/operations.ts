@@ -1,3 +1,4 @@
+import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative } from 'node:path'
@@ -49,7 +50,6 @@ const PROJECT_ASSET_ID = /^(?:sgr|spn|ctx|tcn|vpr)(?:-[0-9a-f]{16}|_v2_[0-9a-f]{
 const REFERENCE_ID = /^(?:tmu|ter)(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
 const TERM_ID = /^ter(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
 const REFERENCE_IMPORT_ID = /^rfi(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
-const LOCALE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
 const BACKUP_NAME = /^(?:backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z|cat-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.db)$/
 const XLSX_DETECTOR = new XlsxAdapter()
 const TEXT_PREVIEW_EXTENSIONS = new Set(['.xliff', '.xlf', '.mqxliff', '.sdlxliff', '.mxliff', '.csv', '.tsv', '.json', '.md', '.markdown', '.txt', '.text', '.log'])
@@ -301,9 +301,9 @@ export async function dispatchOperation(input: DispatchOperationInput): Promise<
       const workspaceId = string(payload.workspaceId, 'workspaceId', 200)
       workspace(workspaceId, workspaceRegistry)
       const created = await service.createProject({
-        name: string(payload.name, 'name', 120),
-        sourceLocale: string(payload.sourceLocale, 'sourceLocale', 35, LOCALE),
-        targetLocale: string(payload.targetLocale, 'targetLocale', 35, LOCALE),
+        name: string(payload.name, 'name', PROJECT_NAME_MAX_LENGTH),
+        sourceLocale: string(payload.sourceLocale, 'sourceLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN),
+        targetLocale: string(payload.targetLocale, 'targetLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN),
         workflowStage: stage(payload.workflowStage, 'translation'),
         ...(payload.qaProfile === undefined ? {} : { qaProfile: oneOf(payload.qaProfile, 'qaProfile', ['general', 'subtitle'] as const) }),
         ...(payload.outputStatusPolicy === undefined ? {} : { outputStatusPolicy: outputStatusPolicy(payload.outputStatusPolicy) }),
@@ -337,13 +337,13 @@ export async function dispatchOperation(input: DispatchOperationInput): Promise<
       return service.getStageDecisionCoverage(projectId(payload), assetId(payload), stage(payload.workflowStage))
     case 'linguistProjectsRename': {
       const id = projectId(payload)
-      const result = service.renameProject(id, string(payload.name, 'name', 120))
+      const result = service.renameProject(id, string(payload.name, 'name', PROJECT_NAME_MAX_LENGTH))
       notify(mutations, id, 'project-updated')
       return publicProject(result, bindings)
     }
     case 'linguistProjectsSetLocales': {
       const id = projectId(payload)
-      const result = service.setProjectLocales(id, string(payload.sourceLocale, 'sourceLocale', 35, LOCALE), string(payload.targetLocale, 'targetLocale', 35, LOCALE))
+      const result = service.setProjectLocales(id, string(payload.sourceLocale, 'sourceLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN), string(payload.targetLocale, 'targetLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN))
       notify(mutations, id, 'project-updated')
       return publicProject(result, bindings)
     }
@@ -1203,8 +1203,8 @@ export async function listWorkingCopies(input: Pick<DispatchOperationInput, 'pay
         const common = {
           path, ownerSessionId: owner.name, sourcePath, sourceSha256: source.name, artifactSha256: snapshot.sha256,
           formatId: string(value.formatId, 'formatId', 100),
-          sourceLocale: string(value.sourceLocale, 'sourceLocale', 35, LOCALE),
-          targetLocale: string(value.targetLocale, 'targetLocale', 35, LOCALE),
+          sourceLocale: string(value.sourceLocale, 'sourceLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN),
+          targetLocale: string(value.targetLocale, 'targetLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN),
           segmentCount: value.segments.length, updatedAt: (await stat(join(sessionDir, file.name))).mtime.toISOString(),
           submitted: false as const,
         }

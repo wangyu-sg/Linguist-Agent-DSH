@@ -3633,8 +3633,8 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
-        "auditNote": "列表与健康展示已接线；project-errors.ts 已实现格式分类、稳定错误码中文说明和撤销引用计数。源排序、输入预校验、时间/SHA 展示语义及安装态错误交互仍须逐项核对。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "项目排序由迁入CAT Store索引维护（源纯排序函数已无界面调用）。项目新建/重命名/语言设置已共享Host限制并用原生表单预校验；错误/健康摘要沿用project-errors；完整SHA复制及归档时间已补齐。时间采用本地化绝对时间展示。安装态交互验收仍pending。",
+        "auditEvidencePath": "tests/copied-renderer/project-input.nodetest.ts"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/projects-atoms.ts",
