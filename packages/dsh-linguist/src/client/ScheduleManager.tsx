@@ -10,7 +10,7 @@ import { required } from './api'
 import { useT } from './ui-locale'
 import styles from './Panels.module.css'
 
-export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sessionId: string; refresh: number; editable: boolean; onEdit: (schedule: LinguistScheduleInfo) => void }): React.ReactElement {
+export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestinations }: { sessionId: string; refresh: number; editable: boolean; onDestinations: (destinations: LinguistScheduleListResult['notificationDestinations']) => void; onEdit: (schedule: LinguistScheduleInfo) => void }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistScheduleListResult>()
   const [error, setError] = React.useState('')
@@ -24,10 +24,10 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
   React.useEffect(() => {
     let live = true
     required<LinguistScheduleListResult>('linguistScheduleList', { sessionId })
-      .then((value) => { if (live) { setList(value); setError('') } })
+      .then((value) => { if (live) { setList(value); onDestinations(value.notificationDestinations); setError('') } })
       .catch((cause: unknown) => { if (live) setError(String(cause)) })
     return () => { live = false }
-  }, [sessionId, refresh, reload])
+  }, [sessionId, refresh, reload, onDestinations])
 
   const cancel = async (scheduleId: string) => {
     setBusyId(scheduleId)
@@ -97,7 +97,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
         <strong>{t('最近执行记录')}</strong>
         <p>{t('执行状态来自 DSH 会话结束事件；专业完成情况请查看对应岗位决策。')}</p>
         {history.executions.length === 0 && <p>{t('暂无执行记录。')}</p>}
-        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ dispatched: '已分发到任务会话', 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.sessionId && <> · <code>{run.sessionId}</code></>}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
+        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ dispatched: '已分发到任务会话', 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.notifications?.map(receipt => <span key={receipt.destinationId}> · {t('通知')} {receipt.destinationId}：{t(receipt.status === 'sent' ? '已发送' : receipt.status === 'failed' ? '发送失败' : '发送结果未知')}{receipt.code && ` (${receipt.code})`}</span>)}{run.sessionId && <> · <code>{run.sessionId}</code></>}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
         {history.nextExecutionBefore && <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, undefined, history.nextExecutionBefore)}>{t('读取更早执行')}</Button>}
         <strong>{t('原生投递记录')}</strong>
         {history.records.length === 0 && <p>{t('暂无投递记录。')}</p>}

@@ -1240,6 +1240,7 @@ export interface LinguistScheduleCreateRequest {
   timing: LinguistScheduleTiming
   maxRuns?: number
   sessionMode?: 'daily' | 'reuse'
+  notificationTargets?: LinguistScheduleNotificationTarget[]
 }
 
 export interface LinguistScheduleCreateResult {
@@ -1256,10 +1257,14 @@ export interface LinguistScheduleCreateResult {
   version: string
 }
 
+export interface LinguistScheduleNotificationTarget { destinationId: string; trigger: 'always' | 'success' | 'error' }
+export interface LinguistScheduleNotificationReceipt { destinationId: string; status: 'sent' | 'failed' | 'unknown'; code?: string; messageId?: string }
+
 export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   maxRuns?: number
   sessionMode: 'daily' | 'reuse'
   executionSessionId?: string
+  notificationTargets: LinguistScheduleNotificationTarget[]
   runCount: number
   limitReached: boolean
   consecutiveFailures: number
@@ -1271,7 +1276,7 @@ export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   lastDeliveredAt?: string
 }
 
-export interface LinguistScheduleListResult { items: LinguistScheduleInfo[] }
+export interface LinguistScheduleListResult { items: LinguistScheduleInfo[]; notificationDestinations: Array<{ id: string; label: string }> }
 
 export interface LinguistScheduleUpdateRequest extends LinguistScheduleCreateRequest {
   scheduleId: string
@@ -1282,7 +1287,7 @@ export interface LinguistScheduleCancelResult { scheduleId: string; cancelled: b
 
 export interface LinguistScheduleHistoryResult {
   scheduleId: string
-  executions: Array<{ turn: number; messageId: string; sessionId?: string; admittedAt: string; endedAt?: string; outcome: string; phase: 'admission' | 'execution'; failure?: { code: string; status?: number } }>
+  executions: Array<{ turn: number; messageId: string; sessionId?: string; admittedAt: string; endedAt?: string; outcome: string; phase: 'admission' | 'execution'; notifications?: LinguistScheduleNotificationReceipt[]; failure?: { code: string; status?: number } }>
   records: Array<{ scheduledAt: string; deliveredAt: string; messageId: string; prompt?: string }>
   earlierRecordsUnavailable: boolean
   earlierRecordsPruned: boolean

@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -26,6 +26,7 @@ import { MutationBus } from './host/mutations'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
 import { ScheduleContextManager } from './host/schedule-context'
+import { ScheduleNotifications, type FeishuDestination } from './host/schedule-notifications'
 import { ScheduleSessionRuntime } from './host/schedule-session'
 import { ensureStageEvidenceForSession } from './host/stage-evidence'
 import { adaptCatTool } from './host/tool-adapter'
@@ -34,8 +35,13 @@ import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
 export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
-export const Config = Schema.object({ dataRoot: Schema.string(), installationId: Schema.string() })
-export type Config = { dataRoot: string; installationId: string }
+export const Config = Schema.object({ dataRoot: Schema.string(), installationId: Schema.string(),
+  notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
+    appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
+    domain: Schema.union(['feishu', 'lark']).default('feishu'),
+  })).default([]).volatile(),
+})
+export type Config = { dataRoot: string; installationId: string; notificationDestinations: Volatile<FeishuDestination[]> }
 
 export function apply(ctx: Context, config: Config): void {
   if (!config.dataRoot || !config.installationId) throw new Error('Linguist product dataRoot and installationId are required')
@@ -230,10 +236,10 @@ export function apply(ctx: Context, config: Config): void {
       if ('error' in resolved) throw resolved.error
       resolved.agent.followup(message)
       if (!await ctx.sessions.flush(resolved.agent.session)) throw new Error('Native DSH Session did not acknowledge manual Schedule delivery')
-    })
+    }, new ScheduleNotifications(() => config.notificationDestinations.get()))
   ctx.on('session/event', async (session, event) => {
     if (event.type === 'turn/end') {
-      await scheduleContext.recordExecutionEnd(session.id)
+      await scheduleContext.recordExecutionEnd(session.id, event.data.turn)
       scheduleContext.clearTurn(session.id, event.data.turn)
       if (bindings.session(session.id)?.projectId) await scheduleContext.enforceRunPolicy(session.id)
     }

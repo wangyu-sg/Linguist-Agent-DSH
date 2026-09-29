@@ -16,6 +16,7 @@ import type { LinguistScheduleCancelResult, LinguistScheduleCreateRequest, Lingu
 import { computeLinguistProjectRevision, type LinguistProjectService } from '@linguist/domain-service'
 import { captureAutomationLinguistContext, revalidateAutomationLinguistContext, type AutomationLinguistContext } from './automation-context'
 import type { BindingStore } from './bindings'
+import { ScheduleNotifications, type FrozenNotificationTarget } from './schedule-notifications'
 import type { ScheduledSession, ScheduleSessionRuntime } from './schedule-session'
 
 declare module '@deepseek-ai/dsh-llm/message' {
@@ -60,6 +61,8 @@ interface StoredScheduleContext {
   maxRuns?: number
   sessionMode?: 'daily' | 'reuse'
   executionSessions?: ScheduledSession[]
+  notificationTargets?: FrozenNotificationTarget[]
+  notificationReceipts?: Record<string, NonNullable<LinguistScheduleHistoryResult['executions'][number]['notifications']>>
   stopped?: { reason: 'max-runs' | 'consecutive-failures'; native: ScheduleCatalogEntry; history: LinguistScheduleHistoryResult }
   pendingUpdate?: true
   createdAt: string
@@ -102,8 +105,8 @@ function rule(record: ScheduleRecord): ScheduleRule {
   }
 }
 
-function version(record: ScheduleRecord, maxRuns?: number, stopReason?: NonNullable<StoredScheduleContext['stopped']>['reason'], sessionMode: 'daily' | 'reuse' = 'daily'): string {
-  return createHash('sha256').update(JSON.stringify({ id: record.id, scheduledAt: record.scheduledAt, rule: rule(record), maxRuns, stopReason, sessionMode })).digest('hex')
+function version(record: ScheduleRecord, maxRuns?: number, stopReason?: NonNullable<StoredScheduleContext['stopped']>['reason'], sessionMode: 'daily' | 'reuse' = 'daily', notificationTargets: readonly FrozenNotificationTarget[] = []): string {
+  return createHash('sha256').update(JSON.stringify({ id: record.id, scheduledAt: record.scheduledAt, rule: rule(record), maxRuns, stopReason, sessionMode, notificationTargets })).digest('hex')
 }
 
 function timingOf(record: ScheduleRecord): LinguistScheduleTiming {
@@ -298,6 +301,7 @@ export class ScheduleContextManager {
     private readonly assertProjectSession: (sessionId: string, projectId: string) => Promise<void>,
     private readonly readSessionEvents: (sessionId: string) => Promise<readonly SessionEvent[] | undefined>,
     private readonly deliverManual?: (sessionId: string, message: UserMessage) => Promise<void>,
+    private readonly notifications = new ScheduleNotifications(() => []),
   ) {
     this.directory = join(dataRoot, 'linguist-schedule-context')
     mkdirSync(this.directory, { recursive: true, mode: 0o700 })
@@ -332,11 +336,12 @@ export class ScheduleContextManager {
 
   async create(request: LinguistScheduleCreateRequest): Promise<LinguistScheduleCreateResult> {
     const { context, segmentIds, projectRevision, workspaceId } = await this.capture(request)
+    const notificationTargets = this.notifications.freeze(request.notificationTargets ?? [])
     const token = randomUUID()
     const nativePrompt = `${request.prompt}${MARKER}${token}]`
     const preview = previewRecord(request.timing, request.title, nativePrompt, Date.now())
     const saved: StoredScheduleContext = {
-      version: 1, token, maxRuns: request.maxRuns, sessionMode: request.sessionMode ?? 'daily', sessionId: request.sessionId, workspaceId, executeAtDue: true,
+      version: 1, token, notificationTargets, maxRuns: request.maxRuns, sessionMode: request.sessionMode ?? 'daily', sessionId: request.sessionId, workspaceId, executeAtDue: true,
       context, segmentIds, projectRevision, title: request.title, instruction: request.prompt, nativePrompt,
       expectedRule: rule(preview), ...(preview.kind === 'at' ? { initialScheduledAt: preview.scheduledAt } : {}), createdAt: new Date().toISOString(),
     }
@@ -350,7 +355,7 @@ export class ScheduleContextManager {
     try { await this.assertProjectSession(request.sessionId, request.projectId) }
     catch (error) { await this.schedule.delete({ sessionId: request.sessionId as SessionId, id: native.id }); throw error }
     return { scheduleId: native.id, sessionId: request.sessionId, projectId: request.projectId, title: request.title,
-      prompt: request.prompt, kind: native.kind, scheduledAt: native.scheduledAt, role: context.role, scope: request.scope, executeAtDue: true, version: version(native, saved.maxRuns, undefined, saved.sessionMode) }
+      prompt: request.prompt, kind: native.kind, scheduledAt: native.scheduledAt, role: context.role, scope: request.scope, executeAtDue: true, version: version(native, saved.maxRuns, undefined, saved.sessionMode, saved.notificationTargets) }
   }
 
   async list(sessionId: string): Promise<LinguistScheduleListResult> {
@@ -379,14 +384,15 @@ export class ScheduleContextManager {
         kind: native.kind, scheduledAt: native.scheduledAt, timing: timingOf(native), role: saved.context.role, scope: saved.context.scope!.kind,
         scopeSnapshot: { ...(saved.context.scope!.kind === 'project' ? {} : { assetId: saved.context.scope!.assetId }),
           selectedSegmentIds: saved.context.scope!.kind === 'segments' ? [...saved.context.scope!.segmentIds] : [] },
-        executeAtDue: true, version: version(native, saved.maxRuns, saved.stopped?.reason, saved.sessionMode), status: native.status,
+        executeAtDue: true, version: version(native, saved.maxRuns, saved.stopped?.reason, saved.sessionMode, saved.notificationTargets), status: native.status,
+        notificationTargets: (saved.notificationTargets ?? []).map(({ destinationId, trigger }) => ({ destinationId, trigger })),
         sessionMode: saved.sessionMode ?? 'daily', executionSessionId: saved.executionSessions?.at(-1)?.sessionId,
         maxRuns: saved.maxRuns, runCount: policy.runCount, consecutiveFailures: policy.consecutiveFailures,
         limitReached: saved.stopped?.reason === 'max-runs', pausedAfterFailures: saved.stopped?.reason === 'consecutive-failures',
         authorizationStatus: saved.pendingUpdate ? 'pending-update' : changed ? 'changed' : 'ready',
         ...(native.lastDelivery ? { lastDeliveredAt: native.lastDelivery.deliveredAt } : {}) })
     }
-    return { items }
+    return { items, notificationDestinations: this.notifications.list() }
   }
 
   private task(scheduleId: string): StoredScheduleContext {
@@ -436,7 +442,7 @@ export class ScheduleContextManager {
     const records = history.records.slice(start, start + limit)
     const executionStart = beforeExecution ? history.executions.findIndex(run => run.messageId === beforeExecution) + 1 : 0
     if (beforeExecution && executionStart === 0) throw new Error('Schedule execution history cursor not found')
-    const executions = history.executions.slice(executionStart, executionStart + limit)
+    const executions = history.executions.slice(executionStart, executionStart + limit).map(run => ({ ...run, ...(saved.notificationReceipts?.[run.messageId] ? { notifications: saved.notificationReceipts[run.messageId] } : {}) }))
     return { ...history, records, executions,
       nextExecutionBefore: executionStart + limit < history.executions.length ? executions.at(-1)!.messageId : undefined,
       nextBefore: start + limit < history.records.length ? records.at(-1)!.messageId : undefined }
@@ -450,7 +456,7 @@ export class ScheduleContextManager {
     if (!native) throw new Error('Native DSH Schedule changed since it was listed')
     const saved = this.contextFor(native)
     if (!saved || saved.sessionId !== sessionId) throw new Error('Schedule does not belong to Linguist Agent')
-    if (version(native, saved.maxRuns, undefined, saved.sessionMode) !== expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
+    if (version(native, saved.maxRuns, undefined, saved.sessionMode, saved.notificationTargets) !== expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
     await this.authorizeExecution(sessionId, { scheduleId: native.id, occurrenceAt: new Date().toISOString(), prompt: saved.nativePrompt }, 'manual')
     const message = createUserMessage({
       content: [{ type: 'text', text: saved.instruction }],
@@ -466,9 +472,10 @@ export class ScheduleContextManager {
     const native = (await this.schedule.catalog()).find(item => item.id === task.scheduleId && item.sessionId === request.sessionId)
     if (!native || native.status !== 'active') throw new Error('Native DSH Schedule is not active')
     const saved = this.contextFor(native)
-    if (!saved || saved.context.projectId !== request.projectId || version(native, saved.maxRuns, undefined, saved.sessionMode) !== request.expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
+    if (!saved || saved.context.projectId !== request.projectId || version(native, saved.maxRuns, undefined, saved.sessionMode, saved.notificationTargets) !== request.expectedVersion) throw new Error('Native DSH Schedule changed since it was listed')
     if (saved.stopped) throw new Error('LA Schedule is stopped')
     const { context, segmentIds, projectRevision, workspaceId } = await this.capture(request)
+    const notificationTargets = this.notifications.freeze(request.notificationTargets ?? [])
     const change = isDeepStrictEqual(request.timing, timingOf(native)) ? undefined : updateTiming(request.timing)
     const effectiveTiming: LinguistScheduleTiming = change?.kind === 'at' ? { kind: 'at', at: change.at as string } : request.timing
     const nativePrompt = `${request.prompt}${MARKER}${saved.token}]`
@@ -479,11 +486,11 @@ export class ScheduleContextManager {
       title: request.title, prompt: nativePrompt, ...(change ? { change } : {}) })
     if (!('record' in result) || !isDeepStrictEqual(rule(result.record), rule(preview))) throw new Error('Native DSH Schedule update was rejected or changed')
     await this.assertProjectSession(request.sessionId, request.projectId)
-    this.save({ ...saved, maxRuns: request.maxRuns, sessionMode: request.sessionMode ?? 'daily', pendingUpdate: undefined, context, segmentIds, projectRevision, workspaceId,
+    this.save({ ...saved, notificationTargets, maxRuns: request.maxRuns, sessionMode: request.sessionMode ?? 'daily', pendingUpdate: undefined, context, segmentIds, projectRevision, workspaceId,
       title: request.title, instruction: request.prompt, nativePrompt, expectedRule: rule(result.record), initialScheduledAt: result.record.scheduledAt })
     return { scheduleId: logicalId(saved), sessionId: request.sessionId, projectId: request.projectId, title: request.title,
       prompt: request.prompt, kind: result.record.kind, scheduledAt: result.record.scheduledAt, role: context.role,
-      scope: request.scope, executeAtDue: true, version: version(result.record, request.maxRuns, undefined, request.sessionMode) }
+      scope: request.scope, executeAtDue: true, version: version(result.record, request.maxRuns, undefined, request.sessionMode, notificationTargets) }
   }
 
   private async resume(request: LinguistScheduleUpdateRequest): Promise<LinguistScheduleCreateResult> {
@@ -493,8 +500,9 @@ export class ScheduleContextManager {
       await this.policyChecks.get(request.sessionId)
       const saved = this.task(request.scheduleId)
       if (saved.sessionId !== request.sessionId || saved.context.projectId !== request.projectId
-        || saved.stopped?.reason !== 'consecutive-failures' || version(saved.stopped.native, saved.maxRuns, saved.stopped.reason, saved.sessionMode) !== request.expectedVersion) throw new Error('Paused LA Schedule changed since it was listed')
+        || saved.stopped?.reason !== 'consecutive-failures' || version(saved.stopped.native, saved.maxRuns, saved.stopped.reason, saved.sessionMode, saved.notificationTargets) !== request.expectedVersion) throw new Error('Paused LA Schedule changed since it was listed')
       const captured = await this.capture(request)
+      const notificationTargets = this.notifications.freeze(request.notificationTargets ?? [])
       const history = saved.stopped.history
       if (request.maxRuns !== undefined && scheduleRunPolicy(history.executions).runCount >= request.maxRuns) throw new Error('LA Schedule has reached its maximum run count')
       const nativePrompt = `${request.prompt}${MARKER}${saved.token}]`
@@ -524,25 +532,38 @@ export class ScheduleContextManager {
       if (current.projectRevision !== captured.projectRevision || current.workspaceId !== captured.workspaceId
         || current.context.role !== captured.context.role || !isDeepStrictEqual(current.segmentIds, captured.segmentIds)
         || !isDeepStrictEqual(this.read(saved.token), pending)) throw new Error('LA Schedule changed during resume; retry after revalidation')
-      this.save({ ...saved, ...captured, rootScheduleId: logicalId(saved), scheduleId: native.id,
+      this.save({ ...saved, ...captured, notificationTargets, rootScheduleId: logicalId(saved), scheduleId: native.id,
         retainedHistory: history, failureResetAfter: history.executions.find(run => run.endedAt && run.outcome !== 'not-admitted' && run.outcome !== 'dispatched')?.messageId,
         stopped: undefined, pendingUpdate: undefined, pendingResume: undefined, maxRuns: request.maxRuns, sessionMode: request.sessionMode ?? 'daily',
         title: request.title, instruction: request.prompt, nativePrompt, expectedRule, initialScheduledAt: native.scheduledAt })
       return { scheduleId: logicalId(saved), sessionId: request.sessionId, projectId: request.projectId, title: request.title,
         prompt: request.prompt, kind: native.kind, scheduledAt: native.scheduledAt, role: captured.context.role,
-        scope: request.scope, executeAtDue: true, version: version(native, request.maxRuns, undefined, request.sessionMode) }
+        scope: request.scope, executeAtDue: true, version: version(native, request.maxRuns, undefined, request.sessionMode, notificationTargets) }
     } finally { this.resuming.delete(request.scheduleId) }
   }
 
   /** Keep execution evidence when a user later deletes a task Session in native DSH. */
-  async recordExecutionEnd(sessionId: string): Promise<void> {
+  async recordExecutionEnd(sessionId: string, turn: number): Promise<void> {
     const events = await this.requireSessionEvents(sessionId)
     for (const name of readdirSync(this.directory).filter(name => /^[0-9a-f-]+\.json$/i.test(name))) {
       const saved = this.read(name.slice(0, -5))
       const target = saved.executionSessions?.find(item => item.sessionId === sessionId)
-      if (!target) continue
-      target.executions = scheduleExecutions(events, logicalId(saved))
-      this.save(saved)
+      if (!target && saved.sessionId !== sessionId) continue
+      const runs = scheduleExecutions(events, logicalId(saved))
+      if (target) { target.executions = runs; this.save(saved) }
+      for (const run of runs) {
+        if (run.turn !== turn || !run.endedAt || ['unfinished', 'dispatched', 'not-admitted'].includes(run.outcome) || saved.notificationReceipts?.[run.messageId]) continue
+        const targets = (saved.notificationTargets ?? []).filter(target => target.trigger === 'always' || target.trigger === (run.outcome === 'completed' ? 'success' : 'error'))
+        if (!targets.length) continue
+        const pending = this.read(saved.token)
+        pending.notificationReceipts = { ...pending.notificationReceipts, [run.messageId]: targets.map(target => ({ destinationId: target.destinationId, status: 'unknown', code: 'NOTIFICATION_PENDING' })) }
+        this.save(pending)
+        const receipts = []
+        for (const target of targets) receipts.push(await this.notifications.send(target, { ...run, scheduleId: logicalId(saved), sessionId, title: saved.title }, events))
+        const current = this.read(saved.token)
+        current.notificationReceipts = { ...current.notificationReceipts, [run.messageId]: receipts }
+        this.save(current)
+      }
     }
   }
 

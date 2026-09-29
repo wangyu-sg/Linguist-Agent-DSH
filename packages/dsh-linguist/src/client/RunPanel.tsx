@@ -6,6 +6,8 @@ import type {
   LinguistScheduleCreateRequest,
   LinguistScheduleCreateResult,
   LinguistScheduleInfo,
+  LinguistScheduleListResult,
+  LinguistScheduleNotificationTarget,
   LinguistScheduleTiming,
   LinguistScheduleUpdateRequest,
   LinguistStageDecisionCoverage,
@@ -18,19 +20,21 @@ import { stageCompletionLabel, stageName } from './workflow-ui'
 import { ScheduleManager } from './ScheduleManager'
 import styles from './Panels.module.css'
 
-function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, editing, onSaved, onCancelEdit }: {
+function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, editing, destinations, onSaved, onCancelEdit }: {
   projectId: string
   sessionId: string
   assetId?: string
   selectedSegmentIds: string[]
   uiRevision: number
   editing?: LinguistScheduleInfo
+  destinations?: LinguistScheduleListResult['notificationDestinations']
   onSaved: (result: LinguistScheduleCreateResult) => void
   onCancelEdit: () => void
 }): React.ReactElement {
   const t = useT()
   const [maxRuns, setMaxRuns] = React.useState(editing?.maxRuns === undefined ? '' : String(editing.maxRuns))
   const [sessionMode, setSessionMode] = React.useState<'daily' | 'reuse'>(editing?.sessionMode ?? 'daily')
+  const [notificationTargets, setNotificationTargets] = React.useState<LinguistScheduleNotificationTarget[]>(editing?.notificationTargets ?? [])
   const [title, setTitle] = React.useState(editing?.title ?? '')
   const [prompt, setPrompt] = React.useState(editing?.prompt ?? '')
   const [scope, setScope] = React.useState<'project' | 'asset' | 'segments'>(editing?.scope ?? 'project')
@@ -86,7 +90,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       }
       setBusy(true)
       const input: LinguistScheduleCreateRequest = {
-        sessionId, projectId, title: title.trim(), prompt: prompt.trim(), executeAtDue: true, sessionMode,
+        sessionId, projectId, title: title.trim(), prompt: prompt.trim(), executeAtDue: true, sessionMode, notificationTargets,
         scope, ...(turnContext ? { turnContext } : {}), timing, ...(maxRuns === '' ? {} : { maxRuns: Number(maxRuns) }),
       }
       const next = editing
@@ -102,6 +106,20 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
     <h3>{t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
     <p>{t('到期在任务专用的 DSH 会话执行，创建时继承来源模型和权限；需要登录或授权时会停在原生交互。')}</p>
     {editing && <p>{t('编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。')}{kind === 'after' && ` ${t('若修改延迟秒数，会从保存时重新计时并转换为绝对时间。')}`}</p>}
+    <fieldset><legend>{t('飞书通知')}</legend>
+      <p>{t('仅向勾选目标发送任务名称、本轮模型输出和执行状态。目标凭据在 DSH 原生 Linguist 插件配置中设置。')}</p>
+      {destinations?.length === 0 && <p>{t('尚未配置通知目标。')}</p>}
+      {destinations?.map(destination => {
+        const selected = notificationTargets.find(item => item.destinationId === destination.id)
+        return <div key={destination.id} className={styles.form}>
+          <label><input type="checkbox" checked={!!selected} onChange={event => setNotificationTargets(previous => event.target.checked ? [...previous, { destinationId: destination.id, trigger: 'always' }] : previous.filter(item => item.destinationId !== destination.id))} />{destination.label}</label>
+          {selected && <select aria-label={`${t('通知条件')} · ${destination.label}`} value={selected.trigger} onChange={event => setNotificationTargets(previous => previous.map(item => item.destinationId === destination.id ? { ...item, trigger: event.target.value as LinguistScheduleNotificationTarget['trigger'] } : item))}>
+            <option value="always">{t('每次执行结束')}</option><option value="success">{t('仅正常结束')}</option><option value="error">{t('仅未成功结束')}</option>
+          </select>}
+        </div>
+      })}
+      {destinations && notificationTargets.filter(target => !destinations.some(item => item.id === target.destinationId)).map(target => <p key={target.destinationId} role="alert">{t('通知目标已不可用')} · {target.destinationId} <Button type="button" variant="outline" size="sm" onClick={() => setNotificationTargets(previous => previous.filter(item => item.destinationId !== target.destinationId))}>{t('移除')}</Button></p>)}
+    </fieldset>
     <label>{t('任务名称')}<Input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
     <label>{t('任务描述')}<textarea required value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
     <div className={styles.form}>
@@ -155,6 +173,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   const [busy, setBusy] = React.useState(false)
   const [refresh, setRefresh] = React.useState(0)
   const [scheduleRefresh, setScheduleRefresh] = React.useState(0)
+  const [notificationDestinations, setNotificationDestinations] = React.useState<LinguistScheduleListResult['notificationDestinations']>()
   const [editingSchedule, setEditingSchedule] = React.useState<LinguistScheduleInfo>()
   const scheduleFormRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => { if (editingSchedule) scheduleFormRef.current?.scrollIntoView({ block: 'nearest' }) }, [editingSchedule])
@@ -200,8 +219,8 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
         <Button variant="outline" size="sm" disabled={archived || busy || !run.summary.canUndo} onClick={() => void undoRun()}>{t("撤销本次可逆 CAT 变更")}</Button>
       </div>}
     {undo?.refused.map((entry) => <p role="alert" key={`${entry.entityType}:${entry.entityId}`}>{entry.entityType} {entry.entityId}：{entry.reason}</p>)}
-    {!archived && <div ref={scheduleFormRef}><ScheduledAgentTaskForm key={`${editingSchedule?.scheduleId ?? 'new'}:${editingSchedule?.version ?? ''}`} projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={selectedSegmentIds} uiRevision={uiRevision} editing={editingSchedule} onSaved={(result) => { setMessage(t(editingSchedule ? '专用定时任务已更新并重新核验。' : '专用定时任务已创建。')); setEditingSchedule(undefined); setScheduleRefresh((value) => value + 1) }} onCancelEdit={() => setEditingSchedule(undefined)} /></div>}
-    <ScheduleManager sessionId={sessionId} refresh={scheduleRefresh} editable={!archived} onEdit={(schedule) => setEditingSchedule(schedule)} />
+    {!archived && <div ref={scheduleFormRef}><ScheduledAgentTaskForm key={`${editingSchedule?.scheduleId ?? 'new'}:${editingSchedule?.version ?? ''}`} projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={selectedSegmentIds} uiRevision={uiRevision} editing={editingSchedule} destinations={notificationDestinations} onSaved={(result) => { setMessage(t(editingSchedule ? '专用定时任务已更新并重新核验。' : '专用定时任务已创建。')); setEditingSchedule(undefined); setScheduleRefresh((value) => value + 1) }} onCancelEdit={() => setEditingSchedule(undefined)} /></div>}
+    <ScheduleManager onDestinations={setNotificationDestinations} sessionId={sessionId} refresh={scheduleRefresh} editable={!archived} onEdit={(schedule) => setEditingSchedule(schedule)} />
     {message && <p role="status">{message}</p>}
   </section>
 }

@@ -265,6 +265,9 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     }, service, bindings, workspaceRegistry: { get: () => ({ id: 'workspace-schedule', path: root }) },
     files: new ManagedFiles(root), mutations: new MutationBus(), assertProjectSession,
     resolveSessionWorkspace: async () => ({ workspaceRoot: root }), scheduleContext: manager }
+    await assert.rejects(dispatchOperation({ ...base, payload: { ...base.payload, notificationTargets: [{ destinationId: 'unconfigured', trigger: 'always' }] } }), /Unknown schedule notification destination/)
+    await assert.rejects(dispatchOperation({ ...base, payload: { ...base.payload, notificationTargets: [{ destinationId: 'unconfigured', trigger: 'invalid' }] } }), /trigger/)
+    assert.equal(native.rows.length, 0, 'invalid notification consent cannot create a native task')
     const created = await dispatchOperation(base)
     assert.equal(created.projectId, project.id)
     assert.equal(created.role, 'reviewer')
@@ -1451,11 +1454,17 @@ test('scheduled business work runs in its own native Session and only its real e
       async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
       async delete({ id }) { this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
     }
+    const { ScheduleNotifications } = await import('../../packages/dsh-linguist/src/host/schedule-notifications.ts')
+    let notificationRequests = 0
+    const notifier = new ScheduleNotifications(() => [{ id: 'test-chat', label: 'Synthetic', appId: 'test-app', appSecret: 'test-secret', chatId: 'test-room', domain: 'feishu' }], async () => {
+      notificationRequests++
+      return new Response(JSON.stringify(notificationRequests % 2 ? { code: 0, tenant_access_token: 'test-token' } : { code: 0, data: { message_id: 'test-receipt' } }))
+    })
     let childDeleted = false
     const manager = new ScheduleContextManager(root, native, service, bindings, async (sid, pid) => {
       assert.equal(sid, parent.id); assert.equal(pid, project.id)
-    }, async sid => sid === child.id && childDeleted ? undefined : (sid === parent.id ? parent : child).session.ownEvents())
-    const created = await manager.create({ sessionId: parent.id, projectId: project.id, title: 'Dedicated review', prompt: 'Review synthetic content', executeAtDue: true, scope: 'project', maxRuns: 1, timing: { kind: 'every', seconds: 60 } })
+    }, async sid => sid === child.id && childDeleted ? undefined : (sid === parent.id ? parent : child).session.ownEvents(), undefined, notifier)
+    const created = await manager.create({ sessionId: parent.id, projectId: project.id, title: 'Dedicated review', prompt: 'Review synthetic content', executeAtDue: true, scope: 'project', maxRuns: 1, notificationTargets: [{ destinationId: 'test-chat', trigger: 'success' }], timing: { kind: 'every', seconds: 60 } })
     let creates = 0
     const runtime = {
       async create(owner, scope, title, record) {
@@ -1492,13 +1501,17 @@ test('scheduled business work runs in its own native Session and only its real e
     assert.equal(admitted.messages[0].source.kind, 'linguist-schedule-execution')
     child.session.append('user/message', admitted.messages[0], { surfaceOp: 'append' })
     child.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await manager.recordExecutionEnd(child.id)
+    await manager.recordExecutionEnd(child.id, 1)
+    assert.equal(notificationRequests, 2)
+    await manager.recordExecutionEnd(child.id, 1)
+    assert.equal(notificationRequests, 2, 'replayed end must not duplicate an external notification')
     childDeleted = true
     await manager.enforceRunPolicy(child.id)
     assert.equal(native.rows.length, 0, 'actual child completion enforces owner task limit')
     const history = await manager.history(parent.id, created.scheduleId, 10)
     assert.equal(scheduleRunPolicy(history.executions).runCount, 1, 'deleted execution Session retains its real completion count')
     assert.equal(history.executions.find(run => run.outcome === 'completed').sessionId, child.id)
+    assert.deepEqual(history.executions.find(run => run.outcome === 'completed').notifications, [{ destinationId: 'test-chat', status: 'sent', messageId: 'test-receipt' }])
     childDeleted = false
     native.beforeReturn = async record => {
       const early = { ...due, id: 'early-dispatch', content: [{ type: 'text', text: renderReminderFraming(record) }] }
@@ -1576,4 +1589,58 @@ test('scheduled Session creation preserves native settings and daily reuse rotat
     exists = true
     assert.equal(await runtime.reusable(recorded, { ...binding, role: 'translator' }, 'reuse'), false)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('Feishu schedule notifications freeze recipients, disclose only selected turn text and preserve uncertain delivery', async () => {
+  const { ScheduleNotifications } = await import('../../packages/dsh-linguist/src/host/schedule-notifications.ts')
+  const destination = { id: 'synthetic-chat', label: 'Synthetic chat', appId: 'synthetic-app', appSecret: 'synthetic-secret', chatId: 'synthetic-room', domain: 'feishu' }
+  const calls = []
+  let configured = [destination]
+  const notifier = new ScheduleNotifications(() => configured, async (url, request) => {
+    calls.push({ url, ...request })
+    return new Response(JSON.stringify(calls.length % 2 === 1 ? { code: 0, tenant_access_token: 'synthetic-token' } : { code: 0, data: { message_id: 'synthetic-sent' } }))
+  })
+  assert.deepEqual(notifier.list(), [{ id: destination.id, label: destination.label }])
+  assert(!JSON.stringify(notifier.list()).includes(destination.appSecret))
+  const target = notifier.freeze([{ destinationId: destination.id, trigger: 'success' }])[0]
+  assert.throws(() => notifier.freeze([{ destinationId: 'missing', trigger: 'always' }]), /Unknown/)
+  assert.throws(() => notifier.freeze([target, target]), /Duplicate/)
+  const run = { scheduleId: 'schedule-synthetic', messageId: 'input-synthetic', sessionId: 'session-synthetic', title: 'Synthetic task', turn: 2, outcome: 'completed' }
+  const events = [1, 2].map(turn => ({ type: 'assistant/message', data: { turn, message: { content: [{ type: 'text', text: turn === 1 ? 'OLD_TURN_MUST_NOT_SEND' : 'Synthetic current response' }] } } }))
+  assert.deepEqual(await notifier.send(target, run, events), { destinationId: target.destinationId, status: 'sent', messageId: 'synthetic-sent' })
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].redirect, 'error')
+  const body = JSON.parse(calls[1].body)
+  assert.equal(body.receive_id, destination.chatId)
+  assert.match(body.content, /Synthetic current response/)
+  assert.match(body.content, /执行结束不等于/)
+  assert(!body.content.includes('OLD_TURN_MUST_NOT_SEND'))
+  assert(!body.content.includes(destination.appSecret))
+  configured = [{ ...destination, chatId: 'edited-live-room' }]
+  assert.equal((await notifier.send(target, run, events)).code, 'DESTINATION_CHANGED')
+  assert.equal(calls.length, 2, 'live configuration edits must not redirect an already authorized task')
+  const changed = new ScheduleNotifications(() => [{ ...destination, chatId: 'another-room' }], async () => { throw new Error('must not transmit') })
+  assert.equal((await changed.send(target, run, events)).code, 'DESTINATION_CHANGED')
+  let requests = 0
+  const uncertain = new ScheduleNotifications(() => [destination], async () => {
+    if (++requests === 1) return new Response(JSON.stringify({ code: 0, tenant_access_token: 'synthetic-token' }))
+    throw new Error('synthetic transport interruption')
+  })
+  assert.deepEqual(await uncertain.send(target, run, events), { destinationId: target.destinationId, status: 'unknown', code: 'SEND_TRANSPORT' })
+  const denied = new ScheduleNotifications(() => [destination], async () => new Response('{}', { status: 401 }))
+  assert.equal((await denied.send(target, run, events)).code, 'AUTH_HTTP_401')
+})
+
+test('native DSH settings redact Linguist notification credentials', async () => {
+  const { Config } = await import('../../packages/dsh-linguist/src/index.ts')
+  const { redactSecrets } = await import('../../.toolchain/dsh-0.2.0-rc.1/node_modules/@deepseek-ai/dsh-settings/lib/index.js')
+  const value = { dataRoot: '/synthetic', installationId: 'synthetic', notificationDestinations: [{ id: 'room', label: 'Synthetic', appId: 'app', appSecret: 'DO_NOT_EXPOSE_SYNTHETIC_SECRET', chatId: 'chat', domain: 'feishu' }] }
+  assert.equal(Config.dict.notificationDestinations.meta.volatile, true, 'native configuration UI only exposes live fields')
+  assert.equal(Config(value).notificationDestinations.get()[0].appId, 'app', 'live config must be read through native Volatile.get')
+  assert.deepEqual(Config({ dataRoot: '/synthetic', installationId: 'synthetic' }).notificationDestinations.get(), [])
+  const result = redactSecrets(Config, value)
+  assert(!JSON.stringify(result).includes(value.notificationDestinations[0].appSecret))
+  assert.equal(result.value.notificationDestinations[0].appId, 'app')
+  assert.equal(result.secrets.length, 1)
+  assert.equal(value.notificationDestinations[0].appSecret, 'DO_NOT_EXPOSE_SYNTHETIC_SECRET', 'wire redaction must not erase stored configuration')
 })

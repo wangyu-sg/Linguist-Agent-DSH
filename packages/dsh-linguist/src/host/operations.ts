@@ -213,8 +213,13 @@ function scheduleRequest(payload: Data, service: LinguistProjectService): Lingui
     if (new Set(weekdays).size !== weekdays.length) throw new TypeError('timing.weekdays contains duplicates')
     timing = { kind, time: string(selector.time, 'timing.time', 12), timeZone: string(selector.timeZone, 'timing.timeZone', 100), weekdays }
   } else timing = { kind, expression: string(selector.expression, 'timing.expression', 200), timeZone: string(selector.timeZone, 'timing.timeZone', 100) }
+  if (payload.notificationTargets !== undefined && (!Array.isArray(payload.notificationTargets) || payload.notificationTargets.length > 20)) throw new TypeError('notificationTargets must be a bounded array')
+  const notificationTargets = (payload.notificationTargets as unknown[] | undefined)?.map(value => {
+    const target = object(value, 'notificationTarget')
+    return { destinationId: string(target.destinationId, 'destinationId', 200), trigger: oneOf(target.trigger, 'trigger', ['always', 'success', 'error'] as const) }
+  })
   const turnContext: LinguistTurnContextV1 | undefined = scope === 'project' ? undefined : validateLinguistTurnContext(payload.turnContext, project, service).context
-  return { sessionId, projectId: project, title: string(payload.title, 'title', 120).trim(), prompt: string(payload.prompt, 'prompt', 4000).trim(), executeAtDue: true, scope, ...(turnContext ? { turnContext } : {}), timing,
+  return { sessionId, projectId: project, title: string(payload.title, 'title', 120).trim(), prompt: string(payload.prompt, 'prompt', 4000).trim(), notificationTargets, executeAtDue: true, scope, ...(turnContext ? { turnContext } : {}), timing,
     sessionMode: payload.sessionMode === undefined ? 'daily' : oneOf(payload.sessionMode, 'sessionMode', ['daily', 'reuse'] as const),
     ...(payload.maxRuns === undefined ? {} : { maxRuns: integer(payload.maxRuns, 'maxRuns', 1, Number.MAX_SAFE_INTEGER) }) }
 }
