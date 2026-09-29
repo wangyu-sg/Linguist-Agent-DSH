@@ -446,6 +446,19 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     const secondHistory = await resumedManager.history('session-schedule', failing.scheduleId, 100)
     assert.equal(secondHistory.records.length, 2)
     assert.equal(secondHistory.executions.length, 10)
+    const executionPage = await dispatchOperation({ ...base, scheduleContext: resumedManager, operation: 'linguistScheduleHistory',
+      payload: { sessionId: 'session-schedule', scheduleId: failing.scheduleId, limit: 3 } })
+    assert.equal(executionPage.nextExecutionBefore, executionPage.executions.at(-1).messageId)
+    const olderExecutions = await dispatchOperation({ ...base, scheduleContext: resumedManager, operation: 'linguistScheduleHistory',
+      payload: { sessionId: 'session-schedule', scheduleId: failing.scheduleId, limit: 3, beforeExecution: executionPage.nextExecutionBefore } })
+    assert.deepEqual(olderExecutions.executions, secondHistory.executions.slice(3, 6))
+    assert.deepEqual(olderExecutions.records, executionPage.records, 'execution pagination is independent of native delivery history')
+    const coldPage = await coldFailure.history('session-schedule', failing.scheduleId, 3, undefined, olderExecutions.nextExecutionBefore)
+    assert.deepEqual(coldPage.executions, secondHistory.executions.slice(6, 9), 'retained execution pages survive a cold read')
+    const finalPage = await coldFailure.history('session-schedule', failing.scheduleId, 3, undefined, coldPage.nextExecutionBefore)
+    assert.deepEqual(finalPage.executions, secondHistory.executions.slice(9))
+    assert.equal(finalPage.nextExecutionBefore, undefined)
+    await assert.rejects(resumedManager.history('session-schedule', failing.scheduleId, 3, undefined, 'missing-execution'), /execution history cursor not found/)
     await assert.rejects(resumedManager.update({ ...resumeRequest, expectedVersion: stoppedAgain.version, maxRuns: 10 }), /maximum run count/)
     const atRequest = { ...resumeRequest, expectedVersion: stoppedAgain.version, timing: { kind: 'at', at: new Date(Date.now() + 600_000).toISOString() } }
     native.beforeReturn = async () => { throw new Error('synthetic second response lost') }

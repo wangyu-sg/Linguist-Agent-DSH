@@ -320,7 +320,7 @@ export class ScheduleContextManager {
     return { scheduleId, cancelled: result.deleted }
   }
 
-  async history(sessionId: string, scheduleId: string, limit: number, before?: string): Promise<LinguistScheduleHistoryResult> {
+  async history(sessionId: string, scheduleId: string, limit: number, before?: string, beforeExecution?: string): Promise<LinguistScheduleHistoryResult> {
     const saved = this.task(scheduleId)
     await this.assertProjectSession(sessionId, saved.context.projectId)
     if (saved.sessionId !== sessionId) throw new Error('Schedule belongs to another DSH Session')
@@ -349,7 +349,11 @@ export class ScheduleContextManager {
     const start = before ? history.records.findIndex(record => record.messageId === before) + 1 : 0
     if (before && start === 0) throw new Error('Schedule history cursor not found')
     const records = history.records.slice(start, start + limit)
-    return { ...history, records, executions: history.executions.slice(0, limit),
+    const executionStart = beforeExecution ? history.executions.findIndex(run => run.messageId === beforeExecution) + 1 : 0
+    if (beforeExecution && executionStart === 0) throw new Error('Schedule execution history cursor not found')
+    const executions = history.executions.slice(executionStart, executionStart + limit)
+    return { ...history, records, executions,
+      nextExecutionBefore: executionStart + limit < history.executions.length ? executions.at(-1)!.messageId : undefined,
       nextBefore: start + limit < history.records.length ? records.at(-1)!.messageId : undefined }
   }
 

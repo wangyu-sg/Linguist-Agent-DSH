@@ -1284,6 +1284,7 @@ export interface LinguistScheduleHistoryResult {
   earlierRecordsUnavailable: boolean
   earlierRecordsPruned: boolean
   nextBefore?: string
+  nextExecutionBefore?: string
 }
 
 export interface LinguistSessionDetachBindingResult {

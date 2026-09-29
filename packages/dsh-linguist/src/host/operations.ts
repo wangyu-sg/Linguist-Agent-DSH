@@ -266,7 +266,8 @@ export async function dispatchOperation(input: DispatchOperationInput): Promise<
     case 'linguistScheduleHistory': {
       if (!input.scheduleContext) throw new Error('Native DSH Schedule is unavailable')
       return input.scheduleContext.history(string(payload.sessionId, 'sessionId', 200), string(payload.scheduleId, 'scheduleId', 200),
-        integer(payload.limit, 'limit', 1, 100, 50), payload.before === undefined ? undefined : string(payload.before, 'before', 200))
+        integer(payload.limit, 'limit', 1, 100, 50), payload.before === undefined ? undefined : string(payload.before, 'before', 200),
+        payload.beforeExecution === undefined ? undefined : string(payload.beforeExecution, 'beforeExecution', 200))
     }
     case 'linguistScheduleRunNow': {
       if (!input.scheduleContext) throw new Error('Native DSH Schedule is unavailable')

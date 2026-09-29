@@ -451,7 +451,7 @@ const english: Record<string, string> = {
   '原生投递记录': 'Native delivery records', '暂无投递记录。': 'No delivery records.',
   '到期': 'Due', '投递': 'Delivered', '更早的原生投递记录已清理。': 'Older native delivery records were pruned.',
   '更早的原生投递记录无法读取。': 'Older native delivery records are unavailable.',
-  '读取更早记录': 'Load earlier records', '定时任务已不在原生计划表，请刷新核对。': 'Schedule is no longer in the native catalog; refresh to verify.',
+  '读取更早记录': 'Load earlier records', '读取更早执行': 'Load earlier executions', '定时任务已不在原生计划表，请刷新核对。': 'Schedule is no longer in the native catalog; refresh to verify.',
   '编辑专业定时任务': 'Edit dedicated schedule',
   '编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。': 'Editing starts from the current native timing rule and frozen scope. Saving revalidates authorization against the current project and role.',
   '若修改延迟秒数，会从保存时重新计时并转换为绝对时间。': 'Changing delay seconds restarts timing from save and converts it to an absolute time.',
