@@ -2,6 +2,9 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '最多执行次数（留空不限）': 'Maximum runs (blank for unlimited)',
+  '已达到执行次数上限': 'Run limit reached',
+  '已结束的执行次数': 'Finished runs',
   '复制 SHA-256': 'Copy SHA-256', 'SHA-256 已复制': 'SHA-256 copied', '无法复制 SHA-256': 'Could not copy SHA-256', '归档于 {time}': 'Archived {time}',
   '建议': 'Proposals', '资料': 'Assets', '交付': 'Delivery', '运行': 'Runs', '项目设置': 'Project settings',
   '译文已保存': 'Translation saved', '当前阶段已确认': 'Current stage confirmed', '已撤销当前阶段确认': 'Current stage confirmation removed',

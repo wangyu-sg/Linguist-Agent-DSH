@@ -1238,6 +1238,7 @@ export interface LinguistScheduleCreateRequest {
   scope: 'project' | 'asset' | 'segments'
   turnContext?: LinguistTurnContextV1
   timing: LinguistScheduleTiming
+  maxRuns?: number
 }
 
 export interface LinguistScheduleCreateResult {
@@ -1255,6 +1256,9 @@ export interface LinguistScheduleCreateResult {
 }
 
 export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
+  maxRuns?: number
+  runCount: number
+  limitReached: boolean
   timing: LinguistScheduleTiming
   scopeSnapshot: { assetId?: string; selectedSegmentIds: string[] }
   status: 'active' | 'inactive'

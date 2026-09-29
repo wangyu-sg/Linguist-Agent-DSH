@@ -214,7 +214,8 @@ function scheduleRequest(payload: Data, service: LinguistProjectService): Lingui
     timing = { kind, time: string(selector.time, 'timing.time', 12), timeZone: string(selector.timeZone, 'timing.timeZone', 100), weekdays }
   } else timing = { kind, expression: string(selector.expression, 'timing.expression', 200), timeZone: string(selector.timeZone, 'timing.timeZone', 100) }
   const turnContext: LinguistTurnContextV1 | undefined = scope === 'project' ? undefined : validateLinguistTurnContext(payload.turnContext, project, service).context
-  return { sessionId, projectId: project, title: string(payload.title, 'title', 120).trim(), prompt: string(payload.prompt, 'prompt', 4000).trim(), executeAtDue: true, scope, ...(turnContext ? { turnContext } : {}), timing }
+  return { sessionId, projectId: project, title: string(payload.title, 'title', 120).trim(), prompt: string(payload.prompt, 'prompt', 4000).trim(), executeAtDue: true, scope, ...(turnContext ? { turnContext } : {}), timing,
+    ...(payload.maxRuns === undefined ? {} : { maxRuns: integer(payload.maxRuns, 'maxRuns', 1, Number.MAX_SAFE_INTEGER) }) }
 }
 
 export async function dispatchOperation(input: DispatchOperationInput): Promise<unknown> {

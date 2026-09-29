@@ -229,6 +229,9 @@ export function apply(ctx: Context, config: Config): void {
       resolved.agent.followup(message)
       if (!await ctx.sessions.flush(resolved.agent.session)) throw new Error('Native DSH Session did not acknowledge manual Schedule delivery')
     })
+  ctx.on('session/event', async (session, event) => {
+    if (event.type === 'turn/end' && bindings.session(session.id)?.projectId) await scheduleContext.enforceRunLimits(session.id)
+  })
   ctx.on('agent/pre-step', async ({ agent, turn, step }, next) => scheduleContext.onPreStep(agent, await next(), turn, step))
   ctx.on('agent/request', async ({ agent, turn, step }, next) => {
     const config = await next()

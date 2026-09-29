@@ -29,6 +29,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
   onCancelEdit: () => void
 }): React.ReactElement {
   const t = useT()
+  const [maxRuns, setMaxRuns] = React.useState(editing?.maxRuns === undefined ? '' : String(editing.maxRuns))
   const [title, setTitle] = React.useState(editing?.title ?? '')
   const [prompt, setPrompt] = React.useState(editing?.prompt ?? '')
   const [scope, setScope] = React.useState<'project' | 'asset' | 'segments'>(editing?.scope ?? 'project')
@@ -85,7 +86,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       setBusy(true)
       const input: LinguistScheduleCreateRequest = {
         sessionId, projectId, title: title.trim(), prompt: prompt.trim(), executeAtDue: true,
-        scope, ...(turnContext ? { turnContext } : {}), timing,
+        scope, ...(turnContext ? { turnContext } : {}), timing, ...(maxRuns === '' ? {} : { maxRuns: Number(maxRuns) }),
       }
       const next = editing
         ? await required<LinguistScheduleCreateResult>('linguistScheduleUpdate', { ...input, scheduleId: editing.scheduleId, expectedVersion: editing.version } satisfies LinguistScheduleUpdateRequest)
@@ -103,6 +104,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
     <label>{t('任务名称')}<Input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
     <label>{t('任务描述')}<textarea required value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
     <div className={styles.form}>
+      <label>{t('最多执行次数（留空不限）')}<Input type="number" min="1" step="1" value={maxRuns} onChange={event => setMaxRuns(event.target.value)} /></label>
       <label>{t('执行范围')}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
         <option value="project">{t('全项目')}</option>
         <option value="asset" disabled={!scopeAssetId}>{t('当前批次')}</option>

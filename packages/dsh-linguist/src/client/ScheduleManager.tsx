@@ -74,16 +74,17 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
     {!list && !error && <p role="status">{t('正在读取定时任务…')}</p>}
     {list?.items.length === 0 && <p>{t('此会话没有 Linguist 专用定时任务。')}</p>}
     {list?.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
-      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
+      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
       <p>{schedule.prompt}</p>
+      <p>{t('已结束的执行次数')}：{schedule.runCount}{schedule.maxRuns !== undefined && ` / ${schedule.maxRuns}`}</p>
       <p>{t('岗位')}：{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[schedule.role])} · {t('执行范围')}：{t({ project: '全项目', asset: '当前批次', segments: '勾选句段' }[schedule.scope])} · {t('调度方式')}：{t({ after: '延迟一次', at: '指定时间一次', every: '按间隔重复', daily: '每天', weekly: '每周', cron: 'Cron' }[schedule.kind])}</p>
-      <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>
+      {!schedule.limitReached && <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>}
       <div className={styles.toolbar}>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active'} onClick={() => onEdit(schedule)}>{t('编辑并重新核验')}</Button>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
         <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('执行与投递历史')}</Button>
-        {cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button variant="outline" size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button variant="outline" size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>
-          : <Button variant="outline" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
+        {!schedule.limitReached && (cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button variant="outline" size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button variant="outline" size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>
+          : <Button variant="outline" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>)}
       </div>
       {accepted?.scheduleId === schedule.scheduleId && <p role="status">{t('已受理立即运行请求，消息 {id} 已交给 DSH Session；专业任务是否完成需查看实际结果。', { id: accepted.messageId })}</p>}
       {historyId === schedule.scheduleId && history && <div className={styles.callout}>

@@ -335,6 +335,46 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     bindings.bindSession('session-schedule', { ...binding, role: 'general' })
     await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 4, 1), /no longer matches/)
     bindings.bindSession('session-schedule', binding)
+    const events = []
+    const limitedManager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => events,
+      async () => { throw new Error('A capped task must not be delivered') })
+    const limitedInput = { ...base, scheduleContext: limitedManager, payload: { ...base.payload,
+      maxRuns: 2, timing: { kind: 'every', seconds: 180 } } }
+    await assert.rejects(dispatchOperation({ ...limitedInput, payload: { ...limitedInput.payload, maxRuns: 0 } }), /maxRuns/)
+    const limited = await dispatchOperation(limitedInput)
+    const limitEdit = await dispatchOperation({ ...limitedInput, operation: 'linguistScheduleUpdate', payload: {
+      ...limitedInput.payload, scheduleId: limited.scheduleId, expectedVersion: limited.version, maxRuns: 3 } })
+    assert.notEqual(limitEdit.version, limited.version, 'limit-only edit participates in CAS')
+    const limitRestored = await dispatchOperation({ ...limitedInput, operation: 'linguistScheduleUpdate', payload: {
+      ...limitedInput.payload, scheduleId: limited.scheduleId, expectedVersion: limitEdit.version } })
+    let seq = 0
+    const event = (type, data) => ({ type, data, seq: seq++, time: Date.now() + seq })
+    const runMessage = id => event('user/message', { id, source: { kind: 'linguist-schedule-execution', scheduleId: limited.scheduleId } })
+    events.push(event('turn/start', { turn: 1 }), runMessage('limited-first'), event('turn/end', { turn: 1, reason: { kind: 'error' } }))
+    events.push(event('turn/start', { turn: 2 }), runMessage('limited-second'))
+    let limitedInfo = (await limitedManager.list('session-schedule')).items.find(item => item.scheduleId === limited.scheduleId)
+    assert.equal(limitedInfo.runCount, 1, 'unfinished execution is not counted as ended')
+    assert.equal(limitedInfo.status, 'active')
+    events.push(event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    const nativeDelete = native.delete
+    native.delete = async () => { throw new Error('synthetic delete failure') }
+    const removal = limitedManager.enforceRunLimits('session-schedule')
+    assert.equal(limitedManager.enforceRunLimits('session-schedule'), removal, 'end and list checks share one removal')
+    await assert.rejects(removal, /synthetic delete failure/)
+    assert.equal((await limitedManager.history('session-schedule', limited.scheduleId, 10)).records.length, 1, 'history is durable before native removal')
+    native.delete = nativeDelete
+    await assert.rejects(limitedManager.runNow('session-schedule', limited.scheduleId, limitRestored.version), /maximum run count/)
+    await Promise.all([limitedManager.enforceRunLimits('session-schedule'), limitedManager.enforceRunLimits('session-schedule')])
+    assert(!native.rows.some(item => item.id === limited.scheduleId))
+    limitedInfo = (await limitedManager.list('session-schedule')).items.find(item => item.scheduleId === limited.scheduleId)
+    assert.equal(limitedInfo.runCount, 2, 'both failure and success count')
+    assert.equal(limitedInfo.limitReached, true)
+    assert.equal(limitedInfo.status, 'inactive')
+    const coldLimited = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => events)
+    const kept = await coldLimited.history('session-schedule', limited.scheduleId, 10)
+    assert.equal(kept.records[0].prompt, base.payload.prompt, 'native history is preserved before deletion')
+    assert.deepEqual(kept.executions.map(run => run.outcome), ['completed', 'error'])
+    await assert.rejects(coldLimited.history('session-schedule', limited.scheduleId, 10, 'foreign-cursor'), /cursor/)
     await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\nb,结束,End\n'), filename: 'changed.csv' })
     await assert.rejects(reopened.onPreStep(agent, { kind: 'enter', messages: [message] }, 5, 1), /project revision changed/)
     assert.deepEqual(await reopened.stopSessionSchedules('session-schedule'), [created.scheduleId, recurring.scheduleId])
