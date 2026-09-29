@@ -139,7 +139,8 @@
     "2026-09-29 当前 0.2 候选 la-478ea64aa103-b4f81677 已实际构建暂存；BrowserSkill 382/382，主插件 8 typecheck/173 Node/21 Bun，源与目标 CAT 各151及安装回执3项通过。官方普通路径签名/公证通过，LA品牌入口移入废纸篓。默认profile原生安装和重开/UI验证因CUA ScreenCaptureKit -3811阻塞；用户未见弹窗，显示器在线，原因待确认。verify:ready仍FAILED。",
     "2026-09-29 用户已动作时确认安装 LA 478ea64aa103 与 BrowserSkill b4f81677。官方默认 desktop profile 已通过原生管理器安装并启用 BrowserSkill、启用自动化任务。LA 尚未安装；CUA 可读页面但点击反复 elementHasNoFrame/noWindowsAvailable，已请求用户代点 LA 安装。current.json 与最终安装回执保持原状，未伪填完成。",
     "2026-09-29 原生菜单正常退出 DSH 并 getApp 重开恢复控件操作。已自行完成 LA 原生安装及立即启用；两个插件均 on，install:local=INSTALLED_DESKTOP，smoke:installed=PASS 9/9。Linguist 主面板显示项目表单、四岗位和三工作方式。再次正常退出重开，两插件仍 on。Finder 捕捉仍 -3811，故尚未宣称 Finder 双击验证通过；完整 READY 仍未满足。",
-    "目标模式已启用。新候选 la-543d8b64cce4-b4f81677 已构建暂存：DSH 原生地球图标、扩展名显示修正、公共 buildForkSeed/SessionPersistence/SessionController 接管的跨 Workspace 历史复制。合成回归与原生存储校验/Session 继承边界通过，完整8项类型检查、173 Node、21 Bun通过。实际安装仍478包，543包待原生更新；新版不可借旧安装回执标通过。"
+    "目标模式已启用。新候选 la-543d8b64cce4-b4f81677 已构建暂存：DSH 原生地球图标、扩展名显示修正、公共 buildForkSeed/SessionPersistence/SessionController 接管的跨 Workspace 历史复制。合成回归与原生存储校验/Session 继承边界通过，完整8项类型检查、173 Node、21 Bun通过。实际安装仍478包，543包待原生更新；新版不可借旧安装回执标通过。",
+    "修复 install-local 暂存候选提前覆盖运行身份：配置更新移至原生安装及回执检查之后。实际暂存回归验证退出2且配置/current.json字节不变；依据原生已安装 manifest 将此前错误543配置恢复为478。当前候选仍543，smoke当前FAILED而非历史9/9PASS，桌面重试仍ScreenCaptureKit -3811。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,

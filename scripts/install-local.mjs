@@ -72,13 +72,7 @@ writeFileSync(attestationPath, `${JSON.stringify({
 }, null, 2)}\n`, { mode: 0o600 })
 const patchPath = join(home, 'cordis.patch.yml')
 const patch = `# Linguist Agent plugin configuration.\n- id: session-log-deepseek\n  disabled: true\n- id: session-telemetry-otel\n  disabled: true\n- id: time-context\n  disabled: false\n- id: schedule\n  disabled: false\n- id: ui-schedule\n  disabled: false\n- id: browserskill\n  config:\n    bskPath: ${JSON.stringify(bskPath)}\n    bskHome: ${JSON.stringify(bskHome)}\n    fileStagingDirectory: ${JSON.stringify(join(dataRoot, 'staging'))}\n    sessionStateDirectory: ${JSON.stringify(join(dataRoot, 'browser-skill/session-state'))}\n    lazyTools: true\n- id: linguist\n  config:\n    dataRoot: ${JSON.stringify(dataRoot)}\n    installationId: ${JSON.stringify(installationId)}\n`
-if (existsSync(patchPath)) {
-  const existing = readFileSync(patchPath, 'utf8')
-  assert(existing.startsWith('# Linguist Agent plugin configuration.'), 'DSH home has another user patch; inspect before changing')
-  const identities = existing.match(/^    installationId: .*$/gm)
-  assert(identities?.length === 1, 'DSH home has no unique Linguist installationId')
-  writeFileSync(patchPath, existing.replace(identities[0], `    installationId: ${JSON.stringify(installationId)}`), { mode: 0o600 })
-} else writeFileSync(patchPath, patch, { mode: 0o600 })
+
 const current = {
   installationId, dshVersion: pack.dshVersion, profile: 'desktop', home, desktopUserDataDir, dataRoot, appPath, bskPath, bskHome,
   desktopArtifact: { path: dmg, sha256: dmgSha256, appPath, bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.1', teamId: 'NAN929V4UM', attestationPath },
@@ -97,6 +91,13 @@ if (!installed) {
   process.exitCode = 2
 } else {
   assert(existsSync(current.nativeInstallReceiptPath), `native Desktop UI receipt missing: ${current.nativeInstallReceiptPath}`)
+  if (existsSync(patchPath)) {
+    const existing = readFileSync(patchPath, 'utf8')
+    assert(existing.startsWith('# Linguist Agent plugin configuration.'), 'DSH home has another user patch; inspect before changing')
+    const identities = existing.match(/^    installationId: .*$/gm)
+    assert(identities?.length === 1, 'DSH home has no unique Linguist installationId')
+    writeFileSync(patchPath, existing.replace(identities[0], `    installationId: ${JSON.stringify(installationId)}`), { mode: 0o600 })
+  } else writeFileSync(patchPath, patch, { mode: 0o600 })
   const bundledSkill = join(home, 'profiles/desktop/node_modules/@linguist/dsh-plugin/resources/skills/phrase-platform-review-ops')
   assert(existsSync(join(bundledSkill, 'SKILL.md')), 'installed Linguist plugin omits its Phrase skill')
   const skillRoot = join(home, 'skills')
