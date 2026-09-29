@@ -51,3 +51,11 @@ extension is connected, the receipt records `BLOCKED_ENV` and no Agent Window is
 started. A passing CLI Agent Window chain is recorded as `CLI_CHAIN_PASS`; it
 still requires a real installed DSH Agent `browser_*` tool invocation and native
 skill discovery trace before G08 can pass.
+
+File-transfer edge checks run with `node scripts/test-browser-files-edge.mjs --managed`.
+This uses the plugin’s recoverable prepare/start/claim/cancel protocol against
+the real extension, retaining cleanup failures until the exact request closes.
+Receipts are written under `artifacts/evidence/browser-files-edge-*/`. The default
+mode exercises direct CLI stop for comparison; it can expose a cleanup timeout
+that the managed request protocol recovers. These checks do not prove installed
+DSH tool cancellation, borrowed-tab return, or plugin reload.
