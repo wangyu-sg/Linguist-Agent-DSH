@@ -392,6 +392,13 @@ test('native DSH prompt requestId admits the prepared CAT selection exactly in i
     }
     const prepared = await dispatchOperation(prepareInput)
     assert.deepEqual(prepared, { requestId, context, selectionTruncated: false })
+    assert.equal(Object.isFrozen(prepared.context), true)
+    assert.equal(Object.isFrozen(prepared.context.selectedSegmentIds), true)
+    assert.throws(() => { prepared.context.uiRevision = 9 }, TypeError)
+    assert.throws(() => prepared.context.selectedSegmentIds.push(segment.id), TypeError)
+    const reordered = Object.fromEntries(Object.entries(context).reverse())
+    const sameSnapshot = await dispatchOperation({ ...prepareInput, payload: { ...prepareInput.payload, turnContext: reordered } })
+    assert.equal(JSON.stringify(sameSnapshot.context), JSON.stringify(prepared.context))
     assert.deepEqual(await dispatchOperation(prepareInput), prepared)
     await assert.rejects(dispatchOperation({ ...prepareInput, payload: { ...prepareInput.payload, turnContext: { ...context, uiRevision: 9 } } }), /different Linguist CAT selection/)
     await assert.rejects(dispatchOperation({ ...prepareInput, payload: { ...prepareInput.payload, turnContext: { ...context, selectedSegmentIds: ['seg-0000000000000000'] }, requestId: randomUUID() } }), /does not belong/)

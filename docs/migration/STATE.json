@@ -88,7 +88,7 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "Installed478 retained; candidate la-628578201bb3-b4f81677 built/staged after project form validation and SHA copy changes. Native update pending.",
+      "status": "Installed478 retained; candidate la-e4c2c189ff96-b4f81677 built/staged with frozen request-context snapshots. Native update pending.",
       "external": false
     },
     {
@@ -143,7 +143,8 @@
     "修复 install-local 暂存候选提前覆盖运行身份：配置更新移至原生安装及回执检查之后。实际暂存回归验证退出2且配置/current.json字节不变；依据原生已安装 manifest 将此前错误543配置恢复为478。当前候选仍543，smoke当前FAILED而非历史9/9PASS，桌面重试仍ScreenCaptureKit -3811。",
     "用户截图确认BrowserSkill 0.3.1启用；daemon实际连接instance a14f4718。scripts/test-browser-skill.mjs完整CLI_CHAIN_PASS（10项），原始回执与trace已保存；只操作localhost合成网页。DSH Agent工具调用/Skill发现仍待验，当前回执绑定478安装实例，不充当543候选验收。",
     "导航取消修复使用原生layout.beginNavigation：切换后释放右栏等待，迟到Session创建不再抢焦点；实际Client注册的回归加入必需检查并通过。8项类型检查、174Node、21Bun及构建通过，新候选la-1739a774a38a-b4f81677。仍需原生更新、桌面导航实测和当前产物完整验收。",
-    "项目表单使用原生required/maxLength/pattern，Host与Client共用120字符名称/35字符locale与原正则；批次完整SHA复制调用DSH writeClipboard并呈现成功/拒绝反馈，补归档时间。175Node/21Bun/8typecheck与构建通过，候选la-628578201bb3-b4f81677待实际安装；功能矩阵保留安装态pending。"
+    "项目表单使用原生required/maxLength/pattern，Host与Client共用120字符名称/35字符locale与原正则；批次完整SHA复制调用DSH writeClipboard并呈现成功/拒绝反馈，补归档时间。175Node/21Bun/8typecheck与构建通过，候选la-628578201bb3-b4f81677待实际安装；功能矩阵保留安装态pending。",
+    "恢复V1选区快照深冻结语义，原请求级回归新增对象/数组拒绝修改及固定序列化顺序检查；175Node/21Bun/8typecheck和构建通过。候选la-e4c2c189ff96-b4f81677已暂存。CUA仍在绑定窗口之前报ScreenCaptureKit -3811，应用清单确认DSH运行；已请求用户正常退出重开DSH，其他代码工作继续。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,

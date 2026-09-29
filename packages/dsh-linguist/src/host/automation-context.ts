@@ -48,17 +48,17 @@ export function validateLinguistTurnContext(value: unknown, projectId: string, s
   }
   if (context.activeQaFindingId && !db.qaFindings.getById(context.activeQaFindingId as string)) throw new Error('Context QA Finding does not belong to project')
   const selectionTruncated = selected.length > 100 || context.selectionTruncated === true
-  return { context: {
+  return { context: Object.freeze({
     schemaVersion: 1,
     ...(selectionTruncated ? { selectionTruncated: true } : {}),
     projectId,
     ...(assetId ? { assetId } : {}),
     ...(context.activeSegmentId ? { activeSegmentId: context.activeSegmentId as string } : {}),
-    selectedSegmentIds: ids,
+    selectedSegmentIds: Object.freeze(ids),
     ...(context.activeQaFindingId ? { activeQaFindingId: context.activeQaFindingId as string } : {}),
     capturedAt: context.capturedAt,
     uiRevision: context.uiRevision as number,
-  }, selectionTruncated }
+  }), selectionTruncated }
 }
 
 /** Capture from the Host's bound Session; a current Client selection cannot change project authority. */

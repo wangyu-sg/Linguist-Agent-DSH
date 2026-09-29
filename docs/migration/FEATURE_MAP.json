@@ -5323,7 +5323,8 @@
         ],
         "status": "pending",
         "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
-        "auditNote": "Candidate browser-safe contracts exist; full source DTO parity is not yet demonstrated."
+        "auditNote": "目标Host校验后按固定字段顺序重建并深冻结V1对象及选区数组，新增请求级回归验证拒绝改写、字段输入次序不影响字节和同requestId幂等；原始UI普通发送自动快照仍缺公开hook，当前安装Provider证据未完成。",
+        "auditEvidencePath": "tests/required/acceptance.nodetest.mjs"
       },
       {
         "sourcePath": "packages/shared/src/types/linguist.ts",
