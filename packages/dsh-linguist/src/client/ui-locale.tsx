@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '错误代码': 'Error code',
   '最多执行次数（留空不限）': 'Maximum runs (blank for unlimited)',
   '已达到执行次数上限': 'Run limit reached',
   '已结束的执行次数': 'Finished runs',

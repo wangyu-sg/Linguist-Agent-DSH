@@ -155,6 +155,10 @@ export function scheduleExecutions(events: readonly SessionEvent[], scheduleId: 
     }
     if (event.type === 'turn/end' && active?.turn === event.data.turn) {
       active.outcome = event.data.reason.kind
+      if (event.data.reason.kind === 'error') {
+        const { code, status } = event.data.reason.error
+        active.failure = { code, ...(status !== undefined ? { status } : {}) }
+      }
       active.endedAt = new Date(event.time).toISOString()
       active = undefined
     }
@@ -237,7 +241,7 @@ export class ScheduleContextManager {
         scopeSnapshot: { ...(saved.context.scope!.kind === 'project' ? {} : { assetId: saved.context.scope!.assetId }),
           selectedSegmentIds: saved.context.scope!.kind === 'segments' ? [...saved.context.scope!.segmentIds] : [] },
         executeAtDue: true, version: version(native, saved.maxRuns), status: native.status,
-        maxRuns: saved.maxRuns, runCount: scheduleExecutions(events, native.id).filter(run => run.endedAt).length, limitReached: saved.completed !== undefined,
+        maxRuns: saved.maxRuns, runCount: (saved.completed?.history.executions ?? scheduleExecutions(events, native.id)).filter(run => run.endedAt).length, limitReached: saved.completed !== undefined,
         authorizationStatus: saved.pendingUpdate ? 'pending-update' : changed ? 'changed' : 'ready',
         ...(native.lastDelivery ? { lastDeliveredAt: native.lastDelivery.deliveredAt } : {}) })
     }
