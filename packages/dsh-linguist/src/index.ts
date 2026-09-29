@@ -222,6 +222,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('llm/stream', (options, next) => evidence.stream(options, next))
   for (const agent of ctx.agents.list()) bindAgent(agent)
 
+  const scheduleSessions = new ScheduleSessionRuntime(ctx, bindings, bindAgent)
   const scheduleContext = new ScheduleContextManager(config.dataRoot, ctx.schedule, service, bindings, assertProjectSession,
     async (sessionId: string) => {
       const live = ctx.sessions.get(sessionId as SessionId)
@@ -230,7 +231,7 @@ export function apply(ctx: Context, config: Config): void {
       const handle = await ctx.sessionPersistence.open(sessionId as SessionId, 'read')
       try { return (await handle.read(handle.inheritedEventCount)).events }
       finally { await handle.close() }
-    },
+    }, scheduleSessions,
     async (sessionId, message) => {
       const resolved = await ctx.sessionController.resolveAgent(sessionId as SessionId)
       if ('error' in resolved) throw resolved.error
@@ -244,10 +245,9 @@ export function apply(ctx: Context, config: Config): void {
       if (bindings.session(session.id)?.projectId) await scheduleContext.enforceRunPolicy(session.id)
     }
   })
-  const scheduleSessions = new ScheduleSessionRuntime(ctx, bindings, bindAgent)
   ctx.on('agent/pre-step', async ({ agent, messages, turn, step }, next) => {
     scheduleContext.recordAttempts(agent, messages, turn)
-    return scheduleContext.onPreStep(agent, await scheduleContext.dispatchDue(agent, await next(), turn, scheduleSessions), turn, step)
+    return scheduleContext.onPreStep(agent, await scheduleContext.dispatchDue(agent, await next(), turn), turn, step)
   })
   ctx.on('agent/request', async ({ agent, turn, step }, next) => {
     const config = await next()

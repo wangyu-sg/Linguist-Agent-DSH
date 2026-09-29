@@ -49,11 +49,11 @@ const dockItems: readonly { id: Dock; label: string }[] = [
 interface Dataset { signature: string; total: number; ids: string[]; rows: ReadonlyMap<number, LinguistSegmentInfo> }
 interface RowSignal { proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingInfo['severity'] }
 
-export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onOpenFiles }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onOpenFiles: () => void }): React.ReactElement {
-  return <Provider><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onOpenFiles={onOpenFiles} /></Provider>
+export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode }): React.ReactElement {
+  return <Provider><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} capabilities={capabilities} /></Provider>
 }
 
-function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onOpenFiles }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onOpenFiles: () => void }): React.ReactElement {
+function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
   const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
@@ -165,8 +165,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [projectId, dataset?.ids, visibleRange.start, visibleRange.end, mutation, reload, rowSignalRefresh])
 
   React.useEffect(() => { setSelectedIds(new Set()) }, [assetId])
-  React.useEffect(() => { uiRevision.current += 1 }, [assetId, selectedId, selectedIds, agentReference, dock, search, stageFilter])
-  React.useEffect(() => {
+  React.useLayoutEffect(() => { uiRevision.current += 1 }, [assetId, selectedId, selectedIds, agentReference, dock, search, stageFilter])
+  React.useLayoutEffect(() => {
     if (!project) return
     publishWorkbenchComposerContext(sessionId, {
       projectId,
@@ -175,10 +175,17 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       assetName: summary?.assets.find((asset) => asset.assetId === assetId)?.filename,
       referenceSegmentId: agentReference && summary?.assets.some((asset) => asset.assetId === agentReference.assetId) ? agentReference.segmentId : undefined,
       selectedCount: selectedIds.size,
+      selection: {
+        schemaVersion: 1, projectId,
+        ...(agentReference || assetId ? { assetId: agentReference?.assetId ?? assetId } : {}),
+        ...(agentReference ? { activeSegmentId: agentReference.segmentId } : {}),
+        selectedSegmentIds: agentReference && agentReference.assetId !== assetId ? [] : [...selectedIds],
+        capturedAt: new Date().toISOString(), uiRevision: uiRevision.current,
+      },
       clearReference: () => setAgentReference(undefined),
       clearSelection: () => setSelectedIds(new Set()),
     })
-  }, [sessionId, projectId, project, summary, assetId, agentReference, selectedIds])
+  }, [sessionId, projectId, project, summary, assetId, agentReference, selectedIds, selectedId, dock, search, stageFilter])
   React.useEffect(() => () => publishWorkbenchComposerContext(sessionId), [sessionId])
   const sendScopedAgentTask = async (text: string): Promise<void> => {
     const selectedSegmentIds = agentReference && agentReference.assetId !== assetId ? [] : [...selectedIds]
@@ -494,7 +501,10 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       </nav>}
       <div className={styles.gridColumn}>
         {loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
-          : dataset?.total === 0 ? <div className={styles.center}>{t("没有匹配的句段。可切换批次或筛选条件。")}</div>
+          : dataset?.total === 0 ? <div className={styles.center}>{summary?.assetCount === 0 ? <div>
+            <p>{t('尚无批次。请在“资料”中导入文件。')}</p>
+            {!project.archivedAt && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
+          </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
             : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} focusIndex={focusIndex} drafts={drafts.current} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
               for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset)
@@ -520,7 +530,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         {dock === 'assets' && <AssetsPanel projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
         {dock === 'delivery' && <DeliveryPanel projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
         {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} onOpenFiles={onOpenFiles} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
     {notice && <div role="status" className={styles.notice}>{notice}<button type="button" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</button></div>}

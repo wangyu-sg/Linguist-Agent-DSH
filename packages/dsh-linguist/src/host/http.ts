@@ -6,6 +6,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { discoverBaselineInstructionFiles } from '@deepseek-ai/dsh-agent-instructions'
 import fileType from 'file-type'
 import { FormatAmbiguousError, FormatExportError, FormatParseError, FormatSegmentLostError, FormatUnsupportedError,
   MQXLIFF_ADAPTER_ID, PHRASE_DOCX_ADAPTER_ID, PHRASE_MXLIFF_ADAPTER_ID, SDLXLIFF_ADAPTER_ID } from '@linguist/cat-formats'
@@ -38,6 +40,16 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
   try {
     if (route === '/la/v1/status' && request.method === 'GET') {
       sendJson(response, 200, { appId: 'linguist-agent-dsh', installationId: deps.installationId, service: deps.service.getStatus(), mutationDeliveryError: deps.mutations.lastError ?? null })
+    } else if (route === '/la/v1/session-instructions' && request.method === 'GET') {
+      const sessionId = url.searchParams.get('sessionId')
+      if (!sessionId) throw new RequestError(400, 'sessionId is required')
+      const binding = deps.bindings.session(sessionId)
+      if (!binding) throw new RequestError(404, 'Linguist binding not found')
+      const workspace = deps.ctx.workspaceRegistry.get(WorkspaceId(binding.workspaceId))
+      const stored = await deps.ctx.sessionPersistence.stat(sessionId as SessionId)
+      if (!workspace || !stored?.header.cwd || await realpath(stored.header.cwd) !== workspace.path) throw new RequestError(409, 'DSH Session Workspace membership changed')
+      const files = await discoverBaselineInstructionFiles({ cwd: workspace.path })
+      sendJson(response, 200, { sessionId, files: files.map(file => ({ path: file.absolutePath, label: file.displayPath })) })
     } else if (route === '/la/v1/session-bind' && request.method === 'GET') {
       const sessionId = url.searchParams.get('sessionId')
       if (!sessionId) throw new RequestError(400, 'sessionId is required')

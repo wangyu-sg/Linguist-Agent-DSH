@@ -38,6 +38,14 @@ export async function getBinding(sessionId: string): Promise<LinguistBinding | u
   return value
 }
 
+export async function getInstructionFiles(sessionId: string, signal: AbortSignal): Promise<readonly { path: string; label: string }[]> {
+  const response = await fetch(`${base}/session-instructions?sessionId=${encodeURIComponent(sessionId)}`, { credentials: 'same-origin', signal })
+  if (!response.ok) throw new Error(`Linguist instruction discovery failed: HTTP ${response.status}`)
+  const result: { sessionId: string; files: { path: string; label: string }[] } = await response.json()
+  if (result.sessionId !== sessionId) throw new Error('Linguist instruction response identity mismatch')
+  return result.files
+}
+
 export async function invoke<T>(operation: string, input: object): Promise<LinguistIpcResult<T>> {
   const response = await fetch(`${base}/invoke`, {
     method: 'POST',

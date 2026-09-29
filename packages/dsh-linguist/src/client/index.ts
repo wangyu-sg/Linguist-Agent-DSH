@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { PANEL_ID as PLUGINS_PANEL_ID } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -11,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/remote'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -22,8 +24,10 @@ import { CatWorkbench } from './CatWorkbench'
 import { BatchPreview } from './BatchPreview'
 import { CatToolResult, catToolNames } from './CatToolResult'
 import { ComposerContextChips } from './ComposerContextChips'
+import { catReferenceSource, connectCatReference } from './composer-reference'
 import { requestCatNavigation, type CatNavigation } from './cat-navigation'
 import { ProjectsPage, type Role, type WorkMode } from './ProjectsPage'
+import { ProjectCapabilities } from './ProjectCapabilities'
 import { SessionCopyPage, type SessionCopyResult } from './SessionCopyPage'
 import { WorkingCopyPage } from './WorkingCopyPage'
 import { LocaleProvider, registerLinguistLocale, useT } from './ui-locale'
@@ -42,9 +46,9 @@ const COPY_KIND = 'linguist-session-copy'
 const COPY_PROVIDER_ID = '@linguist/dsh-client-session-copy'
 const DETACH_EVENT = 'linguist:session-detached'
 
-export const inject = ['slots', 'layout', 'sidebarRight', 'sidebarRightTabs', 'sessions', 'uiWorkspace', 'workspaces', 'conversation', 'locale']
+export const inject = ['slots', 'layout', 'sidebarRight', 'sidebarRightTabs', 'sessions', 'uiWorkspace', 'workspaces', 'conversation', 'inputTriggers', 'locale', 'remote', 'remote.skills']
 
-function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onSendAgentTask: (sessionId: string, text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (sessionId: string, projectId: string, assetId: string) => void; onOpenFiles: (sessionId: string) => void }) {
+function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onSendAgentTask: (sessionId: string, text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (sessionId: string, projectId: string, assetId: string) => void; capabilities: React.ReactNode }) {
   const t = useT()
   const info = props.useTabInfo()
   const address = info.tab.navigation.address
@@ -74,7 +78,7 @@ function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onSendAgentTa
   }, [sessionId])
   if (error) return createElement('p', { role: 'alert', className: styles.notice }, error)
   if (!binding) return createElement('p', { role: 'status', className: styles.notice }, t('正在验证 CAT 会话绑定…'))
-  return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), onOpenFiles: () => props.onOpenFiles(sessionId) })
+  return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
 }
 
 function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
@@ -176,6 +180,8 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
 
 export function apply(ctx: Context): void {
   ctx.effect(() => registerLinguistLocale(ctx.locale), 'linguist: locale dictionaries')
+  ctx.effect(() => ctx.inputTriggers.registerSource(catReferenceSource), 'linguist: CAT selection reference')
+  const connectReference = (sessionId: string, changed: Parameters<typeof connectCatReference>[2]) => connectCatReference(ctx, sessionId, changed)
   const t = ctx.locale.bind('linguist')
   const pickDirectory = async (workspaceId: string) => {
     const workspace = ctx.workspaces.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId)
@@ -203,6 +209,15 @@ export function apply(ctx: Context): void {
   }
   const openWorkingCopy = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], WORKING_KIND)
   const openFiles = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], 'files')
+  const loadSkills = async (sessionId: string, signal: AbortSignal) => {
+    const result = await ctx.remote.skills.list({ sessionId: sessionId as Parameters<typeof ctx.remote.skills.list>[0]['sessionId'] }, signal)
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+  const capabilities = (sessionId?: string) => createElement(ProjectCapabilities, { sessionId, loadSkills,
+    onOpenPlugins: () => ctx.layout.selectPanel(PLUGINS_PANEL_ID),
+    ...(sessionId ? { onOpenFile: (path: string) => openWorkingFile(sessionId, path), onOpenFiles: () => openFiles(sessionId) } : {}),
+  })
   const openCopy = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], COPY_KIND)
   const openBrowser = (sessionId: string) => {
     if (ctx.sidebarRightTabs.get('browserskill-observation') === undefined) throw new Error(t('BrowserSkill 观察面板未安装或未加载'))
@@ -263,10 +278,10 @@ export function apply(ctx: Context): void {
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding)
   }
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession, onPickDirectory: pickDirectory }))))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, onOpenFiles: openFiles }))))
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: BATCH_PROVIDER_ID, kind: BATCH_KIND, patterns: [`${BATCH_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => t('批次语义预览') }), 'linguist: batch preview')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: BATCH_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(BatchPreviewPage, props))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: WORKING_PROVIDER_ID, kind: WORKING_KIND, priority: 'extension', keepMounted: true, title: () => t('Linguist 工作副本') }), 'linguist: working-copy page')
@@ -274,7 +289,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy) }))))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
-  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId) }))))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId), connect: connectReference, inputActions: props.inputActions }))))
   ctx.slots.inject('tool.call.toolview', function* () {
     for (const toolName of catToolNames) yield ctx.slots.register({ name: 'tool.call.toolview', key: toolName }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatToolResult, { props, onNavigate: navigateToToolResult })))
   })

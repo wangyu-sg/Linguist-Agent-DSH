@@ -22,8 +22,9 @@ type Project = LinguistProjectInfo & { workspaceId?: string }
 type ImportedBackup = { project: Project; importedFrom: string; schemaVersion: number }
 type ProjectDetail = { summary?: LinguistProjectSummary; health?: LinguistProjectHealthReport; summaryError?: string; healthError?: string }
 
-export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onPickDirectory }: {
+export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onPickDirectory, capabilities }: {
   workspaces: IWorkspaces
+  capabilities: React.ReactNode
   onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
   onEnter: (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
@@ -144,6 +145,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
         {workspaceSnapshot.items.length === 0 && <p role="status">{t("DSH 尚无 Workspace。请先在原生侧栏创建 Workspace。")}</p>}
         {loading ? <p role="status">{t("正在读取项目…")}</p> : visibleProjects.length === 0 ? <p>{t("当前没有项目。填写右侧表单创建。")}</p> : <ul className={styles.list}>{visibleProjects.map((project) => {
           const detail = details[project.id]
+          const workspace = workspaceSnapshot.items.find(item => item.workspaceId === project.workspaceId)
           const failedChecks = detail?.health?.checks.filter((check) => !check.ok).map((check) => describeHealthCheck(check, t))
           return <li key={project.id} className={styles.project}>
             <div className={styles.projectIdentity}>
@@ -153,6 +155,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
               <small>{t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · {t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })}{project.archivedAt && <> · {t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() })}</>}</small>
               {failedChecks && failedChecks.length > 0 && <span className={styles.warning}>{t('需要修复')} · {failedChecks.join('；')}</span>}
               {detail?.healthError && <span className={styles.warning}>{t('健康检查不可用')} · {detail.healthError}</span>}
+              {project.workspaceId && <small title={workspace?.path}>{workspace ? `Workspace · ${workspace.title}` : t('Workspace 不可用')}</small>}
               {!project.workspaceId && <span className={styles.warning}>{t("需关联 Workspace")}</span>}
             </div>
             <div className={styles.projectActions}>
@@ -164,7 +167,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
           </li>
         })}</ul>}
         <ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} />
-        {settingsProject && <div className={styles.settings}><div className={styles.toolbar}><h2>{settingsProject.name} · {t('项目设置')}</h2><Button variant="outline" size="sm" onClick={() => setSettingsProjectId(undefined)}>{t('关闭设置')}</Button></div><ProjectSettingsPanel key={settingsProject.id} project={settingsProject} hasBatches={(details[settingsProject.id]?.summary?.assetCount ?? 0) > 0} onChanged={() => setRefresh((value) => value + 1)} /></div>}
+        {settingsProject && <div className={styles.settings}><div className={styles.toolbar}><h2>{settingsProject.name} · {t('项目设置')}</h2><Button variant="outline" size="sm" onClick={() => setSettingsProjectId(undefined)}>{t('关闭设置')}</Button></div><ProjectSettingsPanel capabilities={capabilities} key={settingsProject.id} project={settingsProject} hasBatches={(details[settingsProject.id]?.summary?.assetCount ?? 0) > 0} onChanged={() => setRefresh((value) => value + 1)} /></div>}
       </section>
       <div className={styles.right}>
         <section className={styles.section} aria-label={t("新建项目")}>

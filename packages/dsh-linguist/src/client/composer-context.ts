@@ -1,3 +1,5 @@
+import type { LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
+
 export interface WorkbenchComposerContext {
   projectId: string
   projectName: string
@@ -5,6 +7,7 @@ export interface WorkbenchComposerContext {
   assetName?: string
   referenceSegmentId?: string
   selectedCount: number
+  selection: LinguistTurnContextV1
   clearReference: () => void
   clearSelection: () => void
 }
@@ -27,7 +30,7 @@ export function subscribeWorkbenchComposerContext(sessionId: string, listener: (
 }
 
 export function publishWorkbenchComposerContext(sessionId: string, context?: WorkbenchComposerContext): void {
-  if (context) values.set(sessionId, context)
+  if (context) values.set(sessionId, { ...context, selection: Object.freeze({ ...context.selection, selectedSegmentIds: Object.freeze([...context.selection.selectedSegmentIds]) }) })
   else values.delete(sessionId)
   listeners.get(sessionId)?.forEach((listener) => listener())
 }

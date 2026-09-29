@@ -48,7 +48,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
       const result = await required<{ scheduleId: string; messageId: string; status: 'accepted'; sessionId: string }>('linguistScheduleRunNow', {
         sessionId, scheduleId: schedule.scheduleId, expectedVersion: schedule.version,
       })
-      if (result.status !== 'accepted' || result.sessionId !== sessionId || result.scheduleId !== schedule.scheduleId || !result.messageId) throw new Error(t('Host 立即运行回执与当前任务不一致。'))
+      if (result.status !== 'accepted' || result.sessionId !== schedule.sessionId || result.scheduleId !== schedule.scheduleId || !result.messageId) throw new Error(t('Host 立即运行回执与当前任务不一致。'))
       setAccepted({ scheduleId: result.scheduleId, messageId: result.messageId })
       setError('')
       setReload((value) => value + 1)
@@ -78,7 +78,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
     {!list && !error && <p role="status">{t('正在读取定时任务…')}</p>}
     {list?.items.length === 0 && <p>{t('此会话没有 Linguist 专用定时任务。')}</p>}
     {list?.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
-      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
+      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'recreate-required' ? (schedule.status === 'active' ? '请取消并重新创建此旧版任务。' : '此旧版任务已停止，请重新创建。') : schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
       <p>{schedule.prompt}</p>
       <p>{t(schedule.sessionMode === 'daily' ? '每日新会话，同日复用' : '持续复用任务会话')}{schedule.executionSessionId && <> · <code>{schedule.executionSessionId}</code></>}</p>
       <p>{t('已结束的执行次数')}：{schedule.runCount}{schedule.maxRuns !== undefined && ` / ${schedule.maxRuns}`}</p>
@@ -86,7 +86,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
       {!schedule.limitReached && !schedule.pausedAfterFailures && <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>}
       {schedule.consecutiveFailures > 0 && <p>{t('连续失败次数')}：{schedule.consecutiveFailures} / 5</p>}
       <div className={styles.toolbar}>
-        <Button variant="outline" size="sm" disabled={!editable || (schedule.status !== 'active' && !schedule.pausedAfterFailures)} onClick={() => onEdit(schedule)}>{t(schedule.pausedAfterFailures ? '重新核验并恢复' : '编辑并重新核验')}</Button>
+        <Button variant="outline" size="sm" disabled={!editable || schedule.authorizationStatus === 'recreate-required' || (schedule.status !== 'active' && !schedule.pausedAfterFailures)} onClick={() => onEdit(schedule)}>{t(schedule.pausedAfterFailures ? '重新核验并恢复' : '编辑并重新核验')}</Button>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
         <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('执行与投递历史')}</Button>
         {!schedule.limitReached && !schedule.pausedAfterFailures && (cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button variant="outline" size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button variant="outline" size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>

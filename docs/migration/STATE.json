@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-29",
+  "updatedAt": "2026-09-29T10:33:12.496011+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -14,11 +14,11 @@
     "initialState": "empty",
     "gitInitialized": true
   },
-  "currentWorkPackage": "W07-W12 (goal active: native UI, complete feature parity and current-artifact acceptance)",
+  "currentWorkPackage": "W00-W12: source integrations advanced; ordinary Composer automatic context hook and final installed acceptance remain",
   "workPackages": [
     {
       "id": "W00",
-      "status": "complete",
+      "status": "in_progress",
       "evidencePaths": [
         ".migration/source-snapshot-manifest.json",
         "docs/migration/FEATURE_MAP.json"
@@ -88,69 +88,43 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "Installed478 retained; candidate la-e4c2c189ff96-b4f81677 built/staged with frozen request-context snapshots. Native update pending.",
+      "status": "df66a1292d06 installed files verified 21/21; both plugins enabled. current.json and receipt still need reconciliation. Subsequent source integrations remain uncommitted, unpackaged and uninstalled.",
       "external": false
     },
     {
       "id": "browserskill-cli-extension",
-      "status": "User installed/enabled extension 0.3.1. Connected instance a14f4718 on port52800/protocol1.3. Actual localhost CLI chain PASS: AgentWindow, observe, isolated edit/save, upload, exact download bytes and owned session stop. DSH installed Agent tool invocation and skill discovery still pending; CLI evidence belongs installed478, not candidate543.",
+      "status": "Connected and historical e4 localhost chain verified; final installed-artifact complete validation pending.",
       "external": false
     },
     {
       "id": "provider-route",
-      "status": "Prior official Desktop synthetic Provider response is historical evidence only; current 0.2 package/default profile requires new genuine Provider smoke",
+      "status": "Historical e4 real provider evidence exists; final installed-artifact complete validation pending.",
       "external": false
     },
     {
       "id": "system-install-and-notification-permissions",
-      "status": "DSH old stale-window issue recovered via native Quit/reopen, but capture now fails before binding with ScreenCaptureKit -3811. CUA reset and verified SkyComputerUseService restart did not recover it. Native package update and Finder double-click presently BLOCKED_ENV.",
-      "external": true
+      "status": "CUA and Finder double-click recovered. No current missing permission established; df66 installed files are verified, so its previous action-confirmation pending item is obsolete.",
+      "external": false
     }
   ],
   "observations": [
-    "系统 /usr/bin/git 首次运行受 Xcode license 提示阻断；Codex 提供的 Git 2.53.0 可正常读取并初始化目标仓库，不改系统设置。",
-    "源仓库 HEAD 与公开基线一致且干净；有效未提交/未跟踪实现为零。Ignored .local/backups 含用户数据归档，.codegraph 含本地数据库/日志，均未纳入源快照。",
-    "本机 Node 22.22.1 arm64；已在目标仓库固定私有 pnpm 11.7.0、DSH 0.1.7-rc.2 和 BrowserSkill CLI 0.3.1。Provider 仍待实测。",
-    "四个 CAT 包已迁入并完成 Host-neutral ToolDefinition；当前必需合成 runner 8/8 typecheck、168/168 Node 与 11/11 Bun 目标移植测试通过；隔离源快照和目标原始 CAT core/formats 测试各 151/151 通过。",
-    "领域服务已迁入；新项目不写 Proma workspace 字段，旧 schema1 只读兼容按交接规范保留。",
-    "DSH @deepseek-ai/dsh@0.1.7-rc.2 私有安装可启动；BrowserSkill 固定源码补丁 tarball 全套 380/380 测试通过，CLI/私有 daemon 0.3.1/protocol1.3 已核对；扩展未连接。",
-    "DSH Host/Client 插件已构建并在独立 Web 开发 profile 以实际 tgz 安装，Host HTTP/包完整性 smoke 7/7 通过；开发 Web 服务已停止。这不是正式 Desktop 验收。",
-    "2026-09-29 用户将正式载体改为固定版本官方 DSH Desktop 成品；实施规范、启动指令、验收矩阵、基线已修订。desktop profile 由官方应用管理，禁止以 CLI 或 Web profile 代替。",
-    "官方 mac-arm64 Desktop 0.1.7-rc.2 DMG SHA-256=30909618ec09559448fc5bb28dffd7111c66e30f9b2142165fb9a812896f6607，hdiutil、复制后 codesign deep strict 与 spctl 公证评估均通过；bundle ID=com.deepseek.dsh、Team ID=NAN929V4UM，内嵌 DSH 同版本、Host protocol 4。已并排复制到本产品 Application Support。",
-    "固定 RC 不实现较新 DSH_DESKTOP_USER_DATA_DIR；实测 DSH_HOME 与 Chromium --user-data-dir 将 Desktop profile 和窗口用户数据分别写入本产品独立目录。两个当时打包的 tgz 已经官方 Desktop 原生管理器安装、启用，Finder 双击重开后 UI 仍显示两者 on；后续代码修改需更新安装包。",
-    "领域合成 runner 最近覆盖 168 项 Node 测试；官方 Desktop 中已实际创建合成项目、导入 3 段 JSON、编辑并确认 1 段、运行 QA 和只读交付预检、建立四岗位会话；完整 UI/功能门禁仍未通过。",
-    "官方 Desktop 的 DeepSeek-V41-Flash/High 配置经真实模型调用返回指定合成文本，持久 Session request/header 与 assistant/message 身份已记入 provider-observation.json；该事件身份不是服务端签发的 HTTP request ID。",
-    "隔离桌面入口经 Finder 双击实际重开官方应用，恢复合成 Session、CAT 已确认句段与 QA findings；已保存官方应用截图，但浅深色、窄窗和所有编辑器细项仍未验齐。",
-    "功能清单 333 源文件中现有 25 pending。77 个 renderer 待映射项最初静态审计后，11 项 Client 功能补齐；Host 原测试 28 用例和 Renderer/Preload 续审分别在 tests/copied-host/AUDIT.md、tests/copied-renderer/AUDIT.md；全部仍需当前官方 Desktop 安装产物交互验收。",
-    "固定私有 Bun 1.3.14 已核对官方归档摘要；15 个原始 CAT core/formats 测试在隔离源快照与目标副本分别 151/151 pass、0 fail、0 skip，合成 fixture 只复制 3 个必需文件。",
-    "原生 CAT 按钮现用官方 requestId 的冻结 V1 选区回执；DSH 默认 Composer 缺公开同轮提交 hook。固定 RC Schedule 已通过官方管理 API 实现 LA 专用创建、列表、CAS 编辑、取消、历史和到期范围重验；尚待实际 Desktop 到期执行验收。",
-    "Phrase 平台操作 Skill 已适配为 BrowserSkill 语义并随当前 a3260da726fe 插件 tgz 通过官方管理器安装；原生发现仍待已安装 UI 验证。",
-    "BrowserSkill 固定 CLI/私有 daemon 0.3.1 协议 1.3 在本产品 BSK_HOME 的端口 52800 实测；localhost fixture、CLI 和 daemon 通过，但 Chrome 扩展连接数为零，真实 AgentWindow、上传/下载链为 BLOCKED_ENV。",
-    "当前 LA tgz a3260da726fe、BrowserSkill tgz ba6d99c6 已经官方 Desktop 原生管理器更新/核验，独立入口经 Finder 双击停开，新包 smoke:installed 9/9 通过；完整 UI/Provider/浏览器链验收尚待执行。",
-    "固定 DSH SubagentRuntime 公开 continuable/sendMessage/listChildren/prompt/interruptByParent 接口已核实；当前 a3260da726fe 插件仍只调用一次性 spawn，LA 冻结范围接续未完成，后续 Host 修复将使该安装包过期并须重包重装。",
-    "当前包 CUA 合成操作已观察项目/CAT/QA/建议/参考/设置、7+160 段导入、锁定行、Emoji/组合字符、撤销/重做、换行、Tag 保护；IME 实际输入和窄窗焦点布局仍待新包验证，旧包截图不能充当最终验收。",
-    "隐私只读审计回执为 PARTIAL：源/快照 1862 清单文件哈希一致、产品路径隔离和合成 fixture 局部通过；缺少施工前基线及完整写入史，不能证明旧数据和全局日志/远端发布史的全称命题，G09 不得伪填。",
-    "项目私有固定工具链 prepare:local 核验通过，回执在 artifacts/evidence/toolchain.json；Scope 发现算法已集中到 domain-service，DSH Workspace 附件公开接缝待进一步核对。",
-    "2026-09-29 新 LA 包 ed21c0a83ae6 已按官方 Desktop RC 构建并暂存；打包后 8 项 typecheck、169 Node、11 Bun、隔离源与目标 CAT 各 151 项通过。当前官方 Desktop 仍安装 a3260da726fe，ed21 原生更新/重开/UI/Provider 证据尚未发生。",
-    "新包代码已接原生 continuable 子任务、手动 Schedule 投递、Composer 范围提示和 CAT 网格焦点修复；固定 RC 的普通 Composer 提交前 hook、跨 Workspace 历史 fork、自动任务独立到期执行及完成回调仍缺公开接口，不能标 READY。",
-    "BrowserSkill 两种 localhost 合成 runner 实测固定 CLI/daemon/fixture PASS，扩展连接 0，均返回 BLOCKED_ENV；扩展源码包身份与运行连接实例属于不同证据层。",
-    "2026-09-29 修复列映射 JSON 被误判 batch ready、HTTP 未分类异常原文泄露、专用 CAT requestId 到真实 toolCall 的 V1 生成来源缺失。中间包 ab706955141e 已暂存；其后补齐 HTTP 外层路由异常固定响应。最终候选 8ca040bebfa6 已暂存且摘要核对，打包后 8/8 typecheck、173 Node、21 Bun、源与目标 CAT 各 151/151 通过；正式 Desktop 仍为旧 a3260da726fe，READY=FAILED。",
-    "2026-09-29 用户确认使用普通官方 DSH App 与默认 desktop profile。已复制官方 0.2.0-rc.1 到 /Applications/DeepSeek Harness.app；安装/启停/验收脚本同步该路径。BrowserSkill 改为插件配置传入私有 daemon home，正在修复 0.2 SDK 接口变化并重包。当前默认 profile 尚未完成原生插件安装；旧验收不适用于新包。",
-    "2026-09-29 当前 0.2 候选 la-478ea64aa103-b4f81677 已实际构建暂存；BrowserSkill 382/382，主插件 8 typecheck/173 Node/21 Bun，源与目标 CAT 各151及安装回执3项通过。官方普通路径签名/公证通过，LA品牌入口移入废纸篓。默认profile原生安装和重开/UI验证因CUA ScreenCaptureKit -3811阻塞；用户未见弹窗，显示器在线，原因待确认。verify:ready仍FAILED。",
-    "2026-09-29 用户已动作时确认安装 LA 478ea64aa103 与 BrowserSkill b4f81677。官方默认 desktop profile 已通过原生管理器安装并启用 BrowserSkill、启用自动化任务。LA 尚未安装；CUA 可读页面但点击反复 elementHasNoFrame/noWindowsAvailable，已请求用户代点 LA 安装。current.json 与最终安装回执保持原状，未伪填完成。",
-    "2026-09-29 原生菜单正常退出 DSH 并 getApp 重开恢复控件操作。已自行完成 LA 原生安装及立即启用；两个插件均 on，install:local=INSTALLED_DESKTOP，smoke:installed=PASS 9/9。Linguist 主面板显示项目表单、四岗位和三工作方式。再次正常退出重开，两插件仍 on。Finder 捕捉仍 -3811，故尚未宣称 Finder 双击验证通过；完整 READY 仍未满足。",
-    "目标模式已启用。新候选 la-543d8b64cce4-b4f81677 已构建暂存：DSH 原生地球图标、扩展名显示修正、公共 buildForkSeed/SessionPersistence/SessionController 接管的跨 Workspace 历史复制。合成回归与原生存储校验/Session 继承边界通过，完整8项类型检查、173 Node、21 Bun通过。实际安装仍478包，543包待原生更新；新版不可借旧安装回执标通过。",
-    "修复 install-local 暂存候选提前覆盖运行身份：配置更新移至原生安装及回执检查之后。实际暂存回归验证退出2且配置/current.json字节不变；依据原生已安装 manifest 将此前错误543配置恢复为478。当前候选仍543，smoke当前FAILED而非历史9/9PASS，桌面重试仍ScreenCaptureKit -3811。",
-    "用户截图确认BrowserSkill 0.3.1启用；daemon实际连接instance a14f4718。scripts/test-browser-skill.mjs完整CLI_CHAIN_PASS（10项），原始回执与trace已保存；只操作localhost合成网页。DSH Agent工具调用/Skill发现仍待验，当前回执绑定478安装实例，不充当543候选验收。",
-    "导航取消修复使用原生layout.beginNavigation：切换后释放右栏等待，迟到Session创建不再抢焦点；实际Client注册的回归加入必需检查并通过。8项类型检查、174Node、21Bun及构建通过，新候选la-1739a774a38a-b4f81677。仍需原生更新、桌面导航实测和当前产物完整验收。",
-    "项目表单使用原生required/maxLength/pattern，Host与Client共用120字符名称/35字符locale与原正则；批次完整SHA复制调用DSH writeClipboard并呈现成功/拒绝反馈，补归档时间。175Node/21Bun/8typecheck与构建通过，候选la-628578201bb3-b4f81677待实际安装；功能矩阵保留安装态pending。",
-    "恢复V1选区快照深冻结语义，原请求级回归新增对象/数组拒绝修改及固定序列化顺序检查；175Node/21Bun/8typecheck和构建通过。候选la-e4c2c189ff96-b4f81677已暂存。CUA仍在绑定窗口之前报ScreenCaptureKit -3811，应用清单确认DSH运行；已请求用户正常退出重开DSH，其他代码工作继续。"
+    "2026-09-29T10:25:20Z只读核对默认desktop的21/21个Linguist包文件与df66a1292d06完全匹配；安装对话框已关闭，两插件on。操作者和准确安装时间未观察，不能虚构动作回执；current.json仍需登记核对。ba仅为此前已核对历史安装。",
+    "正常退出后窄范围pgrep无官方DSH进程，Finder双击后出现74750/74757，原生窗口恢复CAT会话、三句段和工作台；两插件开关on。观测未等同全部桌面验收。",
+    "关闭台前调度后-3811不再阻断本轮CUA；未知具体安装ba操作者及时间，不虚构安装动作回执。",
+    "1b86fb0恢复旧LA的30语言下拉、新建QA场景、创建后进入、原生目录选择、备份详细预览与按钮不换行；189Node/21Bun/8类型检查和构建打包通过。df66已安装且含前两项自动任务提交；上述计数仅对应这一历史源码检查。",
+    "本轮未提交源码接入原生Skills真值与SKILL.md、DSH默认指令文件路径和Plugins/Files入口；无Session不创建会话；项目列表显示Workspace身份。默认指令候选不等于会话实际全部载入，未伪造MCP启用数或Memory状态。",
+    "本轮未提交源码为自动任务创建独立原生owner，冻结项目/模型/权限并覆盖来源删除后执行；旧source-owned任务须取消重建，保留历史/取消入口；手动运行按任务owner校验回执。相关合成回归通过，尚未在安装态验证。",
+    "普通Composer显式CAT原生引用已实现同步与slash裁决前冻结，Host按真实user message/rpcId准入并校验QA委派范围；默认每次发送自动附带仍未满足。固定0.2.0-rc.1缺少满足同步捕获、实际requestId和await准入的公开发送扩展，详见native-composer-public-api-audit.json。",
+    "本轮源码全量205Node/21Bun/8类型检查通过，构建通过；源隔离与目标copied-domain均151通过。多dock补充回归及重复订阅清理后最终构建通过。以上新增源码尚未进入当前df66安装。",
+    "df66安装态已实际弹开源语言30选项及自定义，切换日语后还原英语；已有批次项目的双语言下拉禁用并解释原因；截图观察到单输入框边框及备份/刷新/预览恢复outline按钮。证据df66-ui-scope-check.json，截图仅工具内观察未导出，不等同完整UI验收。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,
   "readyReceipt": {
     "path": "artifacts/READY.json",
-    "status": "FAILED"
+    "status": "FAILED",
+    "evaluatedAt": "2026-09-29T05:26:40.152Z",
+    "freshForCurrentState": false
   },
   "sourceSnapshot": {
     "path": ".migration/source-snapshot",
@@ -163,5 +137,86 @@
       ".codegraph local db/log",
       ".DS_Store"
     ]
+  },
+  "scheduleSessionWorkInProgress": {
+    "status": "IMPLEMENTED_AWAITING_NATIVE_ACCEPTANCE",
+    "commit": "5eca1e9",
+    "note": "5eca1e9 task Sessions are included in installed df66 (21/21 files verified). Subsequent uncommitted source adds independent task owners, frozen project/model/permissions after source deletion, recreate-required legacy handling and owner-bound runNow receipts. Synthetic source checks pass; native due execution, cold reopen, cancellation and professional completion remain pending.",
+    "evidencePaths": [
+      "artifacts/evidence/schedule-session-deletion.log",
+      "artifacts/evidence/schedule-session-lifecycle-required.log",
+      "artifacts/evidence/schedule-session-lifecycle-build.log",
+      "artifacts/evidence/ponytail-review-schedule-session.json",
+      "tests/required/schedule-session-independence.nodetest.mjs",
+      "artifacts/evidence/schedule-manager-green.log",
+      "artifacts/evidence/integration-parity-required.log"
+    ]
+  },
+  "automationNotificationAudit": {
+    "status": "IMPLEMENTED_AWAITING_NATIVE_ACCEPTANCE",
+    "commit": "a7d4c75",
+    "sourceInventoryCount": 335,
+    "note": "a7d4c75 opt-in notification implementation is included in installed df66 (21/21 files verified). Synthetic secret redaction, destinations and delivery behavior are checked. Native configuration/execution and real notification delivery remain unverified; no external notification was sent.",
+    "evidencePaths": [
+      "artifacts/evidence/schedule-notification-required.log",
+      "artifacts/evidence/schedule-notification-targeted.log",
+      "artifacts/evidence/schedule-notification-build.log",
+      "artifacts/evidence/ponytail-review-schedule-notification.json"
+    ]
+  },
+  "historyArchive": "docs/migration/history/2026-09-29-before-status-reconciliation.json",
+  "currentSnapshot": {
+    "actualInstalledPluginHash": "df66a1292d06efbeb669abd55b5391647e5f5d9df0c5a2a3e4f741f1456bb828",
+    "installedCodeCommit": "1b86fb0",
+    "sourceHead": "1b86fb0",
+    "recordedInstallationId": "la-e4c2c189ff96-b4f81677",
+    "registrationNeedsReconciliation": true,
+    "installedFileEvidence": "artifacts/evidence/installed-df66-reconciliation.json",
+    "unpackedCommits": [],
+    "summaryPath": "docs/migration/NEXT.md",
+    "stagedInstallationId": "la-df66a1292d06-b4f81677",
+    "stagedCodeCommit": "1b86fb0",
+    "stagedIncludes": [
+      "language dropdown/create QA/auto-open",
+      "native directory chooser",
+      "backup restore details",
+      "scheduled native task Sessions",
+      "opt-in notifications"
+    ],
+    "nativeUpdate": "df66 is installed: read-only 2026-09-29T10:25:20Z comparison matched 21/21 package files, install dialog closed and both plugin switches on. Previous action-confirmation item is obsolete; no reinstall required. Actor and exact installation time were not observed; registration reconciliation remains pending.",
+    "latestSynthetic": {
+      "scope": "Current uncommitted source after 1b86fb0; not packaged or installed acceptance",
+      "node": 205,
+      "bun": 21,
+      "typechecks": 8,
+      "build": "passed",
+      "evidencePath": "artifacts/evidence/integration-parity-required.log",
+      "buildEvidencePath": "artifacts/evidence/integration-parity-build.log",
+      "copiedDomain": {
+        "sourceIsolated": 151,
+        "target": 151
+      }
+    },
+    "stagedSynthetic": {
+      "node": 189,
+      "bun": 21,
+      "typechecks": 8,
+      "build": "passed",
+      "evidencePath": "artifacts/evidence/project-ui-parity-required.log",
+      "scope": "Historical source checks for df66 / commit 1b86fb0, now installed; not current uncommitted source or complete installed acceptance."
+    },
+    "unpackedChanges": [
+      "Project capabilities: native Skills truth, SKILL.md, default instruction candidates, Plugins/Files navigation; project-list Workspace identity",
+      "Independent native schedule owner; frozen authorization after source removal; recreate-required legacy tasks; runNow owner receipt validation",
+      "Explicit native Composer CAT references with synchronous/slash capture, actual RPC Host admission and QA delegated-scope checks",
+      "Empty-project import action opens the existing Assets panel; project workflow labels use the selected UI language"
+    ],
+    "remainingPublicApiGap": {
+      "feature": "Automatic CAT snapshot on each ordinary Composer send",
+      "status": "NOT_IMPLEMENTED",
+      "reason": "Fixed official 0.2.0-rc.1 has no public hook combining synchronous capture, actual requestId and awaited Host admission. Explicit native CAT references are implemented; automatic draft insertion was removed because it changes leading-slash semantics and risks IME/focus.",
+      "evidencePath": "artifacts/evidence/native-composer-public-api-audit.json"
+    },
+    "installedUiEvidence": "artifacts/evidence/df66-ui-scope-check.json"
   }
 }

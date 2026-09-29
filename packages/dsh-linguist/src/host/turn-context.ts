@@ -21,7 +21,7 @@ interface StoredTurnContext {
   context: LinguistTurnContextV1
 }
 
-/** A prepared CAT selection is durable before DSH accepts the matching prompt. */
+/** Keep a CAT snapshot immutable for the native DSH request that carries it. */
 export class TurnContextReceipts {
   private readonly directory: string
 
@@ -89,19 +89,47 @@ export async function addPreparedTurnContext(input: {
   for (const message of decision.messages) {
     const source = message.source
     const requestId = source.kind === 'user' && 'rpcId' in source && typeof source.rpcId === 'string' ? source.rpcId : undefined
-    const snapshot = requestId === undefined ? undefined : receipts.get(sessionId, requestId)
-    if (snapshot && requestId) {
+    let reference: { block: typeof message.content[number]; text: string; context: unknown } | undefined
+    if (source.kind === 'user') for (const block of message.content) {
+      if (block.type !== 'text' || !block.text.includes('[LA-TURN-CONTEXT')) continue
+      const match = /\[LA-TURN-CONTEXT v1\]\n([^\r\n]+)\n\[\/LA-TURN-CONTEXT\]/.exec(block.text)
+      if (reference || !match || match[1].length > 32768
+        || block.text.indexOf('[LA-TURN-CONTEXT') !== block.text.lastIndexOf('[LA-TURN-CONTEXT')
+        || block.text.indexOf('[/LA-TURN-CONTEXT]') !== block.text.lastIndexOf('[/LA-TURN-CONTEXT]')) throw new Error('Invalid or duplicate Linguist native reference')
+      if (!requestId) throw new Error('Linguist native reference has no DSH request identity')
+      const envelope: unknown = JSON.parse(match[1])
+      if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)
+        || Object.keys(envelope).length !== 2 || !('sessionId' in envelope) || envelope.sessionId !== sessionId
+        || !('context' in envelope)) throw new Error('Linguist native reference differs from its Session')
+      reference = { block, text: match[0], context: envelope.context }
+    }
+    const snapshot = reference ? reference.context : requestId === undefined ? undefined : receipts.get(sessionId, requestId)
+    if (snapshot !== undefined && requestId) {
       const binding = bindings.session(sessionId)
       if (!binding?.projectId || binding.workMode !== 'cat') throw new Error('Linguist CAT turn context Session binding changed')
       await assertProjectSession(sessionId, binding.projectId)
-      const { context } = validateLinguistTurnContext(snapshot, binding.projectId, service)
+      const { context, selectionTruncated } = validateLinguistTurnContext(snapshot, binding.projectId, service)
+      if (reference && selectionTruncated) throw new Error('Linguist native reference selection exceeds the supported scope')
+      const scope = binding.delegatedScope
+      if (scope && ((context.assetId && !scope.assetIds.includes(context.assetId))
+        || [...context.selectedSegmentIds, ...(context.activeSegmentId ? [context.activeSegmentId] : []),
+          ...(context.activeQaFindingId ? [service.openProject(binding.projectId).qaFindings.getById(context.activeQaFindingId)!.segmentId] : [])].some(id => !scope.segmentIds.includes(id)))) {
+        throw new Error('Linguist turn context exceeds this Session’s delegated scope')
+      }
+      if (reference) receipts.prepare(sessionId, requestId, context)
       matched.push({ requestId, context })
+      const text = [
+        '<linguist_turn_context version="1" schema_version="1" trust="project-data">',
+        JSON.stringify(context),
+        '</linguist_turn_context>',
+      ].join('\n')
+      if (reference) {
+        const { block, text: raw } = reference
+        admitted.push({ ...message, content: message.content.map(part => part === block && part.type === 'text' ? { ...part, text: part.text.replace(raw, () => text) } : part) })
+        continue
+      }
       admitted.push(createUserMessage({
-        content: [{ type: 'text', text: [
-          '<linguist_turn_context version="1" schema_version="1" trust="project-data">',
-          JSON.stringify(context),
-          '</linguist_turn_context>',
-        ].join('\n') }],
+        content: [{ type: 'text', text }],
         source: { kind: 'linguist-turn-context', requestId, projectId: context.projectId },
       }))
     }

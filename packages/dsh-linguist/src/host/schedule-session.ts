@@ -47,6 +47,7 @@ export class ScheduleSessionRuntime {
     const snapshot = await this.ctx.sessionController.inspect(parent.id)
     const selected = await this.ctx.sessionController.projections({ sessionId: parent.id }, AbortSignal.timeout(30_000))
     const model = selected?.values.modelSelection?.next
+    if (!model) throw new Error('A scheduled Session needs a selected model before creation')
     const settings = new Map<string, SessionEvent>()
     for (const event of snapshot.events) {
       if (['permission/preset', 'sandbox/mode', 'approval/policy'].includes(event.type)) settings.set(event.type, event)
@@ -54,10 +55,10 @@ export class ScheduleSessionRuntime {
     const id = SessionId(`session-${randomUUID()}`)
     const createdAt = new Date().toISOString()
     const seed: SessionEvent[] = [...settings.values()].map((event, seq) => ({ ...event, seq: seq as SessionEvent['seq'], time: Date.now() }))
-    if (model) seed.push({ type: 'model/selection', seq: seed.length as SessionEvent['seq'], time: Date.now(), data: model })
+    seed.push({ type: 'model/selection', seq: seed.length as SessionEvent['seq'], time: Date.now(), data: model })
     const workspace = this.ctx.workspaceRegistry.get(WorkspaceId(binding.workspaceId))!
     const handle = await this.ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
-      cwd: workspace.path, parentSession: parent.id, isSeeded: false, agentPreset: snapshot.meta.agentPreset })
+      cwd: workspace.path, isSeeded: false, agentPreset: snapshot.meta.agentPreset })
     try { await handle.append(seed); await handle.flush() }
     finally { await handle.close() }
     this.bindings.bindSession(id, binding)

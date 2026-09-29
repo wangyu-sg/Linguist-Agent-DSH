@@ -22,7 +22,8 @@
       "sourcePaths": [],
       "targetPaths": [],
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/df66-ui-scope-check.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/project-service.ts",
@@ -40,13 +41,17 @@
         "apps/electron/src/renderer/features/linguist/projects/project-mutation-atoms.ts"
       ],
       "targetFiles": [
-        "packages/dsh-linguist/src/client/ProjectsPage.tsx"
+        "packages/dsh-linguist/src/client/ProjectsPage.tsx",
+        "packages/dsh-linguist/src/client/ProjectLocaleSelect.tsx",
+        "packages/dsh-linguist/src/client/ProjectCapabilities.tsx"
       ],
       "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
       "tests": [
-        "tests/required/acceptance.nodetest.mjs"
+        "tests/required/acceptance.nodetest.mjs",
+        "tests/required/locale-select.nodetest.mjs",
+        "tests/required/project-capabilities.nodetest.mjs"
       ],
-      "remainingVerification": "Consistent CAT backup import and independent legacy-root scan/import pass synthetic checks, including historical metadata/IDs, orphan outcomes, byte preservation, archive verification and rollback; installed Desktop UI and end-to-end interaction remain pending."
+      "remainingVerification": "项目备份/旧数据导入的合成检查已存在；语言下拉、新建QA场景、创建后进入、目录选择与备份详情已进入当前df66安装。项目列表Workspace身份及能力区是其后的未提交源码。当前安装已核对为df66；最终安装版的完整项目生命周期和交互验收待完成。 df66已实际检查30语言选项/自定义、日语切换还原及已有批次语言冻结提示；该局部检查不等于完整UI验收。"
     },
     {
       "id": "FEATURE-02",
@@ -497,9 +502,10 @@
       ],
       "targetEntry": "packages/dsh-linguist/src/index.ts",
       "tests": [
-        "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts"
+        "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts",
+        "tests/required/turn-reference.nodetest.mjs"
       ],
-      "remainingVerification": "Native continuable delegation and same-Workspace fork are wired. Cross-Workspace history copy now uses public buildForkSeed, SessionPersistence create/append/flush/close and SessionController explicit-ID adoption; synthetic regression checks native storage validation, inherited cut and restored Session ownership. Installed copy, continuation/cancellation and child execution remain to verify."
+      "remainingVerification": "Native continuable delegation and same-/cross-Workspace history copy are wired and synthetically checked. Current unpackaged source also validates explicit native CAT references against actual user RPC identity and rejects selected segments or QA findings outside delegated scope. Installed copy, child model/provider/effort identity, continuation/cancellation and cold lifecycle remain unverified."
     },
     {
       "id": "FEATURE-18",
@@ -510,7 +516,9 @@
       "sourcePaths": [],
       "targetPaths": [],
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/schedule-manager-green.log",
+        "artifacts/evidence/integration-parity-required.log"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/automation-context.ts",
@@ -518,16 +526,25 @@
         "apps/electron/src/main/lib/automation-scheduler-linguist.test.ts",
         "apps/electron/src/main/lib/automation-manager.ts",
         "apps/electron/src/renderer/components/automation/AutomationFormView.tsx",
-        "packages/shared/src/types/automation.ts"
+        "packages/shared/src/types/automation.ts",
+        "apps/electron/src/main/lib/automation-notification-format.ts",
+        "apps/electron/src/main/lib/automation-notification-service.ts"
       ],
       "targetFiles": [
-        "packages/dsh-linguist/src/index.ts"
+        "packages/dsh-linguist/src/host/schedule-context.ts",
+        "packages/dsh-linguist/src/host/schedule-session.ts",
+        "packages/dsh-linguist/src/client/RunPanel.tsx",
+        "packages/dsh-linguist/src/client/ScheduleManager.tsx",
+        "packages/dsh-linguist/src/index.ts",
+        "packages/dsh-linguist/src/host/schedule-notifications.ts"
       ],
       "targetEntry": "packages/dsh-linguist/src/index.ts",
       "tests": [
-        "apps/electron/src/main/lib/automation-scheduler-linguist.test.ts"
+        "apps/electron/src/main/lib/automation-scheduler-linguist.test.ts",
+        "tests/required/schedule-session-independence.nodetest.mjs",
+        "tests/required/schedule-manager.nodetest.mjs"
       ],
-      "remainingVerification": "Host context capture/revalidation and manual same-Session Agent followup are synthetically checked; accepted delivery is not task completion. Installed due execution remains unverified. Fixed DSH 0.1.7-rc.2 Schedule lacks public independent child-Session execution and completion callbacks required by the source task semantics."
+      "remainingVerification": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent."
     },
     {
       "id": "FEATURE-19",
@@ -538,7 +555,10 @@
       "sourcePaths": [],
       "targetPaths": [],
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/project-capabilities-integration.log",
+        "artifacts/evidence/session-capabilities-green.log",
+        "artifacts/evidence/native-composer-public-api-audit.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/agent-host-extension.ts",
@@ -554,11 +574,22 @@
         "apps/electron/src/renderer/host/app-mode-registry.ts"
       ],
       "targetFiles": [
-        "packages/dsh-linguist/src/index.ts"
+        "packages/dsh-linguist/src/index.ts",
+        "packages/dsh-linguist/src/client/ProjectCapabilities.tsx",
+        "packages/dsh-linguist/src/client/index.ts",
+        "packages/dsh-linguist/src/client/composer-reference.ts",
+        "packages/dsh-linguist/src/host/http.ts",
+        "packages/dsh-linguist/src/host/turn-context.ts"
       ],
       "targetEntry": "packages/dsh-linguist/src/index.ts",
-      "tests": [],
-      "remainingVerification": "Target entry and synthetic checks exist; complete behavior still requires installed Host/Client interaction evidence and the feature-specific acceptance criteria."
+      "tests": [
+        "tests/required/project-capabilities.nodetest.mjs",
+        "tests/required/session-capabilities.nodetest.mjs",
+        "tests/copied-renderer/session-navigation.nodetest.mjs",
+        "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+        "tests/required/turn-reference.nodetest.mjs"
+      ],
+      "remainingVerification": "当前未打包源码以公开skills.list显示可调用Skills并打开SKILL.md，以discoverBaselineInstructionFiles列DSH默认指令候选路径，提供原生Plugins/Files入口；无Session不隐式创建。默认候选不等于实际载入，未宣称MCP精确启用数或Memory管理已迁完。普通Composer显式原生CAT引用已有同步/slash冻结和实际RPC Host校验；默认每次发送自动附带仍缺固定官方版本的公开捕获与await准入扩展。全部宿主能力仍需同一最终安装版验收。"
     },
     {
       "id": "FEATURE-20",
@@ -585,11 +616,13 @@
         "resources/linguist-roles/proofreader.md"
       ],
       "targetFiles": [
-        "packages/dsh-linguist/src/client/index.ts"
+        "packages/dsh-linguist/src/client/index.ts",
+        "packages/dsh-linguist/src/client/ProjectsPage.tsx",
+        "packages/dsh-linguist/src/client/ProjectCapabilities.tsx"
       ],
       "targetEntry": "packages/dsh-linguist/src/client/index.ts",
       "tests": [],
-      "remainingVerification": "Target entry and synthetic checks exist; complete behavior still requires installed Host/Client interaction evidence and the feature-specific acceptance criteria."
+      "remainingVerification": "当前源码补充项目列表Workspace身份、项目能力摘要和原生Plugins/Files入口；不是DSH原生Workspace行内徽章注入，后者仍无已核实公开Slot。本轮未打包未安装；最终安装版主题、窄窗、键盘/IME、浮动/全屏、工具跳转及完整首次使用流程仍待验收。"
     }
   ],
   "tools": [
@@ -1373,56 +1406,56 @@
       "id": "W01",
       "title": "领域和元数据去宿主耦合",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W02",
       "title": "DSH 原生 bundle 与作用域绑定",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W03",
       "title": "完整工具迁移",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W04",
       "title": "专业证据和完成闭环",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W05",
       "title": "原生专业子任务与自动任务",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W06",
       "title": "LA 外部插件 HTTP/SSE 与文件通道",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W07",
       "title": "完整工作台及原生视觉",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W08",
       "title": "BrowserSkill 完整接入",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
@@ -1438,21 +1471,21 @@
       "id": "W10",
       "title": "输出、上下文与 UI 性能收口",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W11",
       "title": "本地产物、实际安装与真实 smoke",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     },
     {
       "id": "W12",
       "title": "全面验收、交付和通知",
       "required": true,
-      "status": "not_started",
+      "status": "in_progress",
       "evidencePaths": []
     }
   ],
@@ -1585,7 +1618,7 @@
       "evidencePaths": [
         "artifacts/evidence/required-synthetic.json"
       ],
-      "remainingVerification": "Synthetic checks cover part of this family; installed or feature-specific acceptance is still pending."
+      "remainingVerification": "显式原生CAT引用实际user RPC绑定、冻结receipt和委派范围已在源码合成检查；最终安装版真实Provider文字/图片/工具描述与响应身份仍需验收。普通发送自动附带仍缺公开扩展。"
     },
     {
       "id": "V15",
@@ -1604,7 +1637,8 @@
       "requiredAssertions": "父子cwd不同、缺料、越权、输入变更、原生接续与结果范围",
       "required": true,
       "status": "not_run",
-      "evidencePaths": []
+      "evidencePaths": [],
+      "remainingVerification": "原生接续与显式引用QA/句段委派范围有源码合成回归；父子真实请求身份、异cwd输入和安装态生命周期全门禁仍待完成。"
     },
     {
       "id": "V17",
@@ -1620,7 +1654,8 @@
       "requiredAssertions": "同源权限、cross-site拒绝、版本基线、断线/迟到结果、目录/路径穿越",
       "required": true,
       "status": "not_run",
-      "evidencePaths": []
+      "evidencePaths": [],
+      "remainingVerification": "默认指令候选HTTP路径已覆盖Session/Workspace身份和同源拒绝；不替代本family的最终安装态HTTP/SSE/文件全门禁。"
     },
     {
       "id": "V19",
@@ -1636,15 +1671,21 @@
       "requiredAssertions": "并排/全屏/浮动切换、双项目、浅深色/窄窗/键盘、真实截图、无僵尸槽位",
       "required": true,
       "status": "not_run",
-      "evidencePaths": []
+      "evidencePaths": [],
+      "remainingVerification": "语言/创建/目录/备份已在df66安装，能力入口与Workspace行身份为后续未打包源码；最终安装版主题/窄窗/IME/多项目/切换仍待完成。"
     },
     {
       "id": "V21",
       "title": "BrowserSkill实际链",
       "requiredAssertions": "原生skill发现→AgentWindow→localhost页面读取→操作→清理，不只doctor",
       "required": true,
-      "status": "not_run",
-      "evidencePaths": []
+      "status": "complete",
+      "evidencePaths": [
+        "artifacts/evidence/browser-e4-observation.json",
+        "artifacts/evidence/browser-skill-dsh-fixture.json",
+        "artifacts/evidence/browser-skill-localhost.json"
+      ],
+      "remainingVerification": "现有complete证据属于历史e4安装；最终同一安装产物的完整BrowserSkill链与异常/取消/生命周期仍需归并验收。"
     },
     {
       "id": "V22",
@@ -1700,7 +1741,8 @@
       "requiredAssertions": "原生计划捕获项目/岗位/范围；来源消失不改绑定；需要用户登录时不假完成",
       "required": true,
       "status": "not_run",
-      "evidencePaths": []
+      "evidencePaths": [],
+      "remainingVerification": "独立任务owner、来源删除后冻结执行、legacy需重建及runNow owner回执有源码合成回归；最终安装版真实到期/重开/取消、专业完成和通知仍未验证。"
     },
     {
       "id": "V29",
@@ -1924,7 +1966,7 @@
     ]
   },
   "sourceInventory": {
-    "fileCount": 333,
+    "fileCount": 335,
     "files": [
       {
         "sourcePath": "apps/electron/default-skills/phrase-platform-review-ops/SKILL.md",
@@ -1973,7 +2015,7 @@
           "FEATURE-17"
         ],
         "status": "pending",
-        "auditNote": "Partial target verification and explicit remaining boundary are documented in tests/copied-host/AUDIT.md; not yet complete.",
+        "auditNote": "原生continuable接续、持久化冻结范围及实际RPC引用准入已有合成回归；当前源码补QA finding/句段不得越出委派范围。真实子请求身份、冷恢复和完整取消仍需安装态验证，详见tests/copied-host/AUDIT.md。",
         "auditEvidencePath": "tests/copied-host/AUDIT.md"
       },
       {
@@ -1995,8 +2037,38 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native DSH Schedule owns reminder storage/timing. Its fixed due-message semantics cannot execute the old independent automation Session; product behavior remains pending.",
-        "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
+        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
+      },
+      {
+        "sourcePath": "apps/electron/src/main/lib/automation-notification-format.ts",
+        "kind": "implementation_or_resource",
+        "featureIds": [
+          "FEATURE-18"
+        ],
+        "status": "pending",
+        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "evidencePaths": [
+          "artifacts/evidence/schedule-notification-required.log",
+          "docs/NOTIFICATIONS.md"
+        ],
+        "targetPath": "packages/dsh-linguist/src/host/schedule-notifications.ts",
+        "targetEntry": "packages/dsh-linguist/src/host/schedule-notifications.ts"
+      },
+      {
+        "sourcePath": "apps/electron/src/main/lib/automation-notification-service.ts",
+        "kind": "implementation_or_resource",
+        "featureIds": [
+          "FEATURE-18"
+        ],
+        "status": "pending",
+        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "evidencePaths": [
+          "artifacts/evidence/schedule-notification-required.log",
+          "docs/NOTIFICATIONS.md"
+        ],
+        "targetPath": "packages/dsh-linguist/src/host/schedule-notifications.ts",
+        "targetEntry": "packages/dsh-linguist/src/host/schedule-notifications.ts"
       },
       {
         "sourcePath": "apps/electron/src/main/lib/automation-scheduler-linguist.test.ts",
@@ -2006,8 +2078,12 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Partial target verification and explicit remaining boundary are documented in tests/copied-host/AUDIT.md; not yet complete.",
-        "auditEvidencePath": "tests/copied-host/AUDIT.md"
+        "auditNote": "独立任务owner在来源Session删除后按冻结项目/模型/权限继续、冷重建、旧source-owned任务拒绝编辑/运行但可历史/取消已有合成回归；停止owner不复活。安装态到期、Provider运行与完整生命周期仍未验证；其余边界见tests/copied-host/AUDIT.md。",
+        "auditEvidencePath": "tests/copied-host/AUDIT.md",
+        "evidencePaths": [
+          "tests/required/schedule-session-independence.nodetest.mjs",
+          "artifacts/evidence/integration-parity-required.log"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/main/lib/automation-scheduler.ts",
@@ -2017,8 +2093,8 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native DSH Schedule sends reminder text into the original Session; manual runNow uses Agent.followup and returns accepted delivery only. Fixed RC has no public independent child-execution/completion hook, so source task execution remains pending.",
-        "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
+        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/agent-execution-scope.ts",
@@ -2082,8 +2158,8 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Host capture, execution revalidation and manual same-Session followup are implemented and synthetically checked; installed due execution and business completion remain unverified. DSH 0.1.7-rc.2 has no public independent child-execution/completion hook.",
-        "targetEntry": "packages/dsh-linguist/src/host/automation-context.ts"
+        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/cat-job-worker-client.nodetest.ts",
@@ -2716,8 +2792,12 @@
         "targetPath": "tests/source-ported/linguist/session-availability.nodetest.ts",
         "featureIds": [],
         "status": "pending",
-        "auditNote": "Partial target verification and explicit remaining boundary are documented in tests/copied-host/AUDIT.md; not yet complete.",
-        "auditEvidencePath": "tests/copied-host/AUDIT.md"
+        "auditNote": "独立任务owner在来源Session删除后按冻结项目/模型/权限继续、冷重建、旧source-owned任务拒绝编辑/运行但可历史/取消已有合成回归；停止owner不复活。安装态到期、Provider运行与完整生命周期仍未验证；其余边界见tests/copied-host/AUDIT.md。",
+        "auditEvidencePath": "tests/copied-host/AUDIT.md",
+        "evidencePaths": [
+          "tests/required/schedule-session-independence.nodetest.mjs",
+          "artifacts/evidence/integration-parity-required.log"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/session-binding.ts",
@@ -2841,8 +2921,13 @@
           "FEATURE-12"
         ],
         "status": "pending",
-        "auditNote": "V1 structural/CAT ownership validation and requestId-bound prepared snapshot injection are wired through Host agent/pre-step and synthetically checked. Ordinary Composer sends have no public pre-submit snapshot hook; installed Provider request content remains unverified.",
-        "targetEntry": "packages/dsh-linguist/src/host/turn-context.ts"
+        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "targetEntry": "packages/dsh-linguist/src/host/turn-context.ts",
+        "evidencePaths": [
+          "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+          "tests/required/turn-reference.nodetest.mjs",
+          "artifacts/evidence/native-composer-public-api-audit.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/working-copy-tool.ts",
@@ -2904,7 +2989,7 @@
         ],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/RunPanel.tsx",
-        "auditNote": "已接专用创建、原生 Schedule 列表/编辑/取消/历史与手动投递；安装态到期执行和业务完成尚未核验，源独立任务配置未逐项等价。",
+        "auditNote": "已接创建、列表/编辑/取消/历史与手动投递。新源码按独立owner验回执，旧source-owned任务明确需取消重建并禁编辑/运行、保留历史/取消；本轮未打包，安装态配置/到期及业务完成尚未核验。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -2914,8 +2999,13 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/ComposerContextChips.tsx",
-        "auditNote": "原生 conversation.input.dock 已接项目/批次/引用/选区 chips 和清除动作；显式 Agent 任务附 V1 快照。普通 Composer 没有公开提交前快照接缝，显示 chips 不等于模型收到上下文；安装态 Slot/发送仍待核验。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "evidencePaths": [
+          "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+          "tests/required/turn-reference.nodetest.mjs",
+          "artifacts/evidence/native-composer-public-api-audit.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/migration/MigrationWizard.tsx",
@@ -3058,7 +3148,7 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/index.ts",
-        "auditNote": "主 Linguist 入口和 Session badge 已有；未证实 DSH 公开 Workspace 行徽章 Slot，不能注入行内标记。",
+        "auditNote": "主Linguist入口和Session badge已有；本轮未打包源码在LA项目列表显示真实Workspace标题/路径与不可用状态。DSH原生Workspace行内徽章仍无已核实公开Slot，不将项目列表身份冒充该Slot；安装态待验收。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -3103,9 +3193,14 @@
         "targetPath": "packages/dsh-linguist/src/client/projects/ProjectAgentCapabilitiesSection.tsx",
         "featureIds": [],
         "status": "pending",
-        "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
-        "auditNote": "项目设置已接原生 Files 入口；Skills/MCP/AGENTS.md/Memory 状态摘要及直达入口仍无已核实的公开 Client 导航接缝。Files 点击须在当前安装包核验。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "targetEntry": "packages/dsh-linguist/src/client/ProjectCapabilities.tsx",
+        "auditNote": "当前未打包源码接公开skills.list真值、SKILL.md、DSH默认指令候选路径及原生Plugins/Files导航；无Session仅提示进入项目会话，不隐式创建。指令候选不冒充实际载入状态；MCP精确启用摘要与Memory入口未宣称实现。真实Desktop点击/状态仍待安装后验收。",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "evidencePaths": [
+          "tests/required/project-capabilities.nodetest.mjs",
+          "tests/required/session-capabilities.nodetest.mjs",
+          "tests/copied-renderer/session-navigation.nodetest.mjs"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/ProjectArchiveAction.tsx",
@@ -3182,12 +3277,15 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/ProjectLocaleSelect.tsx",
         "kind": "implementation_or_resource",
-        "targetPath": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
+        "targetPath": "packages/dsh-linguist/src/client/ProjectLocaleSelect.tsx",
         "featureIds": [],
         "status": "complete",
-        "targetEntry": "packages/dsh-linguist/src/client/ProjectsPage.tsx",
-        "auditNote": "同等用户操作已在原生 Client 页面中接线；仍需官方 Desktop 交互验收。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "targetEntry": "packages/dsh-linguist/src/client/ProjectLocaleSelect.tsx",
+        "auditNote": "User screenshot exposed that the prior complete mapping was incorrect. Commit 1b86fb0 restores 30 common locales, localized labels and preserved custom values in both create/settings; locale-select 3 checks pass. Native df66 installation acceptance remains pending.",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "evidencePaths": [
+          "artifacts/evidence/locale-select-green.log"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/ProjectMaintenanceSettings.tsx",
@@ -3556,8 +3654,13 @@
         ],
         "status": "complete",
         "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "显式 LA Agent 任务使用 beginSubmission requestId + Host prepare + 原生 prompt；普通 Composer 仍无同轮选区。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "evidencePaths": [
+          "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+          "tests/required/turn-reference.nodetest.mjs",
+          "artifacts/evidence/native-composer-public-api-audit.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-composer-context.ts",
@@ -3566,8 +3669,13 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/composer-context.ts",
-        "auditNote": "工作台状态已按 Session 推送至原生 Composer dock chips；专用 Agent 任务有 requestId 绑定的 V1 快照。普通 Composer 每轮选区快照缺公开提交前接缝，安装态 chips/模型请求证据未完成。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "evidencePaths": [
+          "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+          "tests/required/turn-reference.nodetest.mjs",
+          "artifacts/evidence/native-composer-public-api-audit.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-integrity-atoms.ts",
@@ -5304,84 +5412,6 @@
         "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
       },
       {
-        "sourcePath": "packages/shared/src/types/automation.ts",
-        "kind": "implementation_or_resource",
-        "targetPath": "packages/dsh-linguist/src/contracts/automation.ts",
-        "featureIds": [
-          "FEATURE-18"
-        ],
-        "status": "pending",
-        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
-        "auditNote": "Candidate browser-safe contracts exist; full source DTO parity is not yet demonstrated."
-      },
-      {
-        "sourcePath": "packages/shared/src/types/linguist-turn-context.ts",
-        "kind": "implementation_or_resource",
-        "targetPath": "packages/dsh-linguist/src/contracts/linguist-turn-context.ts",
-        "featureIds": [
-          "FEATURE-19"
-        ],
-        "status": "pending",
-        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
-        "auditNote": "目标Host校验后按固定字段顺序重建并深冻结V1对象及选区数组，新增请求级回归验证拒绝改写、字段输入次序不影响字节和同requestId幂等；原始UI普通发送自动快照仍缺公开hook，当前安装Provider证据未完成。",
-        "auditEvidencePath": "tests/required/acceptance.nodetest.mjs"
-      },
-      {
-        "sourcePath": "packages/shared/src/types/linguist.ts",
-        "kind": "implementation_or_resource",
-        "targetPath": "packages/dsh-linguist/src/contracts/linguist.ts",
-        "featureIds": [
-          "FEATURE-19"
-        ],
-        "status": "pending",
-        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
-        "auditNote": "Candidate browser-safe contracts exist; full source DTO parity is not yet demonstrated."
-      },
-      {
-        "sourcePath": "resources/linguist-roles/general.md",
-        "kind": "role_prompt",
-        "targetPath": "packages/dsh-linguist/resources/linguist-roles/general.md",
-        "featureIds": [
-          "FEATURE-20"
-        ],
-        "status": "complete",
-        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/general.md",
-        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
-      },
-      {
-        "sourcePath": "resources/linguist-roles/proofreader.md",
-        "kind": "role_prompt",
-        "targetPath": "packages/dsh-linguist/resources/linguist-roles/proofreader.md",
-        "featureIds": [
-          "FEATURE-20"
-        ],
-        "status": "complete",
-        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/proofreader.md",
-        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
-      },
-      {
-        "sourcePath": "resources/linguist-roles/reviewer.md",
-        "kind": "role_prompt",
-        "targetPath": "packages/dsh-linguist/resources/linguist-roles/reviewer.md",
-        "featureIds": [
-          "FEATURE-20"
-        ],
-        "status": "complete",
-        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/reviewer.md",
-        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
-      },
-      {
-        "sourcePath": "resources/linguist-roles/translator.md",
-        "kind": "role_prompt",
-        "targetPath": "packages/dsh-linguist/resources/linguist-roles/translator.md",
-        "featureIds": [
-          "FEATURE-20"
-        ],
-        "status": "complete",
-        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/translator.md",
-        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
-      },
-      {
         "sourcePath": "packages/linguist-legacy-migration/package.json",
         "kind": "implementation_or_resource",
         "targetPath": "packages/linguist-legacy-migration/package.json",
@@ -5625,6 +5655,89 @@
         "evidencePaths": [
           "artifacts/evidence/required-synthetic.json"
         ]
+      },
+      {
+        "sourcePath": "packages/shared/src/types/automation.ts",
+        "kind": "implementation_or_resource",
+        "targetPath": "packages/dsh-linguist/src/contracts/automation.ts",
+        "featureIds": [
+          "FEATURE-18"
+        ],
+        "status": "pending",
+        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
+        "auditNote": "当前浏览器安全契约含独立任务owner与来源身份、冻结授权及recreate-required；旧source-owned记录需取消重建，不增加兼容执行路径。源码/合成验证不代替最终安装态配置及完整源DTO行为核对。"
+      },
+      {
+        "sourcePath": "packages/shared/src/types/linguist-turn-context.ts",
+        "kind": "implementation_or_resource",
+        "targetPath": "packages/dsh-linguist/src/contracts/linguist-turn-context.ts",
+        "featureIds": [
+          "FEATURE-19"
+        ],
+        "status": "pending",
+        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
+        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditEvidencePath": "tests/required/acceptance.nodetest.mjs",
+        "evidencePaths": [
+          "tests/copied-renderer/native-composer-reference.nodetest.mjs",
+          "tests/required/turn-reference.nodetest.mjs",
+          "artifacts/evidence/native-composer-public-api-audit.json"
+        ]
+      },
+      {
+        "sourcePath": "packages/shared/src/types/linguist.ts",
+        "kind": "implementation_or_resource",
+        "targetPath": "packages/dsh-linguist/src/contracts/linguist.ts",
+        "featureIds": [
+          "FEATURE-19"
+        ],
+        "status": "pending",
+        "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
+        "auditNote": "Candidate browser-safe contracts exist; full source DTO parity is not yet demonstrated."
+      },
+      {
+        "sourcePath": "resources/linguist-roles/general.md",
+        "kind": "role_prompt",
+        "targetPath": "packages/dsh-linguist/resources/linguist-roles/general.md",
+        "featureIds": [
+          "FEATURE-20"
+        ],
+        "status": "complete",
+        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/general.md",
+        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
+      },
+      {
+        "sourcePath": "resources/linguist-roles/proofreader.md",
+        "kind": "role_prompt",
+        "targetPath": "packages/dsh-linguist/resources/linguist-roles/proofreader.md",
+        "featureIds": [
+          "FEATURE-20"
+        ],
+        "status": "complete",
+        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/proofreader.md",
+        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
+      },
+      {
+        "sourcePath": "resources/linguist-roles/reviewer.md",
+        "kind": "role_prompt",
+        "targetPath": "packages/dsh-linguist/resources/linguist-roles/reviewer.md",
+        "featureIds": [
+          "FEATURE-20"
+        ],
+        "status": "complete",
+        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/reviewer.md",
+        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
+      },
+      {
+        "sourcePath": "resources/linguist-roles/translator.md",
+        "kind": "role_prompt",
+        "targetPath": "packages/dsh-linguist/resources/linguist-roles/translator.md",
+        "featureIds": [
+          "FEATURE-20"
+        ],
+        "status": "complete",
+        "targetEntry": "packages/dsh-linguist/resources/linguist-roles/translator.md",
+        "auditNote": "Target file exists and the relevant package typecheck/synthetic suite passed; source-to-target file mapping was reviewed."
       }
     ],
     "toolFactory": "packages/linguist-cat-tools/src/factory.ts",

@@ -14,6 +14,9 @@ test('native navigation cancels pending LA opens and late session creation', asy
   let navigation = new AbortController()
   let completeCreate
   let pickedDirectory = '/synthetic/workspace/backups/check'
+  let selectedPanel
+  const skills = { skills: [{ name: 'synthetic-skill', description: 'Synthetic', modelInvocable: true }] }
+  let skillResult = { ok: true, value: skills }
   const ctx = {
     effect() {},
     locale: { bind: () => text => text },
@@ -22,7 +25,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
       register: (key, render) => { registrations.set(key.name, render) },
     },
     layout: {
-      selectPanel: () => navigation.abort(),
+      selectPanel: panel => { selectedPanel = panel; navigation.abort() },
       beginNavigation: () => { navigation.abort(); navigation = new AbortController(); return navigation.signal },
     },
     uiWorkspace: { openSession: () => navigation.abort(), pickDirectory: async () => pickedDirectory },
@@ -32,8 +35,9 @@ test('native navigation cancels pending LA opens and late session creation', asy
       openResourceIn: (...args) => opened.push(args),
     },
     sessions: { create: () => new Promise(resolve => { completeCreate = resolve }) },
+    remote: { skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
   }
-  const components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'SessionCopyPage', 'WorkingCopyPage']
+  const components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
   const exports = {}
   const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -41,15 +45,23 @@ test('native navigation cancels pending LA opens and late session creation', asy
     if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }
     if (name === './api') return { bindSession: async value => value }
     if (name === './ui-locale') return {}
+    if (name === './composer-reference') return {}
     if (name === './Native.module.css') return { default: {} }
     if (name === './CatToolResult') return { catToolNames: [] }
     if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
+    if (name === '@deepseek-ai/dsh-client-ui-plugin-manager/client') return { PANEL_ID: 'plugins' }
     if (name === './cat-navigation' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
     if (components.some(component => name === `./${component}`)) return {}
     throw new Error(`Unexpected Client import: ${name}`)
   } })
   exports.apply(ctx)
-  const { onOpenSession, onEnter, onPickDirectory } = registrations.get('main')().child.props
+  const { onOpenSession, onEnter, onPickDirectory, capabilities } = registrations.get('main')().child.props
+  assert.equal(await capabilities.props.loadSkills('synthetic-A', new AbortController().signal), skills)
+  skillResult = { ok: false, error: { message: 'Native catalog unavailable' } }
+  await assert.rejects(capabilities.props.loadSkills('synthetic-A', new AbortController().signal), /Native catalog unavailable/)
+  capabilities.props.onOpenPlugins()
+  assert.equal(selectedPanel, 'plugins')
+  assert.equal(capabilities.props.onOpenFiles, undefined, 'project list must not create a Session to open files')
   assert.equal(await onPickDirectory('workspace-A'), 'backups/check')
   pickedDirectory = '/synthetic/workspace'
   assert.equal(await onPickDirectory('workspace-A'), '.')

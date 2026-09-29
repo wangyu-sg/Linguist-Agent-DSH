@@ -1272,7 +1272,7 @@ export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   timing: LinguistScheduleTiming
   scopeSnapshot: { assetId?: string; selectedSegmentIds: string[] }
   status: 'active' | 'inactive'
-  authorizationStatus: 'ready' | 'changed' | 'pending-update'
+  authorizationStatus: 'ready' | 'changed' | 'pending-update' | 'recreate-required'
   lastDeliveredAt?: string
 }
 
