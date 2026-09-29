@@ -1,23 +1,26 @@
 import { realpathSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import type { LinguistProjectService } from '@linguist/domain-service'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import { SessionId as asSessionId } from '@deepseek-ai/dsh-session'
+import { buildForkSeed, SESSION_FORMAT_VERSION, SessionId as asSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { BindingStore } from './bindings'
 
 export type LinguistSessionCopyEligibility =
   | { eligible: true; mode: 'blank' | 'fork' }
-  | { eligible: false; reason: 'SESSION_NOT_FOUND' | 'NOT_LINGUIST_SESSION' | 'RUNNING' | 'HISTORY_UNREADABLE' | 'NO_COMPLETED_ASSISTANT' | 'TARGET_PROJECT_UNAVAILABLE' | 'SAME_PROJECT' | 'CROSS_WORKSPACE_FORK_UNSUPPORTED'; message: string }
+  | { eligible: false; reason: 'SESSION_NOT_FOUND' | 'NOT_LINGUIST_SESSION' | 'RUNNING' | 'HISTORY_UNREADABLE' | 'NO_COMPLETED_ASSISTANT' | 'TARGET_PROJECT_UNAVAILABLE' | 'SAME_PROJECT'; message: string }
 
 export interface SessionCopyHost {
   bindings: BindingStore
   service: LinguistProjectService
   sessionController: {
-    inspect(id: SessionId): Promise<{ meta: { cwd?: string }; events: readonly SessionEvent[] }>
-    create(input: { workspaceId: WorkspaceId }): Promise<{ sessionId: SessionId }>
+    inspect(id: SessionId): Promise<{ meta: { cwd?: string; agentPreset?: string }; events: readonly SessionEvent[] }>
+    create(input: { workspaceId: WorkspaceId; sessionId?: SessionId; agentPreset?: string }): Promise<{ sessionId: SessionId }>
     fork(input: { sessionId: SessionId }): Promise<{ sessionId: SessionId }>
     rename(input: { sessionId: SessionId; title: string }): Promise<unknown>
   }
+  sessionPersistence: Pick<SessionPersistence, 'create'>
   workspaceRegistry: { get(id: WorkspaceId): { id: WorkspaceId; path: string } | undefined }
   sessionExists: (id: string) => Promise<boolean>
   agentStatus: (id: string) => 'idle' | 'running' | undefined
@@ -65,9 +68,6 @@ export async function sessionCopyEligibility(host: SessionCopyHost, sessionId: s
       return blocked('TARGET_PROJECT_UNAVAILABLE', 'Target project is archived, unhealthy or has no available DSH Workspace')
     }
   } catch { return blocked('TARGET_PROJECT_UNAVAILABLE', 'Target project is unavailable') }
-  if (mode === 'fork' && targetWorkspaceId !== binding.workspaceId) {
-    return blocked('CROSS_WORKSPACE_FORK_UNSUPPORTED', 'DSH native Session fork cannot move history across Workspaces')
-  }
   return { eligible: true, mode }
 }
 
@@ -81,9 +81,32 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
   const targetWorkspaceId = host.bindings.projectWorkspace(targetProjectId)!
   const second = await sessionCopyEligibility(host, sourceSessionId, targetProjectId)
   if (!second.eligible || second.mode !== first.mode) throw new Error('Source Session changed during copy eligibility check')
-  const copied = first.mode === 'blank'
-    ? await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId) })
-    : await host.sessionController.fork({ sessionId: asSessionId(sourceSessionId) })
+  let copied: { sessionId: SessionId }
+  if (first.mode === 'fork' && targetWorkspaceId !== source.workspaceId) {
+    const snapshot = await host.sessionController.inspect(asSessionId(sourceSessionId))
+    if (host.agentStatus(sourceSessionId) === 'running' || !completedAssistant(snapshot.events)) throw new Error('Source Session changed before history capture')
+    const id = asSessionId(`session-${randomUUID()}`)
+    const boundary = snapshot.events.at(-1)!.seq
+    try {
+      const handle = await host.sessionPersistence.create({
+        version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
+        cwd: host.workspaceRegistry.get(WorkspaceId(targetWorkspaceId))!.path,
+        parentSession: asSessionId(sourceSessionId), isSeeded: true,
+        ...(snapshot.meta.agentPreset === undefined ? {} : { agentPreset: snapshot.meta.agentPreset }),
+      }, { inheritedEventCount: SessionLogOffset(boundary + 1) })
+      try {
+        await handle.append(buildForkSeed(snapshot.events, boundary))
+        await handle.flush()
+      } finally { await handle.close() }
+      copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset: snapshot.meta.agentPreset })
+    } catch (error) {
+      throw new Error(`Native DSH Session ${id} history copy failed; inspect this exact Session before retrying: ${String(error)}`)
+    }
+  } else {
+    copied = first.mode === 'blank'
+      ? await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId) })
+      : await host.sessionController.fork({ sessionId: asSessionId(sourceSessionId) })
+  }
   const sessionId = String(copied.sessionId)
   const binding = { workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode }
   try {

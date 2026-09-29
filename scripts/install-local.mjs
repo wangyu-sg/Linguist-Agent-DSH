@@ -41,7 +41,7 @@ const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/
 if (!existsSync(bskPath)) copyFileSync(join(root, '.toolchain/browser-skill/bin/bsk'), bskPath)
 assert(sha256(bskPath) === baseline.cliRelease.binarySha256, 'pinned BrowserSkill CLI differs')
 const extension = join(dataRoot, 'runtime/browser-skill/extension-v0.3.1')
-if (!existsSync(extension)) cpSync(join(root, '.toolchain/browser-skill/extension-v0.3.1'), extension, { recursive: true })
+cpSync(join(root, '.toolchain/browser-skill/extension-v0.3.1'), extension, { recursive: true })
 if (!existsSync(appPath)) {
   const mount = join(tmpdir(), `la-dsh-official-${process.pid}`)
   mkdirSync(mount)

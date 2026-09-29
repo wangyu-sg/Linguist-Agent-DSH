@@ -2,14 +2,16 @@
 
 ## 当前执行点
 
-- 用户最终选择普通官方 `/Applications/DeepSeek Harness.app`（0.2.0-rc.1）与默认 `~/.dsh/profiles/desktop`。普通路径签名、公证已通过；原桌面 LA 品牌薄入口已移入废纸篓，可恢复。两个插件新包尚未通过原生管理器安装。
-- 当前候选安装身份 `la-478ea64aa103-b4f81677`：LA `478ea64aa103`、BrowserSkill `b4f81677`。实际 tgz 已暂存到产品 `runtime/packages`。BrowserSkill 已按真实 0.2 SDK 与冻结适配锁文件构建，382/382 测试通过，两次构建 SHA256 一致。
-- 主插件最终包构建通过；打包后 8/8 typecheck、173 Node、21 Bun、隔离源与目标 CAT 各 151/151 通过；安装回执测试 3/3 通过。日志在 `artifacts/evidence/dsh-020-*.log`，工具链核验通过。
-- `install:local` 返回 NATIVE_INSTALL_PENDING。已写 `~/.dsh/cordis.patch.yml` 配置 LA 数据根、BrowserSkill 私有 daemon home 与默认日志关闭。未改 desktop profile 依赖清单、凭据或会话；`current.json` 仍代表先前安装，不得据新包伪造安装完成。
-- 待通过官方原生管理器安装两 tgz，并启用 `@deepseek-ai/dsh-experimental-schedule-bundle@0.2.0-rc.1`。本地包 UI 安装受 CUA 工具“动作时确认”规则约束；须在能执行该动作时请求一次具体确认。
-- CUA 对 DSH/Finder 均报 ScreenCaptureKit -3811；用户未见授权弹窗，系统报告显示器在线，原因未确定。`artifacts/evidence/desktop-control-blocker.json` 记录 BLOCKED_ENV；已异步询问 Codex 屏幕录制权限当前状态。恢复 CUA 后进行正式安装、双击、退出重开及完整 UI/Provider/BrowserSkill localhost 链验证。不要继续盲试相同失败。
-- 实施规范、AGENTS、快速说明、离线 HTML、manifest 已统一官方 App/default profile 方案。BrowserSkill `bskHome` 由插件 runner 传给子进程；不依赖启动器注入环境。源仓库未修改。
-- `verify:ready` 当前仍 FAILED：安装仍旧身份，功能/验收矩阵未全通过；普通 Composer 提交绑定、跨 Workspace 历史 fork 和自动任务执行结果等缺口保持真实 pending。旧 0.1.7 验收不能用于新包。下方是先前历史记录。
+- 目标模式已启用，持续完成全部迁移与验收。新候选 `la-543d8b64cce4-b4f81677` 已构建暂存：Linguist 侧栏采用 DSH 原生单色地球图标；格式扩展名去除重复点；跨 Workspace 历史复制改用 DSH 公共持久化与显式 ID 接管接口。定向测试通过并验证真实 DSH 存储格式与 Session 继承边界；尚待新包安装态实测，原安装身份暂不代表这些改动。
+
+- 官方 `/Applications/DeepSeek Harness.app` 0.2.0-rc.1，默认 `~/.dsh/profiles/desktop`。LA `478ea64aa103` 和 BrowserSkill `b4f81677` 已经官方原生管理器安装并启用，官方自动化任务启用。
+- 当前安装身份 `la-478ea64aa103-b4f81677` 已由 `install:local` 写入 current.json；真实安装 trace/回执在产品 receipts。`smoke:installed` 9/9 PASS，证据 `artifacts/evidence/installed-smoke.json`。
+- 桌面控件失效恢复方式：通过 DSH 原生应用菜单点击“退出 DeepSeek Harness”，再 `cua.getApp('/Applications/DeepSeek Harness.app')` 重开。单纯重绑、Raise、reset 无效；正常退出重开后连续导航、输入、安装和启用均响应。无需用户代点安装。根因未确定，不宣称修复上游控制工具。
+- 已观察 Linguist 原生主面板的项目表单、四岗位、三工作方式。两插件启用后再次 Cmd-Q 正常退出并 getApp 重开，插件开关仍 on。Finder getApp 仍报 ScreenCaptureKit -3811，因此尚未完成真正 Finder 双击验证；不可把 getApp 启动冒充双击。
+- 新候选更新时桌面捕捉再次 -3811，发生于窗口绑定前；重置 CUA、正常退出快捷键、重启已核实的控制辅助服务均未恢复。既有 DSH 进程存在。此问题与先前已恢复的 stale-window 错误分别记录，不伪称恢复。
+- 修复扩展安装空目录：installer 总是复制固定扩展资源，23 文件逐一摘要匹配；浏览器测试现读取产品实际扩展 manifest。CLI、daemon、localhost fixture 通过，扩展尚未连接。浏览器工具明确拒绝 chrome://extensions 并禁止其他表面绕过；已向用户请求一次手动安装/连接，其他工作继续。
+- 下一步继续当前安装态完整 UI、Provider、BrowserSkill localhost 扩展链，以及功能矩阵缺口。主插件 8/8 typecheck、173 Node、21 Bun、源/目标 CAT 各151、安装回执3项和 BrowserSkill382项先前通过；它们不代替实际功能验收。
+- `verify:ready` 尚未全通过，不能发送成功通知。普通 Composer 提交绑定、自动任务业务完成等缺口，以及跨 Workspace 新实现的安装态验证及旧证据保持真实状态。源仓库只读，未访问真实 Phrase 或客户数据库。
 
 ## 先前记录
 

@@ -499,7 +499,7 @@
       "tests": [
         "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts"
       ],
-      "remainingVerification": "Native continuable Linguist delegation, frozen role/scope/input fencing, and list/message/prompt/current-turn interruption are wired and synthetically checked. Installed DSH child execution, continuation/cancellation, and Session-copy UI remain to verify; cross-Workspace history fork is unsupported by the fixed native API."
+      "remainingVerification": "Native continuable delegation and same-Workspace fork are wired. Cross-Workspace history copy now uses public buildForkSeed, SessionPersistence create/append/flush/close and SessionController explicit-ID adoption; synthetic regression checks native storage validation, inherited cut and restored Session ownership. Installed copy, continuation/cancellation and child execution remain to verify."
     },
     {
       "id": "FEATURE-18",
@@ -2754,7 +2754,7 @@
         "targetPath": "packages/linguist-domain-service/src/session-copy.ts",
         "featureIds": [],
         "status": "pending",
-        "auditNote": "Native blank creation and same-Workspace completed-turn fork are implemented. DSH SessionController.fork has no target Workspace argument; cross-Workspace historical copy and native rollback are still unsupported.",
+        "auditNote": "Native blank creation, same-Workspace fork and cross-Workspace persisted fork/adoption implemented. Synthetic check verifies header cwd, inherited history, durability order and native restored own-seq distinction; installed behavior and partial-failure handling remain to verify.",
         "targetEntry": "packages/dsh-linguist/src/host/session-copy.ts"
       },
       {

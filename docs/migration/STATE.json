@@ -14,7 +14,7 @@
     "initialState": "empty",
     "gitInitialized": true
   },
-  "currentWorkPackage": "W07-W12 (official Desktop 0.2.0-rc.1 default profile and full acceptance)",
+  "currentWorkPackage": "W07-W12 (goal active: native UI, complete feature parity and current-artifact acceptance)",
   "workPackages": [
     {
       "id": "W00",
@@ -88,12 +88,12 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "Official 0.2.0-rc.1 verified at /Applications/DeepSeek Harness.app; candidate la-478ea64aa103-b4f81677 built and staged; native default-profile installation plus schedule bundle pending",
+      "status": "Installed la-478ea64aa103-b4f81677 passed installed smoke 9/9 and quit/reopen. New candidate la-543d8b64cce4-b4f81677 built/staged for icon and cross-Workspace history copy; native UI update pending.",
       "external": false
     },
     {
       "id": "browserskill-cli-extension",
-      "status": "CLI_0.3.1/private daemon protocol1.3 verified on port 52800; localhost CLI and DSH fixture checks blocked at extension, browsers:0",
+      "status": "Product extension directory was empty; installer fixed and all 23 staged files match pinned extension source. CLI/daemon/localhost fixture PASS, extension connection absent. Browser tool forbids chrome://extensions including alternate-surface workarounds; user extension installation assistance requested.",
       "external": true
     },
     {
@@ -103,7 +103,7 @@
     },
     {
       "id": "system-install-and-notification-permissions",
-      "status": "CUA getApp fails for DSH and Finder with ScreenCaptureKit -3811; no permission dialog observed by user; cause unconfirmed; desktop launch/install verification BLOCKED_ENV",
+      "status": "DSH old stale-window issue recovered via native Quit/reopen, but capture now fails before binding with ScreenCaptureKit -3811. CUA reset and verified SkyComputerUseService restart did not recover it. Native package update and Finder double-click presently BLOCKED_ENV.",
       "external": true
     }
   ],
@@ -136,7 +136,10 @@
     "BrowserSkill 两种 localhost 合成 runner 实测固定 CLI/daemon/fixture PASS，扩展连接 0，均返回 BLOCKED_ENV；扩展源码包身份与运行连接实例属于不同证据层。",
     "2026-09-29 修复列映射 JSON 被误判 batch ready、HTTP 未分类异常原文泄露、专用 CAT requestId 到真实 toolCall 的 V1 生成来源缺失。中间包 ab706955141e 已暂存；其后补齐 HTTP 外层路由异常固定响应。最终候选 8ca040bebfa6 已暂存且摘要核对，打包后 8/8 typecheck、173 Node、21 Bun、源与目标 CAT 各 151/151 通过；正式 Desktop 仍为旧 a3260da726fe，READY=FAILED。",
     "2026-09-29 用户确认使用普通官方 DSH App 与默认 desktop profile。已复制官方 0.2.0-rc.1 到 /Applications/DeepSeek Harness.app；安装/启停/验收脚本同步该路径。BrowserSkill 改为插件配置传入私有 daemon home，正在修复 0.2 SDK 接口变化并重包。当前默认 profile 尚未完成原生插件安装；旧验收不适用于新包。",
-    "2026-09-29 当前 0.2 候选 la-478ea64aa103-b4f81677 已实际构建暂存；BrowserSkill 382/382，主插件 8 typecheck/173 Node/21 Bun，源与目标 CAT 各151及安装回执3项通过。官方普通路径签名/公证通过，LA品牌入口移入废纸篓。默认profile原生安装和重开/UI验证因CUA ScreenCaptureKit -3811阻塞；用户未见弹窗，显示器在线，原因待确认。verify:ready仍FAILED。"
+    "2026-09-29 当前 0.2 候选 la-478ea64aa103-b4f81677 已实际构建暂存；BrowserSkill 382/382，主插件 8 typecheck/173 Node/21 Bun，源与目标 CAT 各151及安装回执3项通过。官方普通路径签名/公证通过，LA品牌入口移入废纸篓。默认profile原生安装和重开/UI验证因CUA ScreenCaptureKit -3811阻塞；用户未见弹窗，显示器在线，原因待确认。verify:ready仍FAILED。",
+    "2026-09-29 用户已动作时确认安装 LA 478ea64aa103 与 BrowserSkill b4f81677。官方默认 desktop profile 已通过原生管理器安装并启用 BrowserSkill、启用自动化任务。LA 尚未安装；CUA 可读页面但点击反复 elementHasNoFrame/noWindowsAvailable，已请求用户代点 LA 安装。current.json 与最终安装回执保持原状，未伪填完成。",
+    "2026-09-29 原生菜单正常退出 DSH 并 getApp 重开恢复控件操作。已自行完成 LA 原生安装及立即启用；两个插件均 on，install:local=INSTALLED_DESKTOP，smoke:installed=PASS 9/9。Linguist 主面板显示项目表单、四岗位和三工作方式。再次正常退出重开，两插件仍 on。Finder 捕捉仍 -3811，故尚未宣称 Finder 双击验证通过；完整 READY 仍未满足。",
+    "目标模式已启用。新候选 la-543d8b64cce4-b4f81677 已构建暂存：DSH 原生地球图标、扩展名显示修正、公共 buildForkSeed/SessionPersistence/SessionController 接管的跨 Workspace 历史复制。合成回归与原生存储校验/Session 继承边界通过，完整8项类型检查、173 Node、21 Bun通过。实际安装仍478包，543包待原生更新；新版不可借旧安装回执标通过。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,

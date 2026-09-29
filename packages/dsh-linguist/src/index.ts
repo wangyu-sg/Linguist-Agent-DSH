@@ -258,7 +258,7 @@ export function apply(ctx: Context, config: Config): void {
       : DIAGNOSTICS_OPERATIONS.includes(operation as typeof DIAGNOSTICS_OPERATIONS[number])
         ? diagnostics.dispatch(operation, payload)
         : dispatchOperation({ operation, payload, service, bindings, workspaceRegistry: ctx.workspaceRegistry, files, mutations, assertProjectSession, resolveSessionWorkspace, turnContextReceipts, scheduleContext, delegationControl, detachSessionBinding,
-            sessionCopyHost: { bindings, service, sessionController: ctx.sessionController, workspaceRegistry: ctx.workspaceRegistry,
+            sessionCopyHost: { bindings, service, sessionController: ctx.sessionController, sessionPersistence: ctx.sessionPersistence, workspaceRegistry: ctx.workspaceRegistry,
               sessionExists: async id => Boolean(await ctx.sessionPersistence.stat(id as SessionId)),
               agentStatus: id => ctx.agents.get(id as SessionId)?.status,
               rebindAgent: id => { const agent = ctx.agents.get(id as SessionId); if (agent) bindAgent(agent) },

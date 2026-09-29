@@ -588,15 +588,27 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     let events = []
     let forks = 0
     let creates = 0
+    let storedCopy
+    const persistenceSteps = []
     const host = {
       bindings, service,
       workspaceRegistry: { get: id => id === 'workspace-1' ? { id, path: realpathSync(workspace) } : id === 'workspace-2' ? { id, path: realpathSync(secondWorkspace) } : undefined },
       sessionExists: async () => true,
       agentStatus: () => 'idle',
       rebindAgent: () => {},
+      sessionPersistence: {
+        create: async (header, options) => {
+          storedCopy = { header, options }
+          return {
+            append: async seed => { storedCopy.seed = seed; persistenceSteps.push('append') },
+            flush: async () => { persistenceSteps.push('flush') },
+            close: async () => { persistenceSteps.push('close') },
+          }
+        },
+      },
       sessionController: {
         inspect: async () => ({ meta: { cwd: realpathSync(workspace) }, events }),
-        create: async () => { creates++; return { sessionId: `blank-${creates}` } },
+        create: async input => { creates++; if (input.sessionId) persistenceSteps.push('adopt'); return { sessionId: input.sessionId ?? `blank-${creates}` } },
         fork: async () => { forks++; return { sessionId: `fork-${forks}` } },
         rename: async () => {},
       },
@@ -605,19 +617,39 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     const blank = await copyLinguistSessionToProject(host, 'source-session', target.id)
     assert.equal(blank.mode, 'blank')
     assert.equal(bindings.session(blank.sessionId).projectId, target.id)
+    const { createUserMessage, createAssistantMessage } = requireDsh('@deepseek-ai/dsh-llm')
     events = [
-      { type: 'user/message', seq: 0 }, { type: 'assistant/message', seq: 1 },
-      { type: 'turn/end', seq: 2, data: { reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 0 } },
+      { type: 'user/message', seq: 1, time: 2, surfaceOp: 'append', data: createUserMessage({ content: [{ type: 'text', text: 'Synthetic source' }], source: { kind: 'user' } }) },
+      { type: 'assistant/message', seq: 2, time: 3, surfaceOp: 'append', data: { turn: 0, step: 0, stream: [], message: createAssistantMessage({ content: [{ type: 'text', text: 'Synthetic response' }], source: { kind: 'model', provider: 'synthetic', model: 'synthetic' } }) } },
+      { type: 'turn/end', seq: 3, time: 4, data: { turn: 0, reason: { kind: 'completed' } } },
     ]
     assert.deepEqual(await sessionCopyEligibility(host, 'source-session'), { eligible: true, mode: 'fork' })
-    assert.equal((await sessionCopyEligibility(host, 'source-session', crossWorkspaceTarget.id)).reason, 'CROSS_WORKSPACE_FORK_UNSUPPORTED')
-    await assert.rejects(() => copyLinguistSessionToProject(host, 'source-session', crossWorkspaceTarget.id), /CROSS_WORKSPACE_FORK_UNSUPPORTED/)
+    assert.deepEqual(await sessionCopyEligibility(host, 'source-session', crossWorkspaceTarget.id), { eligible: true, mode: 'fork' })
+    const cross = await copyLinguistSessionToProject(host, 'source-session', crossWorkspaceTarget.id)
+    assert.equal(cross.workspaceId, 'workspace-2')
+    assert.equal(storedCopy.header.cwd, realpathSync(secondWorkspace))
+    assert.equal(storedCopy.header.parentSession, 'source-session')
+    assert.equal(storedCopy.header.isSeeded, true)
+    assert.equal(storedCopy.options.inheritedEventCount, events.length)
+    assert.deepEqual(storedCopy.seed.slice(0, events.length), events)
+    assert.equal(storedCopy.seed[events.length].type, 'session/end-seed')
+    const { validateStoredEvents } = requireDsh('@deepseek-ai/dsh-session-persistence')
+    assert.equal(validateStoredEvents(storedCopy.header, structuredClone(storedCopy.seed)).length, events.length + 1)
+    const { Session } = requireDsh('@deepseek-ai/dsh-session')
+    const restored = Session.create(storedCopy.header.id, storedCopy.seed, storedCopy.header, storedCopy.options.inheritedEventCount)
+    assert.equal(restored.header.cwd, realpathSync(secondWorkspace))
+    assert.equal(restored.isOwnSeq(2), false)
+    assert.equal(restored.isOwnSeq(events.length), true)
+    assert.deepEqual(persistenceSteps, ['append', 'flush', 'close', 'adopt'])
+    assert.equal(bindings.session(cross.sessionId).projectId, crossWorkspaceTarget.id)
+    assert.equal(bindings.session(cross.sessionId).role, 'reviewer')
     const fork = await copyLinguistSessionToProject(host, 'source-session', target.id)
     assert.equal(fork.mode, 'fork')
     assert.equal(forks, 1)
-    events = [...events, { type: 'user/message', seq: 3 }]
+    events = [...events, { type: 'user/message', seq: 4 }]
     assert.equal((await sessionCopyEligibility(host, 'source-session')).reason, 'NO_COMPLETED_ASSISTANT')
-    assert.equal(creates, 1)
+    assert.equal(creates, 2)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 

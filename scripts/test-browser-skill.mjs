@@ -63,7 +63,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
   const baseline = readJson(join(root, 'integrations/browser-skill/BASELINE.json'))
   const pack = readJson(join(root, 'artifacts/pack.json'))
   const extensionArchive = join(root, '.toolchain/browser-skill/downloads', baseline.extensionRelease.archive)
-  const extensionManifest = readJson(join(root, '.toolchain/browser-skill/extension-v0.3.1/manifest.json'))
+  const extensionManifest = readJson(join(productRoot, 'runtime/browser-skill/extension-v0.3.1/manifest.json'))
   const checks = {}
   const evidence = {
     schemaVersion: 1, generatedBy: 'scripts/test-browser-skill.mjs', startedAt: new Date().toISOString(),
@@ -141,7 +141,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     step('product daemon status', 'PASS', `v${daemon.daemon_version} protocol ${daemon.protocol_version} port ${daemon.ws_port}`)
     if (daemon.browsers.length === 0) {
       evidence.status = 'BLOCKED_ENV'
-      evidence.blocker = `BrowserSkill extension 0.3.1 is not connected to the new product daemon on port ${daemon.ws_port}; load the unpacked extension from ${join(root, '.toolchain/browser-skill/extension-v0.3.1')} and connect it to this daemon with browser authorization`
+      evidence.blocker = `BrowserSkill extension 0.3.1 is not connected to the new product daemon on port ${daemon.ws_port}; load the unpacked extension from ${join(productRoot, 'runtime/browser-skill/extension-v0.3.1')} and connect it to this daemon with browser authorization`
       checks.extension = 'BLOCKED_ENV'
       step('extension-connected browser', 'BLOCKED_ENV', 'daemon reports zero connected browsers')
       return evidence

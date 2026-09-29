@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createElement, useEffect, useState } from 'react'
+import { IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LinguistAssetInfo, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
 import { bindSession, getBinding, required, type LinguistBinding } from './api'
 import { CatWorkbench } from './CatWorkbench'
@@ -248,7 +249,7 @@ export function apply(ctx: Context): void {
     await openBoundSession(binding)
   }
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession }))))
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement('span', { className: styles.icon, style: { width: size, height: size }, 'aria-hidden': true }, '文')))
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, onOpenFiles: openFiles }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: BATCH_PROVIDER_ID, kind: BATCH_KIND, patterns: [`${BATCH_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => t('批次语义预览') }), 'linguist: batch preview')
