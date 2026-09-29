@@ -761,6 +761,24 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     const blank = await copyLinguistSessionToProject(host, 'source-session', target.id)
     assert.equal(blank.mode, 'blank')
     assert.equal(bindings.session(blank.sessionId).projectId, target.id)
+    events = [
+      { type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write' } },
+      { type: 'sandbox/mode', seq: 1, time: 2, data: { mode: 'workspace-write' } },
+      { type: 'approval/policy', seq: 2, time: 3, data: { policy: 'ask' } },
+      { type: 'model/selection', seq: 3, time: 4, data: { provider: 'synthetic', model: 'chosen-model', reasoningEffort: 'max' } },
+    ]
+    host.sessionController.inspect = async () => ({ meta: { cwd: realpathSync(workspace), agentPreset: 'chosen-preset' }, events })
+    const configuredBlank = await copyLinguistSessionToProject(host, 'source-session', target.id)
+    assert.equal(configuredBlank.mode, 'blank')
+    assert.equal(storedCopy?.header.agentPreset, 'chosen-preset')
+    assert.deepEqual(storedCopy?.seed.slice(0, events.length), events, 'blank copies retain native model and permission selections')
+    const blankSeed = requireDsh('@deepseek-ai/dsh-session-persistence').validateStoredEvents(storedCopy.header, structuredClone(storedCopy.seed))
+    const blankRestored = requireDsh('@deepseek-ai/dsh-session').Session.create(storedCopy.header.id, blankSeed, storedCopy.header, storedCopy.options.inheritedEventCount)
+    assert.equal(blankRestored.seq, events.length + 1)
+    assert.equal(blankRestored.isOwnSeq(events.length - 1), false)
+    assert.deepEqual(blankRestored.deriveMessages(), [], 'settings copy does not create conversation content')
+    assert.deepEqual(persistenceSteps, ['append', 'flush', 'close', 'adopt'])
+    persistenceSteps.length = 0
     const { createUserMessage, createAssistantMessage } = requireDsh('@deepseek-ai/dsh-llm')
     events = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 0 } },
@@ -793,7 +811,7 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     assert.equal(forks, 1)
     events = [...events, { type: 'user/message', seq: 4 }]
     assert.equal((await sessionCopyEligibility(host, 'source-session')).reason, 'NO_COMPLETED_ASSISTANT')
-    assert.equal(creates, 2)
+    assert.equal(creates, 3)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
