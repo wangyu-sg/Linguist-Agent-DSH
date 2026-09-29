@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { atom, Provider, type PrimitiveAtom } from 'jotai'
+import { atom, Provider, useAtom, type PrimitiveAtom } from 'jotai'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -32,6 +32,7 @@ import { useCatNavigation, type CatDock } from './cat-navigation'
 import { nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
 import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
+import { getCatEditorState, type CatEditorState } from './cat-editor-state'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { useT } from './ui-locale'
 import styles from './Workbench.module.css'
@@ -50,10 +51,11 @@ interface Dataset { signature: string; total: number; ids: string[]; rows: Reado
 interface RowSignal { proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingInfo['severity'] }
 
 export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode }): React.ReactElement {
-  return <Provider><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} capabilities={capabilities} /></Provider>
+  const editorState = getCatEditorState(sessionId, projectId)
+  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} capabilities={capabilities} editorState={editorState} /></Provider>
 }
 
-function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode }): React.ReactElement {
+function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
   const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
@@ -98,7 +100,6 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [reviewingIds, setReviewingIds] = React.useState<ReadonlySet<string>>(new Set())
   const [bulkBusy, setBulkBusy] = React.useState(false)
   const [editor, setEditor] = React.useState<{segmentId:string;handle:TargetEditorHandle}>()
-  const drafts = React.useRef(new Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>())
   const handleEditorChange = React.useCallback((segmentId: string, handle: TargetEditorHandle | undefined) => {
     setEditor((current) => handle ? { segmentId, handle } : current?.segmentId === segmentId ? undefined : current)
   }, [])
@@ -505,7 +506,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
             <p>{t('尚无批次。请在“资料”中导入文件。')}</p>
             {!project.archivedAt && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
           </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
-            : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} focusIndex={focusIndex} drafts={drafts.current} onVisibleRange={(start, end) => {
+            : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
               for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset)
             }} onOpenQa={openQaForRow} onOpenProposal={openProposalForRow} onReviewProposal={reviewProposalForRow} onSelect={(id) => setSelectedId(id)} onToggleSelected={(id) => setSelectedIds((current) => {
@@ -541,6 +542,7 @@ interface RowsProps {
   data: Dataset; workflowStage: NonNullable<LinguistProjectInfo['workflowStage']>; archived: boolean; tagProfile: LinguistProjectInfo['tagProfile'];
   selectedId?: string; selectedIds: ReadonlySet<string>; signals: ReadonlyMap<string, RowSignal>; reviewingIds: ReadonlySet<string>; focusIndex?: number;
   drafts: Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>;
+  editingIdAtom: PrimitiveAtom<string | undefined>;
   onVisibleRange: (start: number, end: number) => void; onSelect: (id: string) => void;
   onToggleSelected: (id: string) => void; onFocusSettled: () => void;
   onReferenceAgent: (segment: LinguistSegmentInfo) => void;
@@ -557,7 +559,7 @@ interface RowsProps {
 function SegmentRows(props: RowsProps): React.ReactElement {
   const t = useT()
   const scroller = React.useRef<HTMLDivElement>(null)
-  const [editingId, setEditingId] = React.useState<string>()
+  const [editingId, setEditingId] = useAtom(props.editingIdAtom)
   const handleCallbacks = React.useRef(new Map<string, (handle: TargetEditorHandle | undefined) => void>())
   const virtualizer = useVirtualizer({ count: props.data.total, getScrollElement: () => scroller.current, estimateSize: () => 94, overscan: 8, getItemKey: (index) => virtualRowKey(props.data.ids, index) })
   const items = virtualizer.getVirtualItems()
@@ -597,7 +599,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
             <div className={styles.rowMeta} role="gridcell"><input type="checkbox" aria-label={t('选择句段 {number}', { number: item.index + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} /><span>#{item.index + 1}</span>{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span>{signal?.qaCount && signal.highestSeverity ? <button type="button" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</button> : null}{signal?.proposal && <button type="button" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</button>}</div>
             <div className={styles.source} role="gridcell" lang={segment.sourceLocale} dir="auto">{splitProtectedText(segment.source, props.tagProfile).map((part, index) => <span key={index} className={part.kind === 'text' ? undefined : styles.inlineTag}>{part.value}</span>)}</div>
             <div className={styles.target} role="gridcell" lang={segment.targetLocale} dir="auto">
-              {editingId === id ? <TargetEditor draftAtom={draft!} index={item.index} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { props.drafts.delete(id); setEditingId(undefined); if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
+              {editingId === id ? <TargetEditor draftAtom={draft!} index={item.index} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
                 : <button type="button" className={styles.targetButton} disabled={segment.locked || props.archived} onClick={() => {
                   props.onSelect(id)
                   setEditingId(id)

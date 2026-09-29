@@ -35,6 +35,9 @@ import { ScheduleContextManager, scheduleExecutions, scheduleRunPolicy } from '.
 import { ScheduleId, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
 
 import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-session/lib/index.js'
+import { Context } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/cordis/lib/index.js'
+import { apply as applyHost, inject as hostInject } from '../../packages/dsh-linguist/src/index.ts'
+import { ScheduleSessionRuntime } from '../../packages/dsh-linguist/src/host/schedule-session.ts'
 
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
 const requireDsh = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
@@ -54,6 +57,37 @@ function scheduleOwnerRuntime(bindings) {
     },
   }
 }
+
+test('Host schedule callbacks use Sessions through the real Cordis injection boundary', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-host-inject-'))
+  const ctx = new Context()
+  const session = Session.create(SessionId('session-inject-fixture'))
+  let pluginContext, reads = 0, flushes = 0
+  const services = {
+    agents: { list: () => [] },
+    webServer: { register: () => () => {} },
+    sessions: {
+      get(id) { assert.equal(id, session.id); reads++; return session },
+      async flush(value) { assert.equal(value, session); flushes++; return true },
+    },
+  }
+  const providers = ctx.plugin({ apply(provider) {
+    for (const key of new Set([...hostInject, 'sessions'])) provider.provide(key, services[key] ?? {})
+  } })
+  await providers.await()
+  const plugin = ctx.plugin({ inject: hostInject, apply(scoped) {
+    pluginContext = scoped
+    applyHost(scoped, { dataRoot: root, installationId: 'synthetic-injection', notificationDestinations: { get: () => [] } })
+  } })
+  try {
+    await plugin.await()
+    // The installed Host callback shares the event reader used by Schedule list/admission.
+    await ctx.serial('session/event', session, { type: 'turn/end', data: { turn: 1 } })
+    assert.equal(reads, 1)
+    await new ScheduleSessionRuntime(pluginContext, new BindingStore(root), () => {}).flush({ session })
+    assert.equal(flushes, 1)
+  } finally { await plugin.dispose(); await providers.dispose(); rmSync(root, { recursive: true, force: true }) }
+})
 
 test('native CAT tool adapter preserves required fields, unions, limits, cancellation and errors', async () => {
   const calls = []

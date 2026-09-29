@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-29T10:33:12.496011+00:00",
+  "updatedAt": "2026-09-29T10:45:37Z",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -14,7 +14,7 @@
     "initialState": "empty",
     "gitInitialized": true
   },
-  "currentWorkPackage": "W00-W12: source integrations advanced; ordinary Composer automatic context hook and final installed acceptance remain",
+  "currentWorkPackage": "W00-W12: source d645fea packaged, natively installed and registered as 43f143cb3529; installed runtime verification and ordinary Composer automatic context gap remain",
   "workPackages": [
     {
       "id": "W00",
@@ -88,7 +88,7 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "df66a1292d06 installed files verified 21/21; both plugins enabled. current.json and receipt still need reconciliation. Subsequent source integrations remain uncommitted, unpackaged and uninstalled.",
+      "status": "43f143cb3529 installed and enabled through the official native manager after action-time approval; install-local registration complete; smoke-installed 9/9 PASS. Full installed runtime acceptance remains pending.",
       "external": false
     },
     {
@@ -98,25 +98,26 @@
     },
     {
       "id": "provider-route",
-      "status": "Historical e4 real provider evidence exists; final installed-artifact complete validation pending.",
+      "status": "Current 43f143 real DeepSeek-V41-Flash / deepseek-flash Max reply observed from ordinary Composer with explicit CAT reference. Host admission and complete model-content/role acceptance remain under verification.",
       "external": false
     },
     {
       "id": "system-install-and-notification-permissions",
-      "status": "CUA and Finder double-click recovered. No current missing permission established; df66 installed files are verified, so its previous action-confirmation pending item is obsolete.",
+      "status": "CUA and Finder recovered; 43f143 native installation completed after explicit action-time approval. No pending installation confirmation; real notification configuration/delivery remains unverified.",
       "external": false
     }
   ],
   "observations": [
-    "2026-09-29T10:25:20Z只读核对默认desktop的21/21个Linguist包文件与df66a1292d06完全匹配；安装对话框已关闭，两插件on。操作者和准确安装时间未观察，不能虚构动作回执；current.json仍需登记核对。ba仅为此前已核对历史安装。",
-    "正常退出后窄范围pgrep无官方DSH进程，Finder双击后出现74750/74757，原生窗口恢复CAT会话、三句段和工作台；两插件开关on。观测未等同全部桌面验收。",
-    "关闭台前调度后-3811不再阻断本轮CUA；未知具体安装ba操作者及时间，不虚构安装动作回执。",
-    "1b86fb0恢复旧LA的30语言下拉、新建QA场景、创建后进入、原生目录选择、备份详细预览与按钮不换行；189Node/21Bun/8类型检查和构建打包通过。df66已安装且含前两项自动任务提交；上述计数仅对应这一历史源码检查。",
-    "本轮未提交源码接入原生Skills真值与SKILL.md、DSH默认指令文件路径和Plugins/Files入口；无Session不创建会话；项目列表显示Workspace身份。默认指令候选不等于会话实际全部载入，未伪造MCP启用数或Memory状态。",
-    "本轮未提交源码为自动任务创建独立原生owner，冻结项目/模型/权限并覆盖来源删除后执行；旧source-owned任务须取消重建，保留历史/取消入口；手动运行按任务owner校验回执。相关合成回归通过，尚未在安装态验证。",
-    "普通Composer显式CAT原生引用已实现同步与slash裁决前冻结，Host按真实user message/rpcId准入并校验QA委派范围；默认每次发送自动附带仍未满足。固定0.2.0-rc.1缺少满足同步捕获、实际requestId和await准入的公开发送扩展，详见native-composer-public-api-audit.json。",
-    "本轮源码全量205Node/21Bun/8类型检查通过，构建通过；源隔离与目标copied-domain均151通过。多dock补充回归及重复订阅清理后最终构建通过。以上新增源码尚未进入当前df66安装。",
-    "df66安装态已实际弹开源语言30选项及自定义，切换日语后还原英语；已有批次项目的双语言下拉禁用并解释原因；截图观察到单输入框边框及备份/刷新/预览恢复outline按钮。证据df66-ui-scope-check.json，截图仅工具内观察未导出，不等同完整UI验收。"
+    "2026-09-29T10:38:35.964080Z原生安装回执：用户动作时确认后，官方DSH管理器Install→立即启用43f143cb3529成功；BrowserSkill保留并启用。时间表示观察安装及启用后立即记录回执的时间。",
+    "2026-09-29T10:38:55.652Z install-local登记后的smoke-installed 9/9 PASS；current.json为la-43f143cb3529-b4f81677，Linguist 21/21与BrowserSkill 14/14实际文件匹配各自tarball。登记落后e4已不是当前问题。",
+    "2026-09-29T10:41:24.996Z核对真实DSH持久会话事件：普通Composer发送显式CAT引用，DeepSeek-V41-Flash（deepseek-account/deepseek-flash）Max回复LA-DSH-SMOKE-43f143cb3529并completed。记录含nativePromptRpcId和DSH request/header、assistant消息身份；这些不是Provider HTTP ID，固定文本回复不证明CAT内容准入或专业完成。",
+    "源码d645fea已打包安装；原生Skills/默认指令候选/Plugins/Files、Workspace身份、独立任务owner及冻结授权、legacy需重建和owner回执校验、显式CAT引用、空项目导入入口均在当前包中。Host准入和完整工作台仍由主代理核对。",
+    "源码205Node/21Bun/8类型检查及build/pack通过；源隔离与目标copied-domain各151通过。源码与安装smoke均不代替完整产品验收。",
+    "普通Composer每次发送默认自动附带仍未满足；固定0.2.0-rc.1缺同步捕获、实际requestId和await准入的公开发送扩展。显式引用已存在，不能冒称自动默认发送等价。",
+    "历史（2026-09-29T10:25:20Z）：df66 21/21实际文件匹配，操作者和准确安装时间未观察；它已被当前43安装取代。df66局部UI观察包括30语言/自定义、切日语还原、语言冻结提示、单边框及outline按钮，不能移作43完整UI证据。",
+    "历史（43安装前）：台前调度关闭后-3811解除，曾实际观察Finder双击冷启动、正常停止重开及CAT会话恢复。最终43安装版的完整生命周期仍待归并验收。",
+    "43f143冷启动实际完成：正常退出后官方进程消失，Finder双击新建97058/97065并恢复会话与CAT。新instructions路由恢复；实际RPC 8e305148-6f47-4002-b4c5-0a6a0a91014c保存XML并与immutable receipt一致，模型准确回复项目ID。此前热更新模型观测不可视为新Host证据。",
+    "43f143原生创建after60/maxRuns1合成任务后，列表和到期会话暴露sessions依赖未声明。已补Host inject，真实Cordis回归先红后绿，局部31/31与Host类型检查通过；尚待下一固定包实际安装复测。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,
@@ -141,7 +142,7 @@
   "scheduleSessionWorkInProgress": {
     "status": "IMPLEMENTED_AWAITING_NATIVE_ACCEPTANCE",
     "commit": "5eca1e9",
-    "note": "5eca1e9 task Sessions are included in installed df66 (21/21 files verified). Subsequent uncommitted source adds independent task owners, frozen project/model/permissions after source deletion, recreate-required legacy handling and owner-bound runNow receipts. Synthetic source checks pass; native due execution, cold reopen, cancellation and professional completion remain pending.",
+    "note": "Current installed 43f143 (source d645fea) includes native task Sessions, independent owners, frozen project/model/permissions after source deletion, recreate-required legacy handling and owner-bound runNow receipts. Synthetic checks pass; installed due execution, cold reopen, cancellation and professional completion remain pending.",
     "evidencePaths": [
       "artifacts/evidence/schedule-session-deletion.log",
       "artifacts/evidence/schedule-session-lifecycle-required.log",
@@ -156,7 +157,7 @@
     "status": "IMPLEMENTED_AWAITING_NATIVE_ACCEPTANCE",
     "commit": "a7d4c75",
     "sourceInventoryCount": 335,
-    "note": "a7d4c75 opt-in notification implementation is included in installed df66 (21/21 files verified). Synthetic secret redaction, destinations and delivery behavior are checked. Native configuration/execution and real notification delivery remain unverified; no external notification was sent.",
+    "note": "Opt-in notification implementation is in current installed 43f143. Synthetic secret redaction, destinations and delivery behavior are checked. Native configuration/execution and real notification delivery remain unverified; no external notification was sent.",
     "evidencePaths": [
       "artifacts/evidence/schedule-notification-required.log",
       "artifacts/evidence/schedule-notification-targeted.log",
@@ -166,26 +167,30 @@
   },
   "historyArchive": "docs/migration/history/2026-09-29-before-status-reconciliation.json",
   "currentSnapshot": {
-    "actualInstalledPluginHash": "df66a1292d06efbeb669abd55b5391647e5f5d9df0c5a2a3e4f741f1456bb828",
-    "installedCodeCommit": "1b86fb0",
-    "sourceHead": "1b86fb0",
-    "recordedInstallationId": "la-e4c2c189ff96-b4f81677",
-    "registrationNeedsReconciliation": true,
-    "installedFileEvidence": "artifacts/evidence/installed-df66-reconciliation.json",
+    "actualInstalledPluginHash": "43f143cb35296754854879093fadcdec963e2b30ddad8a439586fd0b64c395ee",
+    "installedCodeCommit": "d645fea68ddb1597d8960369e6c675c19a914ff3",
+    "sourceHead": "d645fea68ddb1597d8960369e6c675c19a914ff3",
+    "recordedInstallationId": "la-43f143cb3529-b4f81677",
+    "registrationNeedsReconciliation": false,
+    "installedFileEvidence": "artifacts/evidence/installed-smoke.json",
     "unpackedCommits": [],
     "summaryPath": "docs/migration/NEXT.md",
-    "stagedInstallationId": "la-df66a1292d06-b4f81677",
-    "stagedCodeCommit": "1b86fb0",
+    "stagedInstallationId": "la-43f143cb3529-b4f81677",
+    "stagedCodeCommit": "d645fea68ddb1597d8960369e6c675c19a914ff3",
     "stagedIncludes": [
       "language dropdown/create QA/auto-open",
       "native directory chooser",
       "backup restore details",
       "scheduled native task Sessions",
-      "opt-in notifications"
+      "opt-in notifications",
+      "Project capabilities: native Skills truth, SKILL.md, default instruction candidates, Plugins/Files navigation; project-list Workspace identity",
+      "Independent native schedule owner; frozen authorization after source removal; recreate-required legacy tasks; runNow owner receipt validation",
+      "Explicit native Composer CAT references with synchronous/slash capture, actual RPC Host admission and QA delegated-scope checks",
+      "Empty-project import action opens the existing Assets panel; project workflow labels use the selected UI language"
     ],
-    "nativeUpdate": "df66 is installed: read-only 2026-09-29T10:25:20Z comparison matched 21/21 package files, install dialog closed and both plugin switches on. Previous action-confirmation item is obsolete; no reinstall required. Actor and exact installation time were not observed; registration reconciliation remains pending.",
+    "nativeUpdate": "Completed after user action-time approval: official native Install then Enable now; install-local registration complete. No pending installation confirmation.",
     "latestSynthetic": {
-      "scope": "Current uncommitted source after 1b86fb0; not packaged or installed acceptance",
+      "scope": "Source commit d645fea, packaged and installed as 43f143cb3529; these source checks do not establish complete installed acceptance",
       "node": 205,
       "bun": 21,
       "typechecks": 8,
@@ -198,25 +203,59 @@
       }
     },
     "stagedSynthetic": {
-      "node": 189,
+      "scope": "Historical pre-install source checks for 43f143cb3529; installation is now recorded separately",
+      "node": 205,
       "bun": 21,
       "typechecks": 8,
       "build": "passed",
-      "evidencePath": "artifacts/evidence/project-ui-parity-required.log",
-      "scope": "Historical source checks for df66 / commit 1b86fb0, now installed; not current uncommitted source or complete installed acceptance."
+      "evidencePath": "artifacts/evidence/integration-parity-required.log",
+      "buildEvidencePath": "artifacts/evidence/integration-parity-build.log",
+      "copiedDomain": {
+        "sourceIsolated": 151,
+        "target": 151
+      }
     },
-    "unpackedChanges": [
-      "Project capabilities: native Skills truth, SKILL.md, default instruction candidates, Plugins/Files navigation; project-list Workspace identity",
-      "Independent native schedule owner; frozen authorization after source removal; recreate-required legacy tasks; runNow owner receipt validation",
-      "Explicit native Composer CAT references with synchronous/slash capture, actual RPC Host admission and QA delegated-scope checks",
-      "Empty-project import action opens the existing Assets panel; project workflow labels use the selected UI language"
-    ],
     "remainingPublicApiGap": {
       "feature": "Automatic CAT snapshot on each ordinary Composer send",
       "status": "NOT_IMPLEMENTED",
       "reason": "Fixed official 0.2.0-rc.1 has no public hook combining synchronous capture, actual requestId and awaited Host admission. Explicit native CAT references are implemented; automatic draft insertion was removed because it changes leading-slash semantics and risks IME/focus.",
       "evidencePath": "artifacts/evidence/native-composer-public-api-audit.json"
     },
-    "installedUiEvidence": "artifacts/evidence/df66-ui-scope-check.json"
-  }
+    "nativeInstallEvidence": "artifacts/evidence/native-install-43f143cb3529.json",
+    "historicalInstalledUiEvidence": "artifacts/evidence/df66-ui-scope-check.json",
+    "installedSmoke": {
+      "status": "PASS",
+      "passedChecks": 9,
+      "evaluatedAt": "2026-09-29T10:38:55.652Z",
+      "evidencePath": "artifacts/evidence/installed-smoke.json"
+    },
+    "providerSmoke": {
+      "status": "CURRENT_HOST_EXPLICIT_CONTEXT_PASS",
+      "model": "deepseek-account/deepseek-flash",
+      "effort": "max",
+      "evidencePath": "artifacts/evidence/provider-43f143-coldstart-observation.json",
+      "limit": "Real RPC and matching immutable Host XML receipt after full restart. Empty selectedSegmentIds; does not establish professional review."
+    },
+    "coldStartEvidence": "artifacts/evidence/desktop-43f143-coldstart.json",
+    "providerColdStartEvidence": "artifacts/evidence/provider-43f143-coldstart-observation.json",
+    "nativeRuntimeFinding": {
+      "status": "FIXED_IN_SOURCE_AWAITING_PACKAGE",
+      "error": "cannot get property \"sessions\" without inject",
+      "scope": "Schedule list and due task execution",
+      "fix": "Host inject declares sessions; real Cordis regression reproduced the error before the fix",
+      "installedFailureScheduleId": "schedule-91cc23d1-ca64-4cd2-ac42-814b784306ad"
+    },
+    "pendingSourceFixes": [
+      "Declare sessions in native Host inject for schedule listing and execution",
+      "Retain CAT draft, Undo/Redo and active editing row across workbench remount within each Session/project; clear on Client disposal"
+    ],
+    "pendingSourceValidation": {
+      "node": 211,
+      "bun": 21,
+      "typechecks": 8,
+      "status": "passed",
+      "evidencePath": "artifacts/evidence/runtime-drafts-required.json"
+    }
+  },
+  "hostCapabilityBoundary": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。"
 }

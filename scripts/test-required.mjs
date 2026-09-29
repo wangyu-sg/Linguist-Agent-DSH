@@ -95,6 +95,7 @@ const checks = [
       'tests/copied-renderer/native-controls.nodetest.mjs',
       'tests/required/locale-select.nodetest.mjs',
       'tests/required/backup-preview.nodetest.mjs',
+      'tests/required/cat-editor-remount.nodetest.mjs',
       'tests/required/project-capabilities.nodetest.mjs',
       'tests/required/session-capabilities.nodetest.mjs',
       'tests/required/schedule-session-independence.nodetest.mjs',

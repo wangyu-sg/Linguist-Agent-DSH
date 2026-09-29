@@ -23,7 +23,9 @@
       "targetPaths": [],
       "evidencePaths": [
         "artifacts/evidence/required-synthetic.json",
-        "artifacts/evidence/df66-ui-scope-check.json"
+        "artifacts/evidence/df66-ui-scope-check.json",
+        "artifacts/evidence/native-install-43f143cb3529.json",
+        "artifacts/evidence/installed-smoke.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/project-service.ts",
@@ -51,7 +53,7 @@
         "tests/required/locale-select.nodetest.mjs",
         "tests/required/project-capabilities.nodetest.mjs"
       ],
-      "remainingVerification": "项目备份/旧数据导入的合成检查已存在；语言下拉、新建QA场景、创建后进入、目录选择与备份详情已进入当前df66安装。项目列表Workspace身份及能力区是其后的未提交源码。当前安装已核对为df66；最终安装版的完整项目生命周期和交互验收待完成。 df66已实际检查30语言选项/自定义、日语切换还原及已有批次语言冻结提示；该局部检查不等于完整UI验收。"
+      "remainingVerification": "项目生命周期、语言/QA/创建后进入、目录/备份、Workspace身份、能力区及空项目导入入口已随d645fea安装为43f143，安装smoke9/9通过。2026-09-29的df66历史局部UI证据仍保留；43完整项目生命周期和工作台交互验收正在核对，未宣称通过。"
     },
     {
       "id": "FEATURE-02",
@@ -487,7 +489,9 @@
       "sourcePaths": [],
       "targetPaths": [],
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/native-install-43f143cb3529.json",
+        "artifacts/evidence/installed-smoke.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/delegation-host-extension.ts",
@@ -505,7 +509,7 @@
         "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts",
         "tests/required/turn-reference.nodetest.mjs"
       ],
-      "remainingVerification": "Native continuable delegation and same-/cross-Workspace history copy are wired and synthetically checked. Current unpackaged source also validates explicit native CAT references against actual user RPC identity and rejects selected segments or QA findings outside delegated scope. Installed copy, child model/provider/effort identity, continuation/cancellation and cold lifecycle remain unverified."
+      "remainingVerification": "Native continuable delegation and same-/cross-Workspace copy are implemented and packaged in installed 43f143 / source d645fea. Synthetic checks cover actual user RPC reference identity and delegated segment/QA scope. The current real fixed-text model smoke is not delegation evidence; installed copy, child model/provider/effort identity, continuation/cancellation and cold lifecycle remain unverified."
     },
     {
       "id": "FEATURE-18",
@@ -518,7 +522,9 @@
       "evidencePaths": [
         "artifacts/evidence/required-synthetic.json",
         "artifacts/evidence/schedule-manager-green.log",
-        "artifacts/evidence/integration-parity-required.log"
+        "artifacts/evidence/integration-parity-required.log",
+        "artifacts/evidence/native-install-43f143cb3529.json",
+        "artifacts/evidence/installed-smoke.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/automation-context.ts",
@@ -544,7 +550,7 @@
         "tests/required/schedule-session-independence.nodetest.mjs",
         "tests/required/schedule-manager.nodetest.mjs"
       ],
-      "remainingVerification": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent."
+      "remainingVerification": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent."
     },
     {
       "id": "FEATURE-19",
@@ -558,7 +564,10 @@
         "artifacts/evidence/required-synthetic.json",
         "artifacts/evidence/project-capabilities-integration.log",
         "artifacts/evidence/session-capabilities-green.log",
-        "artifacts/evidence/native-composer-public-api-audit.json"
+        "artifacts/evidence/native-composer-public-api-audit.json",
+        "artifacts/evidence/native-install-43f143cb3529.json",
+        "artifacts/evidence/installed-smoke.json",
+        "artifacts/evidence/provider-43f143-observation.json"
       ],
       "sourceFiles": [
         "apps/electron/src/main/lib/linguist/agent-host-extension.ts",
@@ -589,7 +598,8 @@
         "tests/copied-renderer/native-composer-reference.nodetest.mjs",
         "tests/required/turn-reference.nodetest.mjs"
       ],
-      "remainingVerification": "当前未打包源码以公开skills.list显示可调用Skills并打开SKILL.md，以discoverBaselineInstructionFiles列DSH默认指令候选路径，提供原生Plugins/Files入口；无Session不隐式创建。默认候选不等于实际载入，未宣称MCP精确启用数或Memory管理已迁完。普通Composer显式原生CAT引用已有同步/slash冻结和实际RPC Host校验；默认每次发送自动附带仍缺固定官方版本的公开捕获与await准入扩展。全部宿主能力仍需同一最终安装版验收。"
+      "remainingVerification": "43f143已安装原生Skills真值、SKILL.md、DSH默认指令候选与Plugins/Files入口，无Session不创建会话；默认候选不冒充实际载入。普通Composer显式CAT引用已有真实DeepSeek-V41-Flash Max固定文本回复，Host准入、模型可见完整CAT内容与宿主能力仍待安装态核验。默认每次发送自动附带仍缺固定版本公开发送扩展。Proma专有Memory窗口按§16归宿主接管，不增加LA编辑器待办；只读Files不能证明手工编辑等价。",
+      "hostBoundary": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。"
     },
     {
       "id": "FEATURE-20",
@@ -600,7 +610,9 @@
       "sourcePaths": [],
       "targetPaths": [],
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/native-install-43f143cb3529.json",
+        "artifacts/evidence/installed-smoke.json"
       ],
       "sourceFiles": [
         "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
@@ -622,7 +634,7 @@
       ],
       "targetEntry": "packages/dsh-linguist/src/client/index.ts",
       "tests": [],
-      "remainingVerification": "当前源码补充项目列表Workspace身份、项目能力摘要和原生Plugins/Files入口；不是DSH原生Workspace行内徽章注入，后者仍无已核实公开Slot。本轮未打包未安装；最终安装版主题、窄窗、键盘/IME、浮动/全屏、工具跳转及完整首次使用流程仍待验收。"
+      "remainingVerification": "项目列表Workspace身份、能力区及原生入口已在43f143安装；DSH原生Workspace行内徽章仍无已核实公开Slot，不将项目列表标识冒充该Slot。安装smoke9/9通过不代表完整UI：43工作台、主题、窄窗、键盘/IME、浮动/全屏、工具跳转和首次使用仍待核对。"
     }
   ],
   "tools": [
@@ -1616,9 +1628,10 @@
       "required": true,
       "status": "pending",
       "evidencePaths": [
-        "artifacts/evidence/required-synthetic.json"
+        "artifacts/evidence/required-synthetic.json",
+        "artifacts/evidence/provider-43f143-observation.json"
       ],
-      "remainingVerification": "显式原生CAT引用实际user RPC绑定、冻结receipt和委派范围已在源码合成检查；最终安装版真实Provider文字/图片/工具描述与响应身份仍需验收。普通发送自动附带仍缺公开扩展。"
+      "remainingVerification": "43f143普通Composer显式CAT引用后真实模型固定文本回复已观察，记录的是DSH request/header与assistant消息身份及nativePromptRpcId，不是Provider HTTP ID。Host准入、最终完整CAT文字/图片/工具说明与专业响应身份仍需验收；默认自动上下文仍缺公开接缝。"
     },
     {
       "id": "V15",
@@ -1672,7 +1685,7 @@
       "required": true,
       "status": "not_run",
       "evidencePaths": [],
-      "remainingVerification": "语言/创建/目录/备份已在df66安装，能力入口与Workspace行身份为后续未打包源码；最终安装版主题/窄窗/IME/多项目/切换仍待完成。"
+      "remainingVerification": "语言/创建/目录/备份、能力入口及Workspace身份已进入43f143安装，smoke9/9通过；df66局部UI证据仅属历史。43工作台、主题/窄窗/IME/多项目/切换完整验收仍待完成。"
     },
     {
       "id": "V21",
@@ -2037,7 +2050,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "auditNote": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
         "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
       },
       {
@@ -2047,7 +2060,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "auditNote": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
         "evidencePaths": [
           "artifacts/evidence/schedule-notification-required.log",
           "docs/NOTIFICATIONS.md"
@@ -2062,7 +2075,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "auditNote": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
         "evidencePaths": [
           "artifacts/evidence/schedule-notification-required.log",
           "docs/NOTIFICATIONS.md"
@@ -2093,7 +2106,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "auditNote": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
         "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
       },
       {
@@ -2158,7 +2171,7 @@
           "FEATURE-18"
         ],
         "status": "pending",
-        "auditNote": "Native task Sessions/lifecycle accounting and opt-in Feishu/Lark notifications from 5eca1e9/a7d4c75 are in installed df66 (21/21 files verified at 2026-09-29T10:25:20Z). Subsequent unpackaged source creates an independent native task owner, freezes project/model/permissions across source-session deletion, marks obsolete source-owned tasks recreate-required while retaining history/cancel, and checks runNow receipts against the task owner. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
+        "auditNote": "Installed 43f143 / source d645fea contains native task Sessions/lifecycle accounting, opt-in notifications, independent task owners with project/model/permissions frozen across source deletion, recreate-required legacy handling retaining history/cancel, and owner-bound runNow receipts. Synthetic regressions pass. Native due execution, configuration, cold reopen/cancel, professional completion and real notification delivery remain unverified; no external notification was sent.",
         "targetEntry": "packages/dsh-linguist/src/host/schedule-context.ts"
       },
       {
@@ -2921,12 +2934,13 @@
           "FEATURE-12"
         ],
         "status": "pending",
-        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditNote": "专用Agent任务使用真实requestId的prepare→prompt；43f143包已安装普通Composer显式CAT原生引用、同步/slash冻结及Host实际RPC/QA委派范围校验实现。真实DeepSeek-V41-Flash Max固定文本回复已观察；Host准入及最终模型可见CAT内容仍核对，回复成功不能代替该门禁。默认每次普通发送自动附带仍缺固定0.2.0-rc.1公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。",
         "targetEntry": "packages/dsh-linguist/src/host/turn-context.ts",
         "evidencePaths": [
           "tests/copied-renderer/native-composer-reference.nodetest.mjs",
           "tests/required/turn-reference.nodetest.mjs",
-          "artifacts/evidence/native-composer-public-api-audit.json"
+          "artifacts/evidence/native-composer-public-api-audit.json",
+          "artifacts/evidence/provider-43f143-observation.json"
         ]
       },
       {
@@ -2989,7 +3003,7 @@
         ],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/RunPanel.tsx",
-        "auditNote": "已接创建、列表/编辑/取消/历史与手动投递。新源码按独立owner验回执，旧source-owned任务明确需取消重建并禁编辑/运行、保留历史/取消；本轮未打包，安装态配置/到期及业务完成尚未核验。",
+        "auditNote": "创建、列表/编辑/取消/历史与手动投递已进入43f143安装。按独立owner验回执；旧source-owned任务明确需取消重建，禁编辑/运行并保留历史/取消。源码合成通过，安装态配置/到期及业务完成尚未核验。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -2999,12 +3013,13 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/ComposerContextChips.tsx",
-        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditNote": "专用Agent任务使用真实requestId的prepare→prompt；43f143包已安装普通Composer显式CAT原生引用、同步/slash冻结及Host实际RPC/QA委派范围校验实现。真实DeepSeek-V41-Flash Max固定文本回复已观察；Host准入及最终模型可见CAT内容仍核对，回复成功不能代替该门禁。默认每次普通发送自动附带仍缺固定0.2.0-rc.1公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
         "evidencePaths": [
           "tests/copied-renderer/native-composer-reference.nodetest.mjs",
           "tests/required/turn-reference.nodetest.mjs",
-          "artifacts/evidence/native-composer-public-api-audit.json"
+          "artifacts/evidence/native-composer-public-api-audit.json",
+          "artifacts/evidence/provider-43f143-observation.json"
         ]
       },
       {
@@ -3148,7 +3163,7 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/index.ts",
-        "auditNote": "主Linguist入口和Session badge已有；本轮未打包源码在LA项目列表显示真实Workspace标题/路径与不可用状态。DSH原生Workspace行内徽章仍无已核实公开Slot，不将项目列表身份冒充该Slot；安装态待验收。",
+        "auditNote": "主Linguist入口和Session badge已有，43f143包在LA项目列表显示Workspace标题/路径与不可用状态。DSH原生Workspace行内徽章无已核实公开Slot，不将项目列表身份冒充该Slot；43安装态完整交互待验收。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
       },
       {
@@ -3192,15 +3207,18 @@
         "kind": "implementation_or_resource",
         "targetPath": "packages/dsh-linguist/src/client/projects/ProjectAgentCapabilitiesSection.tsx",
         "featureIds": [],
-        "status": "pending",
+        "status": "host-replaced",
         "targetEntry": "packages/dsh-linguist/src/client/ProjectCapabilities.tsx",
-        "auditNote": "当前未打包源码接公开skills.list真值、SKILL.md、DSH默认指令候选路径及原生Plugins/Files导航；无Session仅提示进入项目会话，不隐式创建。指令候选不冒充实际载入状态；MCP精确启用摘要与Memory入口未宣称实现。真实Desktop点击/状态仍待安装后验收。",
+        "auditNote": "43f143已安装ProjectCapabilities，接公开skills.list、SKILL.md、默认指令候选和原生Plugins/Files导航；按规范§16由DSH接管通用能力，Proma专有Memory编辑窗口不复制。原生Files只读，不声称手动编辑等价；项目MCP启用数未显示。安装态真实入口交互仍属于FEATURE-19/20验收。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
         "evidencePaths": [
           "tests/required/project-capabilities.nodetest.mjs",
           "tests/required/session-capabilities.nodetest.mjs",
-          "tests/copied-renderer/session-navigation.nodetest.mjs"
-        ]
+          "tests/copied-renderer/session-navigation.nodetest.mjs",
+          "handoff/01-完整实施规范.md",
+          "artifacts/evidence/installed-smoke.json"
+        ],
+        "reason": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/ProjectArchiveAction.tsx",
@@ -3281,7 +3299,7 @@
         "featureIds": [],
         "status": "complete",
         "targetEntry": "packages/dsh-linguist/src/client/ProjectLocaleSelect.tsx",
-        "auditNote": "User screenshot exposed that the prior complete mapping was incorrect. Commit 1b86fb0 restores 30 common locales, localized labels and preserved custom values in both create/settings; locale-select 3 checks pass. Native df66 installation acceptance remains pending.",
+        "auditNote": "旧截图暴露的语言输入退化已在1b86fb0恢复30语言下拉、自定义合法locale与冻结逻辑。2026-09-29 df66局部真实UI已检查语言选项/切换还原/冻结说明；当前43f143包含同实现，完整安装UI验收仍待完成。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
         "evidencePaths": [
           "artifacts/evidence/locale-select-green.log"
@@ -3654,12 +3672,13 @@
         ],
         "status": "complete",
         "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditNote": "专用Agent任务使用真实requestId的prepare→prompt；43f143包已安装普通Composer显式CAT原生引用、同步/slash冻结及Host实际RPC/QA委派范围校验实现。真实DeepSeek-V41-Flash Max固定文本回复已观察；Host准入及最终模型可见CAT内容仍核对，回复成功不能代替该门禁。默认每次普通发送自动附带仍缺固定0.2.0-rc.1公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
         "evidencePaths": [
           "tests/copied-renderer/native-composer-reference.nodetest.mjs",
           "tests/required/turn-reference.nodetest.mjs",
-          "artifacts/evidence/native-composer-public-api-audit.json"
+          "artifacts/evidence/native-composer-public-api-audit.json",
+          "artifacts/evidence/provider-43f143-observation.json"
         ]
       },
       {
@@ -3669,12 +3688,13 @@
         "featureIds": [],
         "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/composer-context.ts",
-        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditNote": "专用Agent任务使用真实requestId的prepare→prompt；43f143包已安装普通Composer显式CAT原生引用、同步/slash冻结及Host实际RPC/QA委派范围校验实现。真实DeepSeek-V41-Flash Max固定文本回复已观察；Host准入及最终模型可见CAT内容仍核对，回复成功不能代替该门禁。默认每次普通发送自动附带仍缺固定0.2.0-rc.1公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。",
         "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
         "evidencePaths": [
           "tests/copied-renderer/native-composer-reference.nodetest.mjs",
           "tests/required/turn-reference.nodetest.mjs",
-          "artifacts/evidence/native-composer-public-api-audit.json"
+          "artifacts/evidence/native-composer-public-api-audit.json",
+          "artifacts/evidence/provider-43f143-observation.json"
         ]
       },
       {
@@ -5676,12 +5696,13 @@
         ],
         "status": "pending",
         "targetEntry": "packages/linguist-domain-service/src/contracts.ts",
-        "auditNote": "专用Agent任务已有真实requestId的prepare→prompt。当前未打包源码新增普通Composer显式CAT原生引用：同步序列化及slash裁决前冻结，Host按实际user message/rpcId校验项目/范围与QA委派边界。固定0.2.0-rc.1仍缺每次普通发送自动附带所需的公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。安装态最终Provider请求证据仍待完成。",
+        "auditNote": "专用Agent任务使用真实requestId的prepare→prompt；43f143包已安装普通Composer显式CAT原生引用、同步/slash冻结及Host实际RPC/QA委派范围校验实现。真实DeepSeek-V41-Flash Max固定文本回复已观察；Host准入及最终模型可见CAT内容仍核对，回复成功不能代替该门禁。默认每次普通发送自动附带仍缺固定0.2.0-rc.1公开同步捕获与await准入钩子；自动塞引用已移除以保持leading slash/IME。",
         "auditEvidencePath": "tests/required/acceptance.nodetest.mjs",
         "evidencePaths": [
           "tests/copied-renderer/native-composer-reference.nodetest.mjs",
           "tests/required/turn-reference.nodetest.mjs",
-          "artifacts/evidence/native-composer-public-api-audit.json"
+          "artifacts/evidence/native-composer-public-api-audit.json",
+          "artifacts/evidence/provider-43f143-observation.json"
         ]
       },
       {

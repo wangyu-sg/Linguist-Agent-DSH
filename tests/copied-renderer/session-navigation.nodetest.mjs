@@ -15,10 +15,12 @@ test('native navigation cancels pending LA opens and late session creation', asy
   let completeCreate
   let pickedDirectory = '/synthetic/workspace/backups/check'
   let selectedPanel
+  let disposeDrafts
+  let draftsCleared = false
   const skills = { skills: [{ name: 'synthetic-skill', description: 'Synthetic', modelInvocable: true }] }
   let skillResult = { ok: true, value: skills }
   const ctx = {
-    effect() {},
+    effect(register, label) { if (label === 'linguist: CAT editor drafts') disposeDrafts = register() },
     locale: { bind: () => text => text },
     slots: {
       inject: (_name, register) => register(),
@@ -46,6 +48,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
     if (name === './api') return { bindSession: async value => value }
     if (name === './ui-locale') return {}
     if (name === './composer-reference') return {}
+    if (name === './cat-editor-state') return { clearCatEditorStates: () => { draftsCleared = true } }
     if (name === './Native.module.css') return { default: {} }
     if (name === './CatToolResult') return { catToolNames: [] }
     if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
@@ -87,4 +90,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
   await entering
   assert.equal(opened.length, 1)
   assert.equal(listeners.size, 0)
+  assert.equal(draftsCleared, false)
+  disposeDrafts()
+  assert.equal(draftsCleared, true)
 })

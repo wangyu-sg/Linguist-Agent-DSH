@@ -34,7 +34,7 @@ import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts 
 import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string(), installationId: Schema.string(),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),

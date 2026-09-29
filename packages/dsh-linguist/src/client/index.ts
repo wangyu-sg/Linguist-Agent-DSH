@@ -21,6 +21,7 @@ import { IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LinguistAssetInfo, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
 import { bindSession, getBinding, required, type LinguistBinding } from './api'
 import { CatWorkbench } from './CatWorkbench'
+import { clearCatEditorStates } from './cat-editor-state'
 import { BatchPreview } from './BatchPreview'
 import { CatToolResult, catToolNames } from './CatToolResult'
 import { ComposerContextChips } from './ComposerContextChips'
@@ -179,6 +180,7 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
 }
 
 export function apply(ctx: Context): void {
+  ctx.effect(() => clearCatEditorStates, 'linguist: CAT editor drafts')
   ctx.effect(() => registerLinguistLocale(ctx.locale), 'linguist: locale dictionaries')
   ctx.effect(() => ctx.inputTriggers.registerSource(catReferenceSource), 'linguist: CAT selection reference')
   const connectReference = (sessionId: string, changed: Parameters<typeof connectCatReference>[2]) => connectCatReference(ctx, sessionId, changed)
