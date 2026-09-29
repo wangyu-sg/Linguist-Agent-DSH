@@ -85,7 +85,7 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
     <p>{t('先将旧数据根的副本放在所选 DSH Workspace 内。扫描只读；导入逐项目执行并逐项目验证。旧聊天保留为只读转录。')}</p>
     <form className={styles.form} onSubmit={(event) => void scanRoot(event)}>
       <label>{t('Workspace 内旧数据根相对目录')}<Input required disabled={running} value={legacyRootPath} onChange={(event) => { setLegacyRootPath(event.target.value); setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setTotalSelected(0) }} placeholder="." /></label>
-      <Button type="submit" size="sm" disabled={!workspaceId || running || !legacyRootPath.trim()}>{t('扫描旧数据根')}</Button>
+      <Button variant="outline" type="submit" size="sm" disabled={!workspaceId || running || !legacyRootPath.trim()}>{t('扫描旧数据根')}</Button>
     </form>
     {message && <p role="alert">{message}</p>}
     {scan && <>
@@ -101,7 +101,7 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
           <label><input type="radio" name="legacy-external-source" disabled={running} checked={externalSource === 'reference'} onChange={() => setExternalSource('reference')} />{t('只保留外部源文引用')}</label>
           {scan.projects.some((project) => project.orphan) && <label><input type="checkbox" disabled={running} checked={salvageOrphan} onChange={(event) => setSalvageOrphan(event.target.checked)} />{t('抢救无清单的孤儿项目')}</label>}
         </div>
-        <Button size="sm" disabled={running || selected.size === 0} onClick={() => void importSelected()}>{t('导入所选项目 {count} 个', { count: selected.size })}</Button>
+        <Button variant="outline" size="sm" disabled={running || selected.size === 0} onClick={() => void importSelected()}>{t('导入所选项目 {count} 个', { count: selected.size })}</Button>
       </>}
     </>}
     {current && <p role="status">{t('正在导入并验证 {index}/{total}：{id}', { index: current.index, total: current.total, id: current.projectId })}</p>}

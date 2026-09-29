@@ -110,7 +110,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       </select></label>
       {scope !== 'project' && <span>{t('范围批次 ID')}：{scopeAssetId}</span>}
       {scope === 'segments' && <span>{t('范围句段 {count} 段', { count: scopeSegmentIds.length })}</span>}
-      {editing && <Button type="button" size="sm" onClick={() => { setScopeAssetId(assetId); setScopeSegmentIds(selectedSegmentIds) }}>{t('改用当前工作台选区')}</Button>}
+      {editing && <Button variant="outline" type="button" size="sm" onClick={() => { setScopeAssetId(assetId); setScopeSegmentIds(selectedSegmentIds) }}>{t('改用当前工作台选区')}</Button>}
       <label>{t('调度方式')}<select value={kind} onChange={(event) => setKind(event.target.value as LinguistScheduleTiming['kind'])}>
         <option value="after">{t('延迟一次')}</option><option value="at">{t('指定时间一次')}</option>
         <option value="every">{t('按间隔重复')}</option><option value="daily">{t('每天')}</option>
@@ -123,7 +123,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       {kind === 'cron' && <label>Cron<input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
-    <div className={styles.toolbar}><Button type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
+    <div className={styles.toolbar}><Button variant="outline" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
     {created && <p role="status">{t(editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
     {error && <p role="alert">{error}</p>}
   </form>
@@ -181,7 +181,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   }
 
   return <section className={styles.panel} aria-label={t("岗位覆盖与运行记录")}>
-    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
+    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
     {!assetId ? <p>{t("选择一个工作批次以查看当前岗位覆盖。")}</p> : !coverage ? <p role="status">{t("正在读取覆盖…")}</p> :
       <div className={styles.callout}><p>{t(stageName(workflowStage))} · {t({ in_progress: '决策进行中', complete: '决策覆盖完整', completed_with_blocks: '决策覆盖完整，仍有阻塞' }[coverage.status])}</p><p>{t("总计")} {coverage.total} · {t(stageCompletionLabel(workflowStage))} {coverage.confirmed} {t("· 原文无改动")} {coverage.unchanged} {t("· 已修订")} {coverage.corrected} {t("· 阻塞")} {coverage.blocked} {t("· 待决策")} {coverage.pending}</p><p>{t('阶段决策覆盖不等于正式交付完成；仍需处理 QA、建议与交付预检。')}</p></div>}
     <h3>{t("最近一次 Agent 运行")}</h3>
@@ -190,7 +190,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
         <strong>Run {run.summary.runId}</strong>
         {run.summary.job && <p>Job {run.summary.job.jobId} · {run.summary.job.status} {t("· 完成")} {run.summary.job.completedSegments}/{run.summary.job.scopedSegments} {t("· 失败")} {run.summary.job.failedSegments}</p>}
         <p>{t("提议")} {run.summary.changes.proposalsCreated} {t("· QA 新增")} {run.summary.changes.qaFindingsCreated} {t("· QA 更新")} {run.summary.changes.qaFindingsUpdated} {t("· 文件记录")} {run.summary.changes.filesTouched} {t("· 已撤销")} {run.summary.changes.undone}</p>
-        <Button size="sm" disabled={archived || busy || !run.summary.canUndo} onClick={() => void undoRun()}>{t("撤销本次可逆 CAT 变更")}</Button>
+        <Button variant="outline" size="sm" disabled={archived || busy || !run.summary.canUndo} onClick={() => void undoRun()}>{t("撤销本次可逆 CAT 变更")}</Button>
       </div>}
     {undo?.refused.map((entry) => <p role="alert" key={`${entry.entityType}:${entry.entityId}`}>{entry.entityType} {entry.entityId}：{entry.reason}</p>)}
     {!archived && <div ref={scheduleFormRef}><ScheduledAgentTaskForm key={`${editingSchedule?.scheduleId ?? 'new'}:${editingSchedule?.version ?? ''}`} projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={selectedSegmentIds} uiRevision={uiRevision} editing={editingSchedule} onSaved={(result) => { setMessage(t(editingSchedule ? '专用定时任务已更新并重新核验。' : '专用定时任务已创建。')); setEditingSchedule(undefined); setScheduleRefresh((value) => value + 1) }} onCancelEdit={() => setEditingSchedule(undefined)} /></div>}

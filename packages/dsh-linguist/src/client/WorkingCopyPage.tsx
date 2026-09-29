@@ -22,13 +22,13 @@ export function WorkingCopyPage({ sessionId, onOpenFile }: {
     return () => { live = false }
   }, [sessionId, refresh])
   return <section className={styles.page} aria-label={t("本地化工作副本")}>
-    <header className={styles.header}><div><h2>{t("工作副本")}</h2><p>{t("原文件保持原样；工作稿内的决策覆盖不等于正式交付完成。")}</p></div><Button size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></header>
+    <header className={styles.header}><div><h2>{t("工作副本")}</h2><p>{t("原文件保持原样；工作稿内的决策覆盖不等于正式交付完成。")}</p></div><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></header>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {!list && !error && <p role="status">{t("正在读取当前会话的工作副本…")}</p>}
     {list && list.items.length === 0 && <p>{t("此会话尚无工作副本。可让 Agent 对 Workspace 内原文件运行本地化工作副本工具。")}</p>}
     {list?.truncated && <p role="note">{t("列表已截断。使用 DSH 原生文件浏览器查看 Workspace 中的其他工作稿。")}</p>}
     {list?.items.map((item) => <article className={styles.item} key={item.path}>
-      <div className={styles.itemHead}><div><strong>{item.sourcePath}</strong><small>{item.formatId} · {item.sourceLocale} → {item.targetLocale} · {item.segmentCount} {t("段 ·")} {new Date(item.updatedAt).toLocaleString(locale === 'zh' ? 'zh-CN' : locale)}</small><small>{item.ownerSessionId === sessionId ? t('当前会话') : t('历史会话')} · {item.ownerSessionId.slice(0, 12)}</small></div><Button size="sm" onClick={() => onOpenFile(item.path)}>{t("用 DSH 文件预览打开")}</Button></div>
+      <div className={styles.itemHead}><div><strong>{item.sourcePath}</strong><small>{item.formatId} · {item.sourceLocale} → {item.targetLocale} · {item.segmentCount} {t("段 ·")} {new Date(item.updatedAt).toLocaleString(locale === 'zh' ? 'zh-CN' : locale)}</small><small>{item.ownerSessionId === sessionId ? t('当前会话') : t('历史会话')} · {item.ownerSessionId.slice(0, 12)}</small></div><Button variant="outline" size="sm" onClick={() => onOpenFile(item.path)}>{t("用 DSH 文件预览打开")}</Button></div>
       <p className={styles.status}>{item.kind === 'result' ? t("已组装结果") : t("双语基线")} · {{ prepared: t("已准备"), 'in-progress': t("裁定进行中"), 'coverage-complete': t("工作稿裁定覆盖完整") }[item.status]} {t("· 未正式提交")}</p>
       {item.coverage && <p>{t("本轮决策：无改动")} {item.coverage.unchanged} {t("· 已修订")} {item.coverage.corrected} {t("· 阻塞")} {item.coverage.blocked} {t("· 未裁定")} {item.coverage.undecided} / {item.coverage.total}</p>}
       <p>{t("相对原件的差异")} {item.differenceCount} {t("项 · 修订记录")} {item.finalChangeCount} {t("项")}</p>

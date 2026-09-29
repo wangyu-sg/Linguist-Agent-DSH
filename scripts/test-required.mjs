@@ -90,6 +90,7 @@ const checks = [
       'tests/copied-renderer/workbench-location.nodetest.ts',
       'tests/copied-renderer/session-navigation.nodetest.mjs',
       'tests/copied-renderer/project-input.nodetest.ts',
+      'tests/copied-renderer/native-controls.nodetest.mjs',
       'packages/dsh-linguist/src/client/Workbench.layout.test.mjs',
       'tests/required/acceptance.nodetest.mjs'],
   },

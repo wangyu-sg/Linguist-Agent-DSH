@@ -68,7 +68,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
   }
 
   return <section className={styles.scheduleManager} aria-label={t('Linguist 专用定时任务')}>
-    <div className={styles.toolbar}><h3>{t('Linguist 专用定时任务')}</h3><Button size="sm" onClick={() => setReload((value) => value + 1)}>{t('刷新')}</Button></div>
+    <div className={styles.toolbar}><h3>{t('Linguist 专用定时任务')}</h3><Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t('刷新')}</Button></div>
     <p>{t('下方到期和历史仅是 DSH 原生投递记录，不代表专业任务完成或外部平台已确认。')}</p>
     {error && <p role="alert">{error}</p>}
     {!list && !error && <p role="status">{t('正在读取定时任务…')}</p>}
@@ -79,11 +79,11 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
       <p>{t('岗位')}：{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[schedule.role])} · {t('执行范围')}：{t({ project: '全项目', asset: '当前批次', segments: '勾选句段' }[schedule.scope])} · {t('调度方式')}：{t({ after: '延迟一次', at: '指定时间一次', every: '按间隔重复', daily: '每天', weekly: '每周', cron: 'Cron' }[schedule.kind])}</p>
       <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>
       <div className={styles.toolbar}>
-        <Button size="sm" disabled={!editable || schedule.status !== 'active'} onClick={() => onEdit(schedule)}>{t('编辑并重新核验')}</Button>
-        <Button size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
-        <Button size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('投递历史')}</Button>
-        {cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>
-          : <Button size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
+        <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active'} onClick={() => onEdit(schedule)}>{t('编辑并重新核验')}</Button>
+        <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
+        <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('投递历史')}</Button>
+        {cancelId === schedule.scheduleId ? <><span>{t('取消将停止后续投递，并删除原生调度历史。')}</span><Button variant="outline" size="sm" disabled={busyId === schedule.scheduleId} onClick={() => void cancel(schedule.scheduleId)}>{t('确认取消任务')}</Button><Button variant="outline" size="sm" onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button></>
+          : <Button variant="outline" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
       </div>
       {accepted?.scheduleId === schedule.scheduleId && <p role="status">{t('已受理立即运行请求，消息 {id} 已交给 DSH Session；专业任务是否完成需查看实际结果。', { id: accepted.messageId })}</p>}
       {historyId === schedule.scheduleId && history && <div className={styles.callout}>
@@ -92,7 +92,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
         {history.records.map((record) => <p key={record.messageId}>{t('到期')} {new Date(record.scheduledAt).toLocaleString()} · {t('投递')} {new Date(record.deliveredAt).toLocaleString()} · {record.messageId}</p>)}
         {history.earlierRecordsPruned && <p>{t('更早的原生投递记录已清理。')}</p>}
         {history.earlierRecordsUnavailable && <p>{t('更早的原生投递记录无法读取。')}</p>}
-        {history.nextBefore && <Button size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, history.nextBefore)}>{t('读取更早记录')}</Button>}
+        {history.nextBefore && <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, history.nextBefore)}>{t('读取更早记录')}</Button>}
       </div>}
     </article>)}
   </section>

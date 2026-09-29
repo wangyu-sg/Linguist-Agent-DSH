@@ -47,7 +47,7 @@ export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISes
   }
 
   return <section className={styles.sessionGroups} aria-label={t('项目会话')}>
-    <div className={styles.toolbar}><h3>{t('项目会话')}</h3><Button size="sm" onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button></div>
+    <div className={styles.toolbar}><h3>{t('项目会话')}</h3><Button variant="outline" size="sm" onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button></div>
     <p>{t('按已保存的 Linguist 绑定归组；普通 DSH Session 仍由原生 Workspace 侧栏管理。')}</p>
     {snapshot.phase === 'pending' || loading ? <p role="status">{t('正在读取会话绑定…')}</p> : groups.size === 0 && <p>{t('当前没有已绑定的项目会话。')}</p>}
     {errors.length > 0 && <p role="alert">{t('有 {count} 个会话绑定读取失败：', { count: errors.length })} {errors.slice(0, 3).join('；')}</p>}
@@ -60,7 +60,7 @@ export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISes
           const session = snapshot.byId[binding.sessionId]
           return <div className={styles.sessionRow} key={binding.sessionId}>
             <span>{session?.displayTitle ?? binding.sessionId} <small>· {t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])} · {t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])}{session && ` · ${new Date(session.updatedAt).toLocaleString()}`}</small></span>
-            <Button size="sm" disabled={!project || opening === binding.sessionId} onClick={() => void open(binding)}>{project?.archivedAt ? t('只读打开') : t('打开会话')}</Button>
+            <Button variant="outline" size="sm" disabled={!project || opening === binding.sessionId} onClick={() => void open(binding)}>{project?.archivedAt ? t('只读打开') : t('打开会话')}</Button>
           </div>
         })}
       </div>
