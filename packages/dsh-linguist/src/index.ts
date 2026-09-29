@@ -26,6 +26,7 @@ import { MutationBus } from './host/mutations'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
 import { ScheduleContextManager } from './host/schedule-context'
+import { ScheduleSessionRuntime } from './host/schedule-session'
 import { ensureStageEvidenceForSession } from './host/stage-evidence'
 import { adaptCatTool } from './host/tool-adapter'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from './host/turn-context'
@@ -216,9 +217,10 @@ export function apply(ctx: Context, config: Config): void {
   for (const agent of ctx.agents.list()) bindAgent(agent)
 
   const scheduleContext = new ScheduleContextManager(config.dataRoot, ctx.schedule, service, bindings, assertProjectSession,
-    async sessionId => {
+    async (sessionId: string) => {
       const live = ctx.sessions.get(sessionId as SessionId)
       if (live) return live.ownEvents()
+      if (!await ctx.sessionPersistence.stat(sessionId as SessionId)) return undefined
       const handle = await ctx.sessionPersistence.open(sessionId as SessionId, 'read')
       try { return (await handle.read(handle.inheritedEventCount)).events }
       finally { await handle.close() }
@@ -231,13 +233,15 @@ export function apply(ctx: Context, config: Config): void {
     })
   ctx.on('session/event', async (session, event) => {
     if (event.type === 'turn/end') {
+      await scheduleContext.recordExecutionEnd(session.id)
       scheduleContext.clearTurn(session.id, event.data.turn)
       if (bindings.session(session.id)?.projectId) await scheduleContext.enforceRunPolicy(session.id)
     }
   })
+  const scheduleSessions = new ScheduleSessionRuntime(ctx, bindings, bindAgent)
   ctx.on('agent/pre-step', async ({ agent, messages, turn, step }, next) => {
     scheduleContext.recordAttempts(agent, messages, turn)
-    return scheduleContext.onPreStep(agent, await next(), turn, step)
+    return scheduleContext.onPreStep(agent, await scheduleContext.dispatchDue(agent, await next(), turn, scheduleSessions), turn, step)
   })
   ctx.on('agent/request', async ({ agent, turn, step }, next) => {
     const config = await next()

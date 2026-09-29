@@ -1425,3 +1425,155 @@ test('native Session records schedule admission failures before a model-visible 
 
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
+
+test('scheduled business work runs in its own native Session and only its real ending counts', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-schedule-dispatch-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic dispatch', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,Start,开始\n'), filename: 'fixture.csv' })
+    const bindings = new BindingStore(root)
+    const parent = { id: SessionId('session-dispatch-parent'), session: Session.create(SessionId('session-dispatch-parent')) }
+    const child = { id: SessionId('session-dispatch-child'), session: Session.create(SessionId('session-dispatch-child')), status: 'idle', inbox: { nextTurn: [], nextStep: [] }, followup(message) { this.inbox.nextTurn.push(message) } }
+    bindings.bindProject(project.id, 'workspace-dispatch')
+    const binding = { workspaceId: 'workspace-dispatch', projectId: project.id, role: 'reviewer', workMode: 'cat' }
+    bindings.bindSession(parent.id, binding)
+    const native = {
+      rows: [],
+      async create(sessionId, request) {
+        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.every_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, sessionId, status: 'active' })
+        if (this.beforeReturn) await this.beforeReturn(record)
+        return record
+      },
+      async catalog() { return this.rows },
+      async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
+      async delete({ id }) { this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
+    }
+    let childDeleted = false
+    const manager = new ScheduleContextManager(root, native, service, bindings, async (sid, pid) => {
+      assert.equal(sid, parent.id); assert.equal(pid, project.id)
+    }, async sid => sid === child.id && childDeleted ? undefined : (sid === parent.id ? parent : child).session.ownEvents())
+    const created = await manager.create({ sessionId: parent.id, projectId: project.id, title: 'Dedicated review', prompt: 'Review synthetic content', executeAtDue: true, scope: 'project', maxRuns: 1, timing: { kind: 'every', seconds: 60 } })
+    let creates = 0
+    const runtime = {
+      async create(owner, scope, title, record) {
+        assert.equal(owner, parent); assert.equal(title, 'Dedicated review'); creates++
+        assert.equal(scope.delegatedScope.segmentIds.length, 1)
+        bindings.bindSession(child.id, scope)
+        record({ sessionId: child.id, createdAt: new Date().toISOString() })
+        return child
+      },
+      async busy() { return child.status === 'running' || child.inbox.nextTurn.length > 0 },
+      async reusable() { return true }, async resolve() { return child }, async flush() {},
+    }
+    const due = { id: 'dispatch-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
+    parent.session.append('turn/start', { turn: 1 })
+    manager.recordAttempts(parent, [due], 1)
+    const routed = await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 1, runtime)
+    assert.deepEqual(routed.messages, [])
+    assert.equal(child.inbox.nextTurn.length, 1)
+    parent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await manager.enforceRunPolicy(parent.id)
+    assert.equal(native.rows.length, 1, 'dispatch does not consume the execution limit')
+    assert.equal(scheduleExecutions(parent.session.ownEvents(), created.scheduleId)[0].outcome, 'dispatched')
+    await manager.dispatchDue(parent, { kind: 'enter', messages: [due] }, 2, runtime)
+    assert.equal(child.inbox.nextTurn.length, 1, 'idle but queued target must not receive duplicate work')
+    assert.equal(creates, 1)
+    const delivered = child.inbox.nextTurn.shift()
+    child.session.append('turn/start', { turn: 1 })
+    manager.recordAttempts(child, [delivered], 1)
+    bindings.bindSession(child.id, { ...bindings.session(child.id), role: 'translator' })
+    await assert.rejects(manager.onPreStep(child, { kind: 'enter', messages: [delivered] }, 1, 0), /binding or instruction changed/)
+    bindings.bindSession(child.id, { ...bindings.session(child.id), role: 'reviewer' })
+    const admitted = await manager.onPreStep(child, { kind: 'enter', messages: [delivered] }, 1, 0)
+    assert.equal(admitted.messages.length, 1)
+    assert.equal(admitted.messages[0].source.kind, 'linguist-schedule-execution')
+    child.session.append('user/message', admitted.messages[0], { surfaceOp: 'append' })
+    child.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await manager.recordExecutionEnd(child.id)
+    childDeleted = true
+    await manager.enforceRunPolicy(child.id)
+    assert.equal(native.rows.length, 0, 'actual child completion enforces owner task limit')
+    const history = await manager.history(parent.id, created.scheduleId, 10)
+    assert.equal(scheduleRunPolicy(history.executions).runCount, 1, 'deleted execution Session retains its real completion count')
+    assert.equal(history.executions.find(run => run.outcome === 'completed').sessionId, child.id)
+    childDeleted = false
+    native.beforeReturn = async record => {
+      const early = { ...due, id: 'early-dispatch', content: [{ type: 'text', text: renderReminderFraming(record) }] }
+      assert.deepEqual((await manager.dispatchDue(parent, { kind: 'enter', messages: [early] }, 3, runtime)).messages, [])
+    }
+    const early = await manager.create({ sessionId: parent.id, projectId: project.id, title: 'Dedicated review', prompt: 'Review synthetic content', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
+    assert.equal((await manager.list(parent.id)).items.find(task => task.scheduleId === early.scheduleId).executionSessionId, child.id, 'create response must preserve a Session dispatched before it returned')
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('scheduled Session creation preserves native settings and daily reuse rotates on real boundaries', async () => {
+  const { ScheduleSessionRuntime } = await import('../../packages/dsh-linguist/src/host/schedule-session.ts')
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-task-session-'))
+  try {
+    const bindings = new BindingStore(root)
+    const binding = { workspaceId: 'workspace-task', projectId: 'project-task', role: 'reviewer', workMode: 'cat', delegatedScope: { assetIds: ['asset'], segmentIds: ['segment'] } }
+    const events = [
+      { type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write' } },
+      { type: 'sandbox/mode', seq: 1, time: 2, data: { mode: 'workspace-write' } },
+      { type: 'approval/policy', seq: 2, time: 3, data: { policy: 'ask' } },
+    ]
+    const model = { provider: 'synthetic', model: 'selected', reasoningEffort: 'max' }
+    let stored, recorded, bound, exists = true, pressure, human = false
+    const steps = []
+    const pending = { status: 'idle', inbox: { nextTurn: [], nextStep: [] } }
+    const ctx = {
+      workspaceRegistry: { get: () => ({ path: root }) },
+      sessionPersistence: {
+        async stat() { return exists ? {} : undefined },
+        async create(header) {
+          stored = { header }
+          return { async append(seed) { stored.seed = seed; steps.push('append') }, async flush() { steps.push('flush') }, async close() { steps.push('close') } }
+        },
+      },
+      sessionController: {
+        async inspect(id) { return { meta: { agentPreset: 'chosen-preset' }, inheritedEventCount: 0, events: id === 'session-parent' ? events : human ? [{ type: 'user/message', data: { source: { kind: 'user' } } }] : [] } },
+        async projections() { return { values: { modelSelection: { next: model }, contextPressure: pressure } } },
+        async create(input) { assert.equal(input.sessionId, stored.header.id); assert.equal(input.agentPreset, 'chosen-preset'); steps.push('adopt') },
+        async resolveAgent(id) { return { agent: { id, ...pending } } },
+        async rename(input) { assert.equal(input.title, 'Review task') },
+      },
+    }
+    const runtime = new ScheduleSessionRuntime(ctx, bindings, agent => { bound = agent.id })
+    const agent = await runtime.create({ id: 'session-parent' }, binding, 'Review task', item => { recorded = item })
+    assert.equal(agent.id, recorded.sessionId)
+    assert.equal(bound, agent.id)
+    assert.deepEqual(steps, ['append', 'flush', 'close', 'adopt'])
+    assert.equal(stored.header.parentSession, 'session-parent')
+    assert.notEqual(stored.header.origin, 'subagent', 'ordinary Session retains native user approval interaction')
+    assert.equal(stored.header.agentPreset, 'chosen-preset')
+    assert.deepEqual(stored.seed.map(event => event.data), [...events.map(event => event.data), model])
+    const validated = requireDsh('@deepseek-ai/dsh-session-persistence').validateStoredEvents(stored.header, structuredClone(stored.seed))
+    const restored = Session.create(agent.id, validated, stored.header)
+    assert.deepEqual(restored.deriveMessages(), [], 'only settings, no parent conversation copied')
+    assert.equal(await runtime.busy(recorded), false)
+    pending.status = 'running'
+    assert.equal(await runtime.busy(recorded), true)
+    pending.status = 'idle'; pending.inbox.nextTurn.push({})
+    assert.equal(await runtime.busy(recorded), true)
+    pending.inbox.nextTurn.length = 0
+    assert.equal(await runtime.reusable(recorded, binding, 'daily'), true)
+    pressure = { projectedTokens: 70, contextWindow: 100 }
+    assert.equal(await runtime.reusable(recorded, binding, 'daily'), false)
+    assert.equal(await runtime.reusable(recorded, binding, 'reuse'), true)
+    pressure = { projectedTokens: 69, contextWindow: 100 }
+    assert.equal(await runtime.reusable(recorded, binding, 'daily'), true)
+    const yesterday = { ...recorded, createdAt: new Date(Date.now() - 86400000).toISOString() }
+    assert.equal(await runtime.reusable(yesterday, binding, 'daily'), false)
+    assert.equal(await runtime.reusable(yesterday, binding, 'reuse'), true)
+    human = true
+    assert.equal(await runtime.reusable(recorded, binding, 'reuse'), false)
+    human = false; exists = false
+    assert.equal(await runtime.busy(recorded), false)
+    assert.equal(await runtime.reusable(recorded, binding, 'reuse'), false)
+    exists = true
+    assert.equal(await runtime.reusable(recorded, { ...binding, role: 'translator' }, 'reuse'), false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

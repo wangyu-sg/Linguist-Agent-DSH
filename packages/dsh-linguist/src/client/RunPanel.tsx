@@ -30,6 +30,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
 }): React.ReactElement {
   const t = useT()
   const [maxRuns, setMaxRuns] = React.useState(editing?.maxRuns === undefined ? '' : String(editing.maxRuns))
+  const [sessionMode, setSessionMode] = React.useState<'daily' | 'reuse'>(editing?.sessionMode ?? 'daily')
   const [title, setTitle] = React.useState(editing?.title ?? '')
   const [prompt, setPrompt] = React.useState(editing?.prompt ?? '')
   const [scope, setScope] = React.useState<'project' | 'asset' | 'segments'>(editing?.scope ?? 'project')
@@ -85,7 +86,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       }
       setBusy(true)
       const input: LinguistScheduleCreateRequest = {
-        sessionId, projectId, title: title.trim(), prompt: prompt.trim(), executeAtDue: true,
+        sessionId, projectId, title: title.trim(), prompt: prompt.trim(), executeAtDue: true, sessionMode,
         scope, ...(turnContext ? { turnContext } : {}), timing, ...(maxRuns === '' ? {} : { maxRuns: Number(maxRuns) }),
       }
       const next = editing
@@ -99,12 +100,16 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
 
   return <form className={styles.scheduleForm} onSubmit={(event) => void create(event)}>
     <h3>{t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
-    <p>{t('到期在当前 DSH Session 执行，沿用当前模型和权限；需要登录或授权时会停在原生交互。')}</p>
+    <p>{t('到期在任务专用的 DSH 会话执行，创建时继承来源模型和权限；需要登录或授权时会停在原生交互。')}</p>
     {editing && <p>{t('编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。')}{kind === 'after' && ` ${t('若修改延迟秒数，会从保存时重新计时并转换为绝对时间。')}`}</p>}
     <label>{t('任务名称')}<Input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
     <label>{t('任务描述')}<textarea required value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
     <div className={styles.form}>
       <label>{t('最多执行次数（留空不限）')}<Input type="number" min="1" step="1" value={maxRuns} onChange={event => setMaxRuns(event.target.value)} /></label>
+      <label>{t('任务会话')}<select value={sessionMode} onChange={event => setSessionMode(event.target.value as typeof sessionMode)}>
+        <option value="daily">{t('每日新会话，同日复用')}</option>
+        <option value="reuse">{t('持续复用任务会话')}</option>
+      </select></label>
       <label>{t('执行范围')}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
         <option value="project">{t('全项目')}</option>
         <option value="asset" disabled={!scopeAssetId}>{t('当前批次')}</option>

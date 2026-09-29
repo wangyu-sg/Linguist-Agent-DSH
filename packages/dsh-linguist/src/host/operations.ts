@@ -215,6 +215,7 @@ function scheduleRequest(payload: Data, service: LinguistProjectService): Lingui
   } else timing = { kind, expression: string(selector.expression, 'timing.expression', 200), timeZone: string(selector.timeZone, 'timing.timeZone', 100) }
   const turnContext: LinguistTurnContextV1 | undefined = scope === 'project' ? undefined : validateLinguistTurnContext(payload.turnContext, project, service).context
   return { sessionId, projectId: project, title: string(payload.title, 'title', 120).trim(), prompt: string(payload.prompt, 'prompt', 4000).trim(), executeAtDue: true, scope, ...(turnContext ? { turnContext } : {}), timing,
+    sessionMode: payload.sessionMode === undefined ? 'daily' : oneOf(payload.sessionMode, 'sessionMode', ['daily', 'reuse'] as const),
     ...(payload.maxRuns === undefined ? {} : { maxRuns: integer(payload.maxRuns, 'maxRuns', 1, Number.MAX_SAFE_INTEGER) }) }
 }
 

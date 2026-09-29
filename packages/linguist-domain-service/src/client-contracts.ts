@@ -1239,6 +1239,7 @@ export interface LinguistScheduleCreateRequest {
   turnContext?: LinguistTurnContextV1
   timing: LinguistScheduleTiming
   maxRuns?: number
+  sessionMode?: 'daily' | 'reuse'
 }
 
 export interface LinguistScheduleCreateResult {
@@ -1257,6 +1258,8 @@ export interface LinguistScheduleCreateResult {
 
 export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   maxRuns?: number
+  sessionMode: 'daily' | 'reuse'
+  executionSessionId?: string
   runCount: number
   limitReached: boolean
   consecutiveFailures: number
@@ -1279,7 +1282,7 @@ export interface LinguistScheduleCancelResult { scheduleId: string; cancelled: b
 
 export interface LinguistScheduleHistoryResult {
   scheduleId: string
-  executions: Array<{ turn: number; messageId: string; admittedAt: string; endedAt?: string; outcome: string; phase: 'admission' | 'execution'; failure?: { code: string; status?: number } }>
+  executions: Array<{ turn: number; messageId: string; sessionId?: string; admittedAt: string; endedAt?: string; outcome: string; phase: 'admission' | 'execution'; failure?: { code: string; status?: number } }>
   records: Array<{ scheduledAt: string; deliveredAt: string; messageId: string; prompt?: string }>
   earlierRecordsUnavailable: boolean
   earlierRecordsPruned: boolean

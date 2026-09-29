@@ -80,6 +80,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
     {list?.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
       <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
       <p>{schedule.prompt}</p>
+      <p>{t(schedule.sessionMode === 'daily' ? '每日新会话，同日复用' : '持续复用任务会话')}{schedule.executionSessionId && <> · <code>{schedule.executionSessionId}</code></>}</p>
       <p>{t('已结束的执行次数')}：{schedule.runCount}{schedule.maxRuns !== undefined && ` / ${schedule.maxRuns}`}</p>
       <p>{t('岗位')}：{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[schedule.role])} · {t('执行范围')}：{t({ project: '全项目', asset: '当前批次', segments: '勾选句段' }[schedule.scope])} · {t('调度方式')}：{t({ after: '延迟一次', at: '指定时间一次', every: '按间隔重复', daily: '每天', weekly: '每周', cron: 'Cron' }[schedule.kind])}</p>
       {!schedule.limitReached && !schedule.pausedAfterFailures && <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>}
@@ -96,7 +97,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
         <strong>{t('最近执行记录')}</strong>
         <p>{t('执行状态来自 DSH 会话结束事件；专业完成情况请查看对应岗位决策。')}</p>
         {history.executions.length === 0 && <p>{t('暂无执行记录。')}</p>}
-        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
+        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ dispatched: '已分发到任务会话', 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.sessionId && <> · <code>{run.sessionId}</code></>}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
         {history.nextExecutionBefore && <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, undefined, history.nextExecutionBefore)}>{t('读取更早执行')}</Button>}
         <strong>{t('原生投递记录')}</strong>
         {history.records.length === 0 && <p>{t('暂无投递记录。')}</p>}
