@@ -35,7 +35,7 @@ export function classifyReceipt({ receipt, current, pack, currentSha256, packSha
     || receipt.installed?.desktopArtifact?.version !== artifact.version
     || receipt.installed?.desktopArtifact?.teamId !== artifact.teamId
     || desktopArtifactSha256 !== artifact.sha256
-    || !current.appPath || current.appPath === artifact.appPath || artifact.version !== current.dshVersion
+    || !current.appPath || current.appPath !== artifact.appPath || artifact.version !== current.dshVersion
     || installedTarballHashes?.linguist !== pack.linguist.sha256
     || installedTarballHashes?.browserSkill !== pack.browserSkill.sha256
     || receipt.launch?.appPath !== current.appPath || receipt.launch?.url !== 'dsh-app://app/' || receipt.launch?.dataRoot !== current.dataRoot

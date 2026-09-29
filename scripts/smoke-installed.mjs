@@ -13,8 +13,8 @@ export const productRoot = join(homedir(), 'Library/Application Support/Linguist
 export const currentPath = join(productRoot, 'current.json')
 export const smokePath = join(sourceRoot, 'artifacts/evidence/installed-smoke.json')
 const officialDesktop = {
-  sha256: '30909618ec09559448fc5bb28dffd7111c66e30f9b2142165fb9a812896f6607',
-  bundleId: 'com.deepseek.dsh', version: '0.1.7-rc.2', teamId: 'NAN929V4UM',
+  sha256: '86cea83e41f516bbfb71d634bf62b965e5944723224abf41606ba8d636fe9858',
+  bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.1', teamId: 'NAN929V4UM',
 }
 
 const digest = value => createHash('sha256').update(value).digest('hex')
@@ -65,9 +65,9 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
     current = JSON.parse(readFileSync(currentFile, 'utf8'))
     if (current.profile !== 'desktop') throw new Error('official DSH Desktop reserved desktop profile is required; web is not a delivery carrier')
     if (!current.installationId || !current.home || !current.dataRoot || !current.appPath || !current.desktopUserDataDir || !current.desktopArtifact?.sha256 || !current.desktopArtifact?.path || !current.desktopArtifact?.appPath) throw new Error('official Desktop current.json is incomplete')
-    if (current.dataRoot !== root || current.home !== join(root, 'desktop-home') || dirname(current.appPath) !== join(homedir(), 'Desktop')) throw new Error('official Desktop data root or double-click launcher path differs from the isolated product installation')
-    if (!childOf(current.desktopArtifact.appPath, root) || !childOf(current.desktopUserDataDir, root)) throw new Error('official Desktop app or user-data directory is outside the isolated product root')
-    if (current.appPath === current.desktopArtifact.appPath) throw new Error('double-click launcher must be recorded separately from the copied official Desktop app')
+    if (current.dataRoot !== root || current.home !== join(homedir(), '.dsh') || current.appPath !== '/Applications/DeepSeek Harness.app') throw new Error('official Desktop application or plugin data root differs from the installation')
+    if (current.desktopUserDataDir !== join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop')) throw new Error('official Desktop user-data directory differs')
+    if (current.appPath !== current.desktopArtifact.appPath) throw new Error('application entry must identify the official Desktop app')
     if (!current.plugins?.linguist?.sha256 || !current.plugins?.browserSkill?.sha256) throw new Error('installed plugin hashes are missing')
     currentValid = true
     return `official Desktop installation ${current.installationId}; reserved desktop profile`
@@ -115,8 +115,8 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
       const info = join(current.appPath, 'Contents/Info.plist')
       const { stdout } = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleExecutable', info])
       const executable = join(current.appPath, 'Contents/MacOS', stdout.trim())
-      if (!existsSync(executable) || !existsSync(current.desktopUserDataDir)) throw new Error('double-click launcher or isolated Chromium user-data directory is missing')
-      return `double-click launcher ${current.appPath}; independent Chromium user data ${current.desktopUserDataDir}`
+      if (!existsSync(executable) || !existsSync(current.desktopUserDataDir)) throw new Error('official Desktop or Chromium user-data directory is missing')
+      return `official Desktop ${current.appPath}; Chromium user data ${current.desktopUserDataDir}`
     })
     await check('linguist-files', async () => {
       const location = join(current.home, 'profiles/desktop/node_modules/@linguist/dsh-plugin')
@@ -126,17 +126,17 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
         'resources/linguist-roles/reviewer.md', 'resources/linguist-roles/proofreader.md',
         'resources/skills/phrase-platform-review-ops/SKILL.md',
         'resources/skills/phrase-platform-review-ops/references/workspace-update.md', 'cordis.patch.yml',
-      ], root)
+      ], current.home)
       const client = readFileSync(join(location, 'lib/client.cjs'), 'utf8')
       if (!client.includes('data-linguist-css') || !client.includes('registerLinguistLocale')) throw new Error('installed Client CSS or locale code is missing')
-      if (!existsSync(join(current.home, 'skills/phrase-platform-review-ops/SKILL.md'))) throw new Error('Phrase skill is missing from the isolated DSH skill root')
+      if (!existsSync(join(current.home, 'skills/phrase-platform-review-ops/SKILL.md'))) throw new Error('Phrase skill is missing from the DSH skill root')
       return `${count} tarball files match installed LA package including Host, Client, CSS, locale, workers, roles and skill`
     })
     await check('browser-skill-files', async () => {
       const location = join(current.home, 'profiles/desktop/node_modules/@wxg-prc-cpg/browser-skill-dsh-plugin')
       const count = await matchInstalledPackage(current.plugins.browserSkill.tarball, location, [
         'lib/index.mjs', 'lib/client.cjs', 'skill/SKILL.md', 'skill/references/file-transfers.md', 'cordis.patch.yml',
-      ], root)
+      ], current.home)
       const host = readFileSync(join(location, 'lib/index.mjs'), 'utf8')
       if (!host.includes('browser_files') || !host.includes('download') || !host.includes('upload')) throw new Error('installed BrowserSkill file actions are absent')
       return `${count} tarball files match the installed sole BrowserSkill plugin`
@@ -144,6 +144,7 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
     await check('profile', async () => {
       const profileDir = join(current.home, 'profiles/desktop')
       const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+      if (!manifest.dsh?.profile?.bundles?.includes('@deepseek-ai/dsh-experimental-schedule-bundle')) throw new Error('official automation bundle is not enabled')
       for (const [name, tarball] of [
         ['@linguist/dsh-plugin', current.plugins.linguist.tarball],
         ['@wxg-prc-cpg/browser-skill-dsh-plugin', current.plugins.browserSkill.tarball],
@@ -160,6 +161,7 @@ export async function runInstalledSmoke({ currentFile = currentPath, outputFile 
       if ([...patch.matchAll(/^\s*- id: linguist\s*$/gm)].length !== 1 || !patch.includes(`installationId:`) || !patch.includes(current.installationId) || !patch.includes(`dataRoot:`) || !patch.includes(current.dataRoot)) throw new Error('Linguist profile binding does not match this installation')
       const baseline = JSON.parse(readFileSync(join(sourceRoot, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
       if (!current.bskPath || !childOf(current.bskPath, root) || fileDigest(current.bskPath) !== baseline.cliRelease.binarySha256 || !patch.includes(`bskPath:`) || !patch.includes(current.bskPath)) throw new Error('installed profile does not use the pinned BrowserSkill CLI')
+      if (current.bskHome !== join(root, 'browser-skill/home') || !patch.includes('bskHome:') || !patch.includes(current.bskHome)) throw new Error('BrowserSkill daemon home is not bound to plugin configuration')
       if (!/- id: session-log-deepseek\s+disabled: true/.test(patch) || !/- id: session-telemetry-otel\s+disabled: true/.test(patch)) throw new Error('installed profile has not disabled extra session logging and telemetry')
       return 'official desktop profile resolves exactly one LA and one BrowserSkill bundle; home-level config pins the BrowserSkill CLI and disables extra logging/telemetry'
     })

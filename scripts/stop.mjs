@@ -5,13 +5,13 @@ import { join } from 'node:path'
 
 const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH')
 const current = JSON.parse(readFileSync(join(dataRoot, 'current.json'), 'utf8'))
-const appPath = join(dataRoot, 'official-desktop/0.1.7-rc.2/DeepSeek Harness.app')
+const appPath = '/Applications/DeepSeek Harness.app'
 const executable = join(appPath, 'Contents/MacOS/DeepSeek Harness')
-const userDataDir = join(dataRoot, 'desktop-user-data')
+const userDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop')
 const lockPath = join(userDataDir, 'SingletonLock')
 const receipts = join(dataRoot, 'receipts')
 
-if (current.profile !== 'desktop' || current.dshVersion !== '0.1.7-rc.2' || current.dataRoot !== dataRoot || current.home !== join(dataRoot, 'desktop-home') || current.appPath !== join(homedir(), 'Desktop/Linguist Agent DSH.app') || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath) throw new Error('current.json does not identify this isolated official Desktop installation')
+if (current.profile !== 'desktop' || current.dshVersion !== '0.2.0-rc.1' || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath) throw new Error('current.json does not identify this official Desktop plugin installation')
 
 function ownedMainPid() {
   let lock
@@ -26,9 +26,7 @@ function ownedMainPid() {
   if (processInfo.error) throw processInfo.error
   if (processInfo.status !== 0) throw new Error(`cannot inspect Desktop process ${pid}: ${processInfo.stderr.trim()}`)
   const command = processInfo.stdout.trim()
-  const option = ` --user-data-dir=${userDataDir}`
-  const at = command.indexOf(option)
-  if (!command.startsWith(`${executable} `) || at < 0 || (command[at + option.length] !== undefined && command[at + option.length] !== ' ')) throw new Error(`SingletonLock PID ${pid} is not this product's official Desktop process`)
+  if (command !== executable && !command.startsWith(`${executable} `)) throw new Error(`SingletonLock PID ${pid} is not the installed official Desktop process`)
   return pid
 }
 

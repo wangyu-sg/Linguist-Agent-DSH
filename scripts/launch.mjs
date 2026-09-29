@@ -5,14 +5,14 @@ import { join } from 'node:path'
 
 const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH')
 const current = JSON.parse(readFileSync(join(dataRoot, 'current.json'), 'utf8'))
-const appPath = join(dataRoot, 'official-desktop/0.1.7-rc.2/DeepSeek Harness.app')
+const appPath = '/Applications/DeepSeek Harness.app'
 const executable = join(appPath, 'Contents/MacOS/DeepSeek Harness')
-const userDataDir = join(dataRoot, 'desktop-user-data')
+const userDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop')
 const lockPath = join(userDataDir, 'SingletonLock')
 const receipts = join(dataRoot, 'receipts')
 
-if (current.profile !== 'desktop' || current.dshVersion !== '0.1.7-rc.2' || current.dataRoot !== dataRoot || current.home !== join(dataRoot, 'desktop-home') || current.appPath !== join(homedir(), 'Desktop/Linguist Agent DSH.app') || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this isolated official Desktop installation')
-if (!existsSync(executable) || !existsSync(join(current.home, 'profiles/desktop/package.json')) || !existsSync(userDataDir)) throw new Error('official Desktop, desktop profile, or isolated Chromium data directory is missing')
+if (current.profile !== 'desktop' || current.dshVersion !== '0.2.0-rc.1' || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this official Desktop plugin installation')
+if (!existsSync(executable) || !existsSync(join(current.home, 'profiles/desktop/package.json')) || !existsSync(userDataDir)) throw new Error('official Desktop, desktop profile, or Chromium data directory is missing')
 
 function ownedMainPid() {
   let lock
@@ -27,9 +27,7 @@ function ownedMainPid() {
   if (processInfo.error) throw processInfo.error
   if (processInfo.status !== 0) throw new Error(`cannot inspect Desktop process ${pid}: ${processInfo.stderr.trim()}`)
   const command = processInfo.stdout.trim()
-  const option = ` --user-data-dir=${userDataDir}`
-  const at = command.indexOf(option)
-  if (!command.startsWith(`${executable} `) || at < 0 || (command[at + option.length] !== undefined && command[at + option.length] !== ' ')) throw new Error(`SingletonLock PID ${pid} is not this product's official Desktop process`)
+  if (command !== executable && !command.startsWith(`${executable} `)) throw new Error(`SingletonLock PID ${pid} is not the installed official Desktop process`)
   return pid
 }
 
@@ -54,7 +52,7 @@ if (pid !== null) {
 } else {
   let openRequested = false
   try {
-    const opened = spawnSync('/usr/bin/open', ['-n', '-a', appPath, '--env', `DSH_HOME=${current.home}`, '--env', `BSK_HOME=${current.bskHome}`, '--args', `--user-data-dir=${userDataDir}`], { encoding: 'utf8' })
+    const opened = spawnSync('/usr/bin/open', ['-a', appPath], { encoding: 'utf8' })
     if (opened.error) throw opened.error
     if (opened.status !== 0) throw new Error(`official Desktop open failed: ${opened.stderr.trim()}`)
     openRequested = true
@@ -63,7 +61,7 @@ if (pid !== null) {
       pid = ownedMainPid()
       if (pid !== null) break
     }
-    if (pid === null) throw new Error('official Desktop did not create an isolated Chromium SingletonLock within 20 seconds')
+    if (pid === null) throw new Error('official Desktop did not create a Chromium SingletonLock within 20 seconds')
     const receipt = record({ status: 'LAUNCHED', pid, startedNewProcess: true, openExitCode: opened.status })
     console.log(JSON.stringify({ status: 'LAUNCHED', installationId: current.installationId, pid, receipt }))
   } catch (error) {

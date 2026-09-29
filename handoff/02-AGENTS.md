@@ -35,9 +35,9 @@ Final request evidence must use real model-visible content and observed request/
 
 Implement all W00–W12 packages and all locally inventoried features. Work packages are construction order, not phased product scope. Fix type/build/test/UI/package errors and continue without repeatedly asking the user. Do not stop after the first working vertical slice.
 
-Allowed: target code, necessary pinned dependencies, bounded compatibility patches, isolated synthetic tests, limited real-model smoke using configured routes, side-by-side install of the matching official DSH Desktop artifact and native plugins, isolated desktop entry, own-service start/stop, local git commits and final local notification. The official Desktop owns its reserved `desktop` profile; CLI may not mutate it. Web profile checks are development evidence only.
+Allowed: target code, necessary pinned dependencies, bounded compatibility patches, isolated synthetic tests, limited real-model smoke using configured routes, installation of the matching official DSH Desktop at /Applications/DeepSeek Harness.app and native plugins in its default desktop profile, own-service start/stop, local git commits and final local notification. The official Desktop owns its reserved `desktop` profile; CLI may not mutate it. Web profile checks are development evidence only.
 
-Forbidden: source mutations, old app/profile replacement, real OSgame/customer database writes, real Phrase operations, user-data deletion, Cookie/key extraction, auth bypass, remote push/release/publication, unrelated global upgrades and system security changes.
+Forbidden: source mutations, old LA/Proma replacement or deletion of existing DSH profile data, real OSgame/customer database writes, real Phrase operations, user-data deletion, Cookie/key extraction, auth bypass, remote push/release/publication, unrelated global upgrades and system security changes.
 
 Use no customer content in fixtures, logs or model tests. Never dump environment variables, credentials or browser profiles. Do not silently change model/provider/effort to pass a test.
 

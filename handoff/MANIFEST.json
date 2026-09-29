@@ -6,33 +6,33 @@
   "files": [
     {
       "path": "00-新会话启动指令.md",
-      "bytes": 6134,
-      "sha256": "9c74ff860d1b365651424cf17e208374aa036ea1f69ade31c4854511d972357a"
+      "bytes": 6144,
+      "sha256": "1e512b2c531c8ec3aec5f164b903eba16f8b606122bcf45464415729424e8e2d"
     },
     {
       "path": "01-完整实施规范.md",
-      "bytes": 96905,
-      "sha256": "cbe8766176ae74fbc2fbb518f83b0c4eff4867096fd4aa83e804b8382a46fe19"
+      "bytes": 94695,
+      "sha256": "7f7535a83bf71bfac08088a7ed1283200d67897b05682fc7eeb3fa88966a5ced"
     },
     {
       "path": "02-AGENTS.md",
-      "bytes": 6332,
-      "sha256": "e75aaadcc4016c3c0ed1b042430cb962346233a0586531c555d6bc634e8c6677"
+      "bytes": 6398,
+      "sha256": "76e85a9fb023ec416570bd44af2da2ae3a404692ba7c4eb0eb90fa2299a7f299"
     },
     {
       "path": "03-迁移与验收矩阵.json",
-      "bytes": 33918,
-      "sha256": "a5d52fb7eaba8d5479a0be6802ca94b7e0fc17f94462e783b2a9db21974051d7"
+      "bytes": 33961,
+      "sha256": "e486a0c452e25de51dabfd22212f74702ab21eda1d309e39eccbd0ab3227e192"
     },
     {
       "path": "04-来源与基线.json",
-      "bytes": 15990,
-      "sha256": "480bbd265632af1b976ef8c1a8b1dead282d80e0e38db38e14b51b96d21c128b"
+      "bytes": 16901,
+      "sha256": "2086c3e8d220a29b58b65bdafdbf229b634051f60520b2b8f47fe92c2468adc8"
     },
     {
       "path": "05-离线阅读版.html",
-      "bytes": 131998,
-      "sha256": "434865a34c104e6c42e95f2bdff2813e15838d4c1c1ca70c20d138c37178e0a0"
+      "bytes": 128668,
+      "sha256": "cff8d68451f07cd2e7aae26f4959c2ec30dd70831eb6789e85fd2409f846dd9b"
     }
   ]
 }

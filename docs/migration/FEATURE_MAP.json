@@ -7,7 +7,7 @@
     "sourceReadOnly": "/Users/wangyu/Desktop/linguist-agent-next",
     "target": "/Users/wangyu/Desktop/Linguist-Agent-DSH",
     "productData": "/Users/wangyu/Library/Application Support/Linguist-Agent-DSH",
-    "launcher": "/Users/wangyu/Desktop/Linguist Agent DSH.app"
+    "launcher": "/Applications/DeepSeek Harness.app"
   },
   "localSourceOverridesPublicSeed": true,
   "publicToolCountIsNotUpperBound": true,
@@ -1827,7 +1827,7 @@
       },
       {
         "id": "G09",
-        "criterion": "新产品独立data/profile，旧源/旧数据/客户网站未被修改",
+        "criterion": "LA 领域数据独立存放；官方默认 profile 保留已有用户数据；旧源/旧 LA 与 Proma 数据/客户网站未被修改",
         "mandatory": true,
         "allowedOutcomes": [
           "pass",

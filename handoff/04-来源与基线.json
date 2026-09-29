@@ -5,7 +5,7 @@
   "localFilesystemInspected": false,
   "runtimeExecuted": false,
   "productInstalled": false,
-  "evidenceScope": "The original S01-S18 entries are a static public-source handoff baseline; S19 and localDesktopVerification record the subsequent official Desktop carrier verification. New names/interfaces are not SDK promises unless checked against the installed artifact.",
+  "evidenceScope": "The original S01-S18 entries are a static public-source handoff baseline; S19 and localDesktopVerification record the earlier 0.1.7 Desktop carrier, while currentDesktopVerification records the later 0.2.0 RC carrier. New names/interfaces are not SDK promises unless checked against the installed artifact.",
   "sourceOfTruth": "/Users/wangyu/Desktop/linguist-agent-next including valid dirty/untracked code",
   "publicReference": {
     "la": {
@@ -37,6 +37,21 @@
     "nativeProfile": "desktop",
     "isolation": "DSH_HOME plus tested Chromium --user-data-dir; this fixed RC does not implement DSH_DESKTOP_USER_DATA_DIR",
     "status": "app signed and side-by-side installed; LA native plugin install and end-to-end acceptance pending"
+  },
+  "currentDesktopVerification": {
+    "carrier": "official DeepSeek Harness Desktop 0.2.0-rc.1 mac-arm64 prerelease",
+    "releaseUrl": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1",
+    "downloadUrl": "https://download.deepseek.com/dsh-desk/bin/mac-arm64/deepseek-harness-0.2.0-rc.1-mac-arm64.dmg",
+    "dmgSha256": "86cea83e41f516bbfb71d634bf62b965e5944723224abf41606ba8d636fe9858",
+    "dmgVerify": "pass",
+    "copiedAppPath": "/Applications/DeepSeek Harness.app",
+    "copiedAppBundleId": "com.deepseek.dsh",
+    "copiedAppVersion": "0.2.0-rc.1",
+    "teamId": "NAN929V4UM",
+    "codesignDeepStrict": "pass",
+    "gatekeeper": "accepted; Notarized Developer ID",
+    "embeddedDesktopVersion": "0.2.0-rc.1",
+    "status": "official application copied to Applications; native plugin installation and acceptance pending"
   },
   "requirementsForExecutor": [
     "Inspect actual local implementation and installation artifacts.",

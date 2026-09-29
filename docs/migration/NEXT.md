@@ -1,5 +1,18 @@
 # 接续状态（2026-09-29）
 
+## 当前执行点
+
+- 用户最终选择普通官方 `/Applications/DeepSeek Harness.app`（0.2.0-rc.1）与默认 `~/.dsh/profiles/desktop`。普通路径签名、公证已通过；原桌面 LA 品牌薄入口已移入废纸篓，可恢复。两个插件新包尚未通过原生管理器安装。
+- 当前候选安装身份 `la-478ea64aa103-b4f81677`：LA `478ea64aa103`、BrowserSkill `b4f81677`。实际 tgz 已暂存到产品 `runtime/packages`。BrowserSkill 已按真实 0.2 SDK 与冻结适配锁文件构建，382/382 测试通过，两次构建 SHA256 一致。
+- 主插件最终包构建通过；打包后 8/8 typecheck、173 Node、21 Bun、隔离源与目标 CAT 各 151/151 通过；安装回执测试 3/3 通过。日志在 `artifacts/evidence/dsh-020-*.log`，工具链核验通过。
+- `install:local` 返回 NATIVE_INSTALL_PENDING。已写 `~/.dsh/cordis.patch.yml` 配置 LA 数据根、BrowserSkill 私有 daemon home 与默认日志关闭。未改 desktop profile 依赖清单、凭据或会话；`current.json` 仍代表先前安装，不得据新包伪造安装完成。
+- 待通过官方原生管理器安装两 tgz，并启用 `@deepseek-ai/dsh-experimental-schedule-bundle@0.2.0-rc.1`。本地包 UI 安装受 CUA 工具“动作时确认”规则约束；须在能执行该动作时请求一次具体确认。
+- CUA 对 DSH/Finder 均报 ScreenCaptureKit -3811；用户未见授权弹窗，系统报告显示器在线，原因未确定。`artifacts/evidence/desktop-control-blocker.json` 记录 BLOCKED_ENV；已异步询问 Codex 屏幕录制权限当前状态。恢复 CUA 后进行正式安装、双击、退出重开及完整 UI/Provider/BrowserSkill localhost 链验证。不要继续盲试相同失败。
+- 实施规范、AGENTS、快速说明、离线 HTML、manifest 已统一官方 App/default profile 方案。BrowserSkill `bskHome` 由插件 runner 传给子进程；不依赖启动器注入环境。源仓库未修改。
+- `verify:ready` 当前仍 FAILED：安装仍旧身份，功能/验收矩阵未全通过；普通 Composer 提交绑定、跨 Workspace 历史 fork 和自动任务执行结果等缺口保持真实 pending。旧 0.1.7 验收不能用于新包。下方是先前历史记录。
+
+## 先前记录
+
 状态：IMPLEMENTING，未达到 READY。只读源 `/Users/wangyu/Desktop/linguist-agent-next` 未改动；目标代码和独立产品数据根在 `/Users/wangyu/Desktop/Linguist-Agent-DSH` 与 `/Users/wangyu/Library/Application Support/Linguist-Agent-DSH`。
 
 - 正式载体已改为固定官方 DSH Desktop `0.1.7-rc.2` ARM64 成品。DMG 来源、SHA-256、签名、公证、内嵌运行时均核对；两插件实际 tgz 已通过官方原生管理器装入独立 `desktop` profile，并排入口 `/Users/wangyu/Desktop/Linguist Agent DSH.app` 经 Finder 双击、退出、重开，两个插件仍启用。旧 `a3260da726fe` 安装实例曾通过 9/9 静态身份检查；当前 `8ca040bebfa6` 包尚未更新到原生管理器，G04 失败。

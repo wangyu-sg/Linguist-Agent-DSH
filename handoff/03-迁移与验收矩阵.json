@@ -7,8 +7,8 @@
     "sourceReadOnly": "/Users/wangyu/Desktop/linguist-agent-next",
     "target": "/Users/wangyu/Desktop/Linguist-Agent-DSH",
     "productData": "/Users/wangyu/Library/Application Support/Linguist-Agent-DSH",
-    "launcher": "/Users/wangyu/Desktop/Linguist Agent DSH.app",
-    "carrier": "official DSH Desktop 0.1.7-rc.2 mac-arm64",
+    "launcher": "/Applications/DeepSeek Harness.app",
+    "carrier": "official DSH Desktop 0.2.0-rc.1 mac-arm64",
     "profile": "desktop"
   },
   "localSourceOverridesPublicSeed": true,
@@ -859,7 +859,7 @@
     {
       "id": "V29",
       "title": "安装重开/回退",
-      "requiredAssertions": "固定官方 Desktop 成品与内嵌 DSH 版本一致；原生插件管理安装实际 tgz；桌面双击、退出重开、非交互PATH、关施工shell仍可用；独立 desktop profile 和重装保数据",
+      "requiredAssertions": "固定官方 Desktop 成品与内嵌 DSH 版本一致；原生插件管理安装实际 tgz；桌面双击、退出重开、非交互PATH、关施工shell仍可用；官方默认 desktop profile 和重装保数据",
       "required": true,
       "status": "not_run",
       "evidencePaths": []
@@ -981,7 +981,7 @@
       },
       {
         "id": "G09",
-        "criterion": "新产品独立data/profile，旧源/旧数据/客户网站未被修改",
+        "criterion": "LA 领域数据独立存放；官方默认 profile 保留已有用户数据；旧源/旧 LA 与 Proma 数据/客户网站未被修改",
         "mandatory": true,
         "allowedOutcomes": [
           "pass",
@@ -993,7 +993,7 @@
       },
       {
         "id": "G10",
-        "criterion": "官方 Desktop 成品从隔离入口双击→退出→重开，独立 desktop profile 插件仍激活；施工shell结束不影响运行",
+        "criterion": "官方 Desktop 应用双击→退出→重开，默认 desktop profile 插件仍激活；施工shell结束不影响运行",
         "mandatory": true,
         "allowedOutcomes": [
           "pass",

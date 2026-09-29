@@ -32,8 +32,10 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
   const [title, setTitle] = React.useState(editing?.title ?? '')
   const [prompt, setPrompt] = React.useState(editing?.prompt ?? '')
   const [scope, setScope] = React.useState<'project' | 'asset' | 'segments'>(editing?.scope ?? 'project')
-  const [scopeAssetId, setScopeAssetId] = React.useState(editing?.scopeSnapshot.assetId ?? assetId)
-  const [scopeSegmentIds, setScopeSegmentIds] = React.useState(editing?.scopeSnapshot.selectedSegmentIds ?? selectedSegmentIds)
+  const [editedAssetId, setScopeAssetId] = React.useState(editing?.scopeSnapshot.assetId ?? assetId)
+  const [editedSegmentIds, setScopeSegmentIds] = React.useState(editing?.scopeSnapshot.selectedSegmentIds ?? selectedSegmentIds)
+  const scopeAssetId = editing ? editedAssetId : assetId
+  const scopeSegmentIds = editing ? editedSegmentIds : selectedSegmentIds
   const [kind, setKind] = React.useState<LinguistScheduleTiming['kind']>(editing?.timing.kind ?? 'after')
   const [seconds, setSeconds] = React.useState(editing?.timing.kind === 'after' || editing?.timing.kind === 'every' ? String(editing.timing.seconds) : '3600')
   const [at, setAt] = React.useState(() => {

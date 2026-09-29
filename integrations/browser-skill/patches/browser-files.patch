@@ -28,7 +28,7 @@ index 114b6d6..dff2d18 100644
  `/browser-skill`. Set `lazyTools: false` to make the tools available immediately.
  
 diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin-browserskill/package.json
-index 28f4017..4e29057 100644
+index 28f4017..614d4b1 100644
 --- a/packages/dsh-plugin-browserskill/package.json
 +++ b/packages/dsh-plugin-browserskill/package.json
 @@ -1,7 +1,8 @@
@@ -36,28 +36,117 @@ index 28f4017..4e29057 100644
    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
    "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (browser_* tools) to the model",
 -  "version": "0.3.1",
-+  "version": "0.3.1-la-dsh.1",
++  "version": "0.3.1-la-dsh.2",
 +  "private": true,
    "license": "MIT",
    "publishConfig": {
      "access": "public",
-@@ -67,11 +68,11 @@
+@@ -66,14 +67,14 @@
+     "lint:publint": "publint"
    },
    "peerDependencies": {
-     "@deepseek-ai/cordis": "^4.0.2",
+-    "@deepseek-ai/cordis": "^4.0.2",
 -    "@deepseek-ai/dsh-attachment": "^0.1.5-rc.3",
 -    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.3",
 -    "@deepseek-ai/dsh-client-ui-tool": "^0.1.5-rc.3",
 -    "@deepseek-ai/dsh-llm": "^0.1.5-rc.3",
 -    "@deepseek-ai/dsh-tools": "^0.1.5-rc.3",
-+    "@deepseek-ai/dsh-attachment": "0.1.7-rc.2",
-+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
-+    "@deepseek-ai/dsh-client-ui-tool": "0.1.7-rc.2",
-+    "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
-+    "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
-     "@deepseek-ai/schemastery": "^3.18.2",
-     "react": "^18.2.0"
+-    "@deepseek-ai/schemastery": "^3.18.2",
+-    "react": "^18.2.0"
++    "@deepseek-ai/cordis": "4.0.4",
++    "@deepseek-ai/dsh-attachment": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-tool": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-llm": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-tools": "0.2.0-rc.1",
++    "@deepseek-ai/schemastery": "3.18.4",
++    "react": "18.3.1"
    },
+   "peerDependenciesMeta": {
+     "@deepseek-ai/dsh-attachment": {
+@@ -94,25 +95,25 @@
+   },
+   "devDependencies": {
+     "@browser-skill/ui": "workspace:*",
+-    "@deepseek-ai/cordis": "4.0.2",
+-    "@deepseek-ai/dsh-agent": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-api-session-controller": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-attachment": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-store": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-chat": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-layout": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-session": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-client-ui-tool": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-llm": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-scope": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-session": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-skill": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-tools": "0.1.5-rc.3",
+-    "@deepseek-ai/schemastery": "3.18.2",
++    "@deepseek-ai/cordis": "4.0.4",
++    "@deepseek-ai/dsh-agent": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-attachment": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-store": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-chat": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-ui-tool": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-llm": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-scope": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-session": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-skill": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-tools": "0.2.0-rc.1",
++    "@deepseek-ai/schemastery": "3.18.4",
+     "@remixicon/react": "^4.9.0",
+     "@tailwindcss/cli": "^4.3.3",
+     "@testing-library/react": "^16.1.0",
+@@ -128,6 +129,36 @@
+     "tailwindcss": "^4.3.3",
+     "tsdown": "^0.22.14",
+     "typescript": "^5.8.0",
+-    "vitest": "^4.1.6"
++    "vitest": "^4.1.6",
++    "@deepseek-ai/dsh-util-code-language": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-util-workspace-path": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-util-time": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-commands": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-session-persistence": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-file-reference": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-subagent": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-agent-default-model": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-session-query": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-workspace": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-typert-registry": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-session-title": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-session-projection": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-native-command": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-client-file-upload": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-home-paths": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-fs": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-invariants": "0.2.0-rc.1",
++    "@deepseek-ai/cordis-plugin-include": "1.0.9",
++    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-credentials": "0.2.0-rc.1",
++    "@deepseek-ai/cordis-plugin-loader": "1.0.5",
++    "@deepseek-ai/dsh-settings": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-tool-todo": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-storage": "0.2.0-rc.1",
++    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.1"
+   }
+ }
 diff --git a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
 index dc55950..2bbdcbb 100644
 --- a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
@@ -167,6 +256,27 @@ index 1c947de..8ab295e 100644
  export function registerBrowserTools(deps: ToolDeps): () => void {
    const definitions = indexOperations(createBrowserOperationDefinitions(deps));
    const disposers = BROWSER_TOOL_SPECS.map((spec) =>
+diff --git a/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx b/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx
+index daf82aa..1979ef6 100644
+--- a/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx
++++ b/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx
+@@ -42,6 +42,7 @@ const TERMINAL_LABELS: TerminalBlockLabels = {
+   copy: "Copy",
+   copied: "Copied",
+   noOutput: "No output",
++  noExitCode: "No exit code",
+   collapseAria: "Collapse output",
+   collapse: "Collapse",
+   expandAria: (hidden) => `Expand the remaining ${hidden} output lines`,
+@@ -128,7 +129,7 @@ function commandOf(argsRaw: string, callId: string): { command: string; title: s
+ /** Derive the display model from the frozen block only. */
+ export function viewModelOf(block: ToolCallViewProps["block"]): ViewModel {
+   const settled = "kind" in block;
+-  const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? "";
++  const argsRaw = (settled ? block.call?.argsRaw : block.phase === "start" ? block.argsRaw : undefined) ?? "";
+   const { command, title } = commandOf(argsRaw, block.callId);
+   if (!settled) {
+     return { state: "running", command, output: null, image: null, summary: command, title };
 diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-plugin-browserskill/src/file-tools.ts
 new file mode 100644
 index 0000000..ce839e3
@@ -492,29 +602,40 @@ index 0000000..ce839e3
 +  }));
 +}
 diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin-browserskill/src/index.ts
-index 5095238..6a8af40 100644
+index 5095238..b1b6909 100644
 --- a/packages/dsh-plugin-browserskill/src/index.ts
 +++ b/packages/dsh-plugin-browserskill/src/index.ts
-@@ -33,6 +33,9 @@ export const Config = Schema.object({
+@@ -33,6 +33,10 @@ export const Config = Schema.object({
    bskPath: Schema.string()
      .default("bsk")
      .description("Path to the bsk CLI binary (defaults to resolving `bsk` from PATH)."),
 +  fileStagingDirectory: Schema.string().description(
 +    "Additional LA staging directory allowed for browser file transfers; the current DSH session working directory is also allowed.",
 +  ),
++  bskHome: Schema.string().description("Private BrowserSkill daemon home directory."),
    sessionStateDirectory: Schema.string().description(
      "Directory for durable browser start recovery records; defaults to BSK_HOME/dsh-starts scoped by working directory and CLI.",
    ),
-@@ -76,6 +79,7 @@ export function apply(
+@@ -76,6 +80,8 @@ export function apply(
  ): void {
    const resolved: PluginConfig = {
      bskPath: config.bskPath ?? "bsk",
++    bskHome: config.bskHome,
 +    fileStagingDirectory: config.fileStagingDirectory,
      sessionStateDirectory: config.sessionStateDirectory,
      defaultTimeoutMs: config.defaultTimeoutMs ?? 120_000,
      maxSessions: config.maxSessions ?? 5,
+@@ -84,7 +90,7 @@ export function apply(
+     idleIntervalMs: config.idleIntervalMs ?? 8000,
+     lazyTools: config.lazyTools ?? true,
+   };
+-  const runner = options.runnerFactory?.(resolved.bskPath) ?? createBskRunner(resolved.bskPath);
++  const runner = options.runnerFactory?.(resolved.bskPath) ?? createBskRunner(resolved.bskPath, undefined, resolved.bskHome);
+   const registry = new SessionRegistry(resolved.maxSessions);
+   const queue = new KeyedExecutor();
+   const observation = new ObservationService({
 diff --git a/packages/dsh-plugin-browserskill/src/lazy-tools.ts b/packages/dsh-plugin-browserskill/src/lazy-tools.ts
-index 7590a25..5b08246 100644
+index 7590a25..fde1b01 100644
 --- a/packages/dsh-plugin-browserskill/src/lazy-tools.ts
 +++ b/packages/dsh-plugin-browserskill/src/lazy-tools.ts
 @@ -1,6 +1,6 @@
@@ -525,7 +646,59 @@ index 7590a25..5b08246 100644
   * system prompt until the `browser-skill` skill has actually been invoked —
   * the skill catalog entry is the only advertisement. One successful
   * invocation (model tool call, or a user's `/browser-skill` gesture) reveals
-@@ -147,7 +147,7 @@ export function hasSuccessfulSkillInvocation(events: readonly SessionEventLike[]
+@@ -10,7 +10,7 @@
+  * pair, or a skill-invocation sourced message) when a session is entered or
+  * first observed after a reload. Later events are consumed incrementally.
+  *
+- * Verified against dsh 0.1 (recorded in the PR ticket):
++ * Verified against the pinned DSH 0.2 SDK in local contract tests:
+  * - `tools/result(exec, result)`: exec carries normalized `name`/`arguments`,
+  *   result is discriminated by `isError` — the model-invocation trigger.
+  * - There is NO official global tool-visibility switch (`ctx.tools.restrict`
+@@ -20,8 +20,7 @@
+  *   tool-skill's per-step catalog digest treats visibility changes as a
+  *   first-class cache-invalidation input — the suite simply appears in the
+  *   NEXT step's assembly.
+- * - Durable results use message.source.callId and a tool-result content
+- *   block. Older hosts stored callId/isError directly on the message.
++ * - Durable tool-role results carry source.callId, toolCallId and isError.
+  */
+ 
+ import type { Context } from "@deepseek-ai/cordis";
+@@ -55,26 +54,14 @@ function isCallId(value: unknown): value is string {
+   return typeof value === "string" && value.length > 0;
+ }
+ 
+-/** Accept current DSH messages and the older flat tool-result shape. */
++/** Accept the pinned DSH tool-role result envelope. */
+ function toolResultOf(data: unknown): { callId: string; isError: boolean } | undefined {
+   const message = record(record(data)?.message);
+-  if (message === undefined) return;
+-  const source = record(message.source);
+-  if (source?.kind === "tool") {
+-    const blocks = message.content;
+-    const block = Array.isArray(blocks) && blocks.length === 1 ? record(blocks[0]) : undefined;
+-    if (
+-      isCallId(source.callId) &&
+-      block?.type === "tool-result" &&
+-      block.toolCallId === source.callId &&
+-      typeof block.isError === "boolean"
+-    ) {
+-      return { callId: source.callId, isError: block.isError };
+-    }
+-    return;
+-  }
+-  if (isCallId(message.callId) && typeof message.isError === "boolean") {
+-    return { callId: message.callId, isError: message.isError };
++  const source = record(message?.source);
++  if (message?.role === "tool" && source?.kind === "tool" &&
++      isCallId(source.callId) && message.toolCallId === source.callId &&
++      typeof message.isError === "boolean") {
++    return { callId: source.callId, isError: message.isError };
+   }
+ }
+ 
+@@ -147,7 +134,7 @@ export function hasSuccessfulSkillInvocation(events: readonly SessionEventLike[]
  /**
   * Arm the lazy reveal. Returns a disposer tearing down listeners and — when
   * the reveal already happened — the tool suite itself.
@@ -534,8 +707,70 @@ index 7590a25..5b08246 100644
   */
  export function armLazyTools(ctx: Context, registerSuite: () => () => void): () => void {
    let disposed = false;
+diff --git a/packages/dsh-plugin-browserskill/src/runner.ts b/packages/dsh-plugin-browserskill/src/runner.ts
+index c1c4902..a53f1aa 100644
+--- a/packages/dsh-plugin-browserskill/src/runner.ts
++++ b/packages/dsh-plugin-browserskill/src/runner.ts
+@@ -98,7 +98,7 @@ interface LiveRun {
+   requestKill: () => boolean;
+ }
+ 
+-export function createBskRunner(bskPath: string, spawnImpl: SpawnImpl = spawn): BskRunner {
++export function createBskRunner(bskPath: string, spawnImpl: SpawnImpl = spawn, bskHome?: string): BskRunner {
+   const live = new Map<ChildProcess, LiveRun>();
+   const windows = process.platform === "win32";
+   const cancelling = new Map<ChildProcess, ReturnType<typeof setTimeout>>();
+@@ -140,9 +140,9 @@ export function createBskRunner(bskPath: string, spawnImpl: SpawnImpl = spawn):
+             windows
+               ? {
+                   windowsHide: true,
+-                  env: { ...process.env, BSK_CANCEL_ON_STDIN_CLOSE: "1" },
++                  env: { ...process.env, ...(bskHome ? { BSK_HOME: bskHome } : {}), BSK_CANCEL_ON_STDIN_CLOSE: "1" },
+                 }
+-              : undefined,
++              : bskHome ? { env: { ...process.env, BSK_HOME: bskHome } } : undefined,
+           );
+           // A child exiting while cancellation closes stdin may report EPIPE.
+           // Process completion remains the authority for the run result.
+diff --git a/packages/dsh-plugin-browserskill/src/skill.ts b/packages/dsh-plugin-browserskill/src/skill.ts
+index 97aea05..c022b5b 100644
+--- a/packages/dsh-plugin-browserskill/src/skill.ts
++++ b/packages/dsh-plugin-browserskill/src/skill.ts
+@@ -67,7 +67,7 @@ export function registerBskSkill(ctx: Context): () => void {
+  * Registering the embedded skill through `agent.ctx` makes the DSH protocol
+  * contract authoritative for that agent without touching the shared CLI skill.
+  *
+- * New agents are handled at `agent/session-start`, the first supported startup
++ * New agents are handled at `agent/created`, the first supported startup
+  * injection point and still before the first prompt assembly. Existing agents
+  * are registered immediately so plugin reloads take effect without recreating
+  * the conversation. Returns a disposer for all plugin-owned registrations.
+@@ -81,11 +81,12 @@ export function armAgentScopedBskSkill(ctx: Context): () => void {
+     registrations.set(agent, registerBskSkill(agent.ctx));
+   };
+ 
+-  let stopSessionStart = () => {};
++  let stopCreated = () => {};
+   let stopDisposed = () => {};
+   if (typeof ctx.on === "function") {
+-    stopSessionStart = ctx.on("agent/session-start", ({ agent }) => {
++    stopCreated = ctx.on("agent/created", ({ agent }) => {
+       registerForAgent(agent);
++      return undefined;
+     });
+     stopDisposed = ctx.on("agent/disposed", ({ agent }) => {
+       // Agent-scoped effects have already unwound at this lifecycle edge. Drop
+@@ -103,7 +104,7 @@ export function armAgentScopedBskSkill(ctx: Context): () => void {
+     if (!active) return;
+     active = false;
+     stopDisposed();
+-    stopSessionStart();
++    stopCreated();
+     for (const unregister of [...registrations.values()].reverse()) unregister();
+     registrations.clear();
+   };
 diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin-browserskill/src/tools.ts
-index 5f9835e..18400f7 100644
+index 5f9835e..4c945be 100644
 --- a/packages/dsh-plugin-browserskill/src/tools.ts
 +++ b/packages/dsh-plugin-browserskill/src/tools.ts
 @@ -1,5 +1,5 @@
@@ -553,16 +788,18 @@ index 5f9835e..18400f7 100644
  import { trySaveScreenshot } from "./image";
  import { actionForLabel, type ObservationService } from "./observation";
  import { registerPhaseOneTools } from "./phase-one-tools";
-@@ -35,6 +36,8 @@ import { BROWSER_PARAM, SESSION_PARAM, SESSION_STOP_PARAMS } from "./tool-params
+@@ -34,7 +35,10 @@ import { BROWSER_PARAM, SESSION_PARAM, SESSION_STOP_PARAMS } from "./tool-params
+ 
  /** Plugin configuration resolved from the Schemastery schema in index.ts. */
  export interface PluginConfig {
++  bskHome?: string;
    bskPath: string;
 +  /** Additional product staging directory allowed for browser file transfer. */
 +  fileStagingDirectory?: string;
    /** Optional durable start journal directory (isolated by host/profile when configured). */
    sessionStateDirectory?: string;
    defaultTimeoutMs: number;
-@@ -1050,11 +1053,16 @@ function defineBrowserOperations(deps: ToolDeps, register: DefinitionRegistrar):
+@@ -1050,11 +1054,16 @@ function defineBrowserOperations(deps: ToolDeps, register: DefinitionRegistrar):
      commandLine: (args) => cmdline(deps, args),
      presentTerminalResult,
    });
@@ -580,6 +817,54 @@ index 5f9835e..18400f7 100644
   * rendering, cancellation, ownership, UI presentation, and attachments.
   */
  export function createBrowserOperationDefinitions(deps: ToolDeps): ToolDefinition[] {
+diff --git a/packages/dsh-plugin-browserskill/tests/client/browser-inspect-toolview.test.tsx b/packages/dsh-plugin-browserskill/tests/client/browser-inspect-toolview.test.tsx
+index c475858..bdcfb23 100644
+--- a/packages/dsh-plugin-browserskill/tests/client/browser-inspect-toolview.test.tsx
++++ b/packages/dsh-plugin-browserskill/tests/client/browser-inspect-toolview.test.tsx
+@@ -3,7 +3,7 @@
+ // image/path-only/running/error rendering, the registration key, and the
+ // session-bound attachment loader.
+ 
+-import type { RunningToolCall, ToolResultNode } from "@deepseek-ai/dsh-client-ui-chat/client";
++import type { StartedToolCall, ToolResultNode } from "@deepseek-ai/dsh-client-ui-chat/client";
+ import { cleanup, render, screen, waitFor } from "@testing-library/react";
+ import { afterEach, describe, expect, it, vi } from "vitest";
+ import {
+@@ -22,17 +22,17 @@ const ATTACHMENT = {
+   name: "screenshot-s1.png",
+ } as never;
+ 
+-function runningBlock(argsRaw: string): RunningToolCall {
++function runningBlock(argsRaw: string): StartedToolCall {
+   return {
++    phase: "start",
+     callId: "c1",
+     name: "browser_inspect",
+     argsRaw,
+     turn: 1,
+     step: 1,
+     time: 0,
+-    callView: null,
+     subCalls: [],
+-  } as never;
++  };
+ }
+ 
+ function settledBlock(argsRaw: string, content: unknown[], isError = false): ToolResultNode {
+@@ -57,6 +57,13 @@ const PATH_TEXT = "[session s1] screenshot saved to /tmp/shot.png (800x457px, 8
+ afterEach(cleanup);
+ 
+ describe("viewModelOf", () => {
++  it("renders the preparation stage without unavailable arguments", () => {
++    const { argsRaw, ...call } = runningBlock("{}");
++    const model = viewModelOf({ ...call, phase: "preparing" });
++    expect(model.state).toBe("running");
++    expect(model.command).toBe("browser_inspect (c1)");
++  });
++
+   it("derives the running model from the call frame", () => {
+     const model = viewModelOf(runningBlock('{"action":"screenshot","session":"s1"}'));
+     expect(model.state).toBe("running");
 diff --git a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
 new file mode 100644
 index 0000000..9e638e6
@@ -689,9 +974,68 @@ index 0000000..9e638e6
 +  expect(reopened.calls).toHaveLength(0);
 +});
 diff --git a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
-index 138cf2a..2fdf19b 100644
+index 138cf2a..9116aaf 100644
 --- a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
+@@ -137,7 +137,7 @@ describe("armLazyTools", () => {
+         type: "tool/call",
+         data: { callId: "c1", name: "skill", arguments: '{"name":"browser-skill"}' },
+       },
+-      { type: "tool/result", data: { message: { callId: "c1", isError: false } } },
++      skillResult(false, "c1"),
+     ];
+     // boot-time live sessions are scanned
+     const boot = fakeEventCtx({ list: () => [{ events: hitEvents }] });
+@@ -161,7 +161,7 @@ describe("armLazyTools", () => {
+               type: "tool/call",
+               data: { callId: "c1", name: "skill", arguments: '{"name":"browser-skill"}' },
+             },
+-            { type: "tool/result", data: { message: { callId: "c1", isError: true } } },
++            skillResult(true, "c1"),
+           ],
+         },
+       ],
+@@ -177,7 +177,7 @@ describe("armLazyTools", () => {
+         type: "tool/call",
+         data: { callId: "c1", name: "skill", arguments: '{"name":"browser-skill"}' },
+       },
+-      { type: "tool/result", data: { message: { callId: "c1", isError: false } } },
++      skillResult(false, "c1"),
+     ];
+     // After a plugin reload the sessions service may not be registered yet, so
+     // ctx.get("sessions") yields nothing and the boot scan covers nothing; the
+@@ -528,10 +528,10 @@ describe("hasSuccessfulSkillInvocation", () => {
+         { type: "tool/result", data: { message: { isError: false } } },
+       ]),
+     ).toBe(false);
+-    const message = structuredClone(skillResult().data.message);
+-    message.content[0].toolCallId = "different" as never;
++    const message = skillResult().data.message;
++    const inconsistent = { ...message, toolCallId: "different" };
+     expect(
+-      hasSuccessfulSkillInvocation([skillCall(), { type: "tool/result", data: { message } }]),
++      hasSuccessfulSkillInvocation([skillCall(), { type: "tool/result", data: { message: inconsistent } }]),
+     ).toBe(false);
+   });
+ 
+@@ -543,7 +543,7 @@ describe("hasSuccessfulSkillInvocation", () => {
+           type: "tool/call",
+           data: { callId: "x", name: "skill", arguments: { name: "browser-skill" } },
+         },
+-        { type: "tool/result", data: { message: { callId: "x", isError: false } } },
++        skillResult(false, "x"),
+       ]),
+     ).toBe(true);
+     // result for an unrelated call id does not count
+@@ -553,7 +553,7 @@ describe("hasSuccessfulSkillInvocation", () => {
+           type: "tool/call",
+           data: { callId: "x", name: "skill", arguments: { name: "browser-skill" } },
+         },
+-        { type: "tool/result", data: { message: { callId: "y", isError: false } } },
++        skillResult(false, "y"),
+       ]),
+     ).toBe(false);
+     expect(
 @@ -599,6 +599,7 @@ describe("lazyTools wiring in apply()", () => {
      const { tools } = applyHarness({ lazyTools: false });
      expect([...tools.keys()].sort()).toEqual([
@@ -700,8 +1044,34 @@ index 138cf2a..2fdf19b 100644
        "browser_inspect",
        "browser_interact",
        "browser_page",
+diff --git a/packages/dsh-plugin-browserskill/tests/runner.test.ts b/packages/dsh-plugin-browserskill/tests/runner.test.ts
+index d8861a3..88b9bf6 100644
+--- a/packages/dsh-plugin-browserskill/tests/runner.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/runner.test.ts
+@@ -65,6 +65,21 @@ afterEach(() => {
+ });
+ 
+ describe("createBskRunner", () => {
++  it("passes the configured daemon home only to its child", async () => {
++    const child = new FakeChild();
++    const originalHome = process.env.BSK_HOME;
++    let childHome: string | undefined;
++    const runner = createBskRunner("bsk", (_cmd, _args, options) => {
++      childHome = options?.env?.BSK_HOME;
++      return child as unknown as ChildProcess;
++    }, "/synthetic/browser-home");
++    const pending = runner.run(["session", "list"]);
++    child.finish(0, '{"ok":true}');
++    await pending;
++    expect(childHome).toBe("/synthetic/browser-home");
++    expect(process.env.BSK_HOME).toBe(originalHome);
++  });
++
+   it("appends --json and collects stdout", async () => {
+     const child = new FakeChild();
+     const seen: string[][] = [];
 diff --git a/packages/dsh-plugin-browserskill/tests/skill.test.ts b/packages/dsh-plugin-browserskill/tests/skill.test.ts
-index 99ee214..293d792 100644
+index 99ee214..45e3b2b 100644
 --- a/packages/dsh-plugin-browserskill/tests/skill.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/skill.test.ts
 @@ -35,6 +35,7 @@ describe("registerBskSkill", () => {
@@ -720,6 +1090,15 @@ index 99ee214..293d792 100644
        "references/help-and-recovery.md",
        "references/interaction-details.md",
        "references/screenshots-and-canvas.md",
+@@ -143,7 +145,7 @@ describe("armAgentScopedBskSkill", () => {
+     expect(before?.source).toBe("user-agents");
+ 
+     const disarm = armAgentScopedBskSkill(pluginCtx);
+-    pluginCtx.emit(scopeTarget(agent, agentKey), "agent/session-start", {
++    await pluginCtx.serial(scopeTarget(agent, agentKey), "agent/created", {
+       agent,
+       source: "startup",
+     });
 diff --git a/packages/dsh-plugin-browserskill/tests/tools.test.ts b/packages/dsh-plugin-browserskill/tests/tools.test.ts
 index 911b5ee..a1fbf00 100644
 --- a/packages/dsh-plugin-browserskill/tests/tools.test.ts
@@ -750,3 +1129,32 @@ index 2808edb..448a45b 100644
          return [
            `const css = ${JSON.stringify(code.toString())};`,
            `const tagId = ${JSON.stringify(`${CLIENT_ID}/${basename(fileId)}`)};`,
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index d70291a..05865cf 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -7,8 +7,13 @@ allowBuilds:
+ 
+ # The published primitives entry imports packages listed only as devDependencies upstream.
+ packageExtensions:
+-  "@deepseek-ai/dsh-client-ui-primitives@0.1.5-rc.3":
++  "@deepseek-ai/dsh-client-ui-primitives@0.2.0-rc.1":
+     dependencies:
++      "diff": "9.0.0"
++      "simple-icons": "16.31.0"
++      "@deepseek-ai/dsh-util-code-language": "0.2.0-rc.1"
++      "@deepseek-ai/dsh-util-workspace-path": "0.2.0-rc.1"
++      "@deepseek-ai/dsh-client-store": "0.2.0-rc.1"
+       "@shikijs/langs": "^4.3.1"
+       "anser": "^2.3.5"
+       "clsx": "^2.0.0"
+@@ -28,3 +33,9 @@ packageExtensions:
+     peerDependencies:
+       react: "^18.2.0"
+       react-dom: "^18.2.0"
++  "@deepseek-ai/dsh-client-store@0.2.0-rc.1":
++    dependencies:
++      zustand: "4.4.7"
++      immer: "10.1.1"
++    peerDependencies:
++      react: "18.3.1"

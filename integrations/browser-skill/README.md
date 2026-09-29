@@ -12,16 +12,16 @@ node integrations/browser-skill/build-adapted-plugin.mjs
 node integrations/browser-skill/install-cli.mjs
 ```
 
-The build verifies upstream source, patch, package version and tarball SHA, runs
+The build verifies upstream source, patch, adapted dependency lock, package version and tarball SHA, runs
 the upstream plugin suite plus the file-action tests, and writes `dist/BUILD.json`.
-Install the resulting `dist/*.tgz` in the new DSH product profile as its sole
+Install the resulting `dist/*.tgz` in the official DSH default desktop profile as its sole
 BrowserSkill plugin. Set `bskPath` to the absolute path in
 `.toolchain/browser-skill/INSTALL.json`, `fileStagingDirectory` to the new
 product's staging directory, and `sessionStateDirectory` to a directory owned
 by that profile. The CLI installer checks the pinned official CLI and extension
 archives, installs the CLI privately, and unpacks the extension for Chrome's
 manual **Load unpacked** flow. It does not change any Chrome profile.
-The launcher must set a product-owned `BSK_HOME`. That isolates daemon state,
+Set the plugin’s `bskHome` configuration to its product-owned daemon directory. The runner passes it as `BSK_HOME` to each CLI child. That isolates daemon state,
 while the WebSocket port is separate: choose an unused port if another daemon
 owns the default 52800, and have the user connect the extension to that exact
 port in its UI.

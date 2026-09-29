@@ -50,9 +50,10 @@ export function targetCodeIdentity() {
     ...sourceFiles(join(root, 'packages')),
     ...sourceFiles(join(root, 'integrations/browser-skill/patches')),
     join(root, 'integrations/browser-skill/BASELINE.json'),
+    join(root, 'integrations/browser-skill/pnpm-lock.yaml'),
     join(root, 'integrations/browser-skill/build-adapted-plugin.mjs'),
     join(root, 'scripts/build.mjs'), join(root, 'scripts/pack.mjs'),
-    join(root, 'package.json'), join(root, 'pnpm-lock.yaml'),
+    join(root, 'package.json'), join(root, 'pnpm-lock.yaml'), join(root, 'pnpm-workspace.yaml'),
   ].filter(existsSync).sort()
   const paths = [...new Set([...runtimePaths, ...sourceFiles(join(root, 'scripts'))])].sort()
   const hash = createHash('sha256')
@@ -80,7 +81,7 @@ function checkFileProof(path, expectedSha) {
 function boundAcceptance(acceptance, current, pack) {
   assert(current.profile === 'desktop' && current.desktopUserDataDir && current.desktopArtifact?.sha256 && current.desktopArtifact?.path && current.desktopArtifact?.appPath, 'official DSH Desktop carrier and reserved desktop profile are required')
   assert(current.dshVersion === pack.dshVersion && current.desktopArtifact.version === current.dshVersion, 'official Desktop version differs from pinned DSH pack')
-  assert(current.appPath && current.appPath !== current.desktopArtifact.appPath, 'desktop double-click launcher and copied official app identities are incomplete')
+  assert(current.appPath === '/Applications/DeepSeek Harness.app' && current.appPath === current.desktopArtifact.appPath, 'official Desktop application identity is incomplete')
   assert(acceptance?.schemaVersion === 1, 'acceptance index is missing or has an invalid schema')
   assert(acceptance.installationId === current.installationId, 'acceptance belongs to a different installation')
   assert(acceptance.desktopArtifactSha256 === current.desktopArtifact.sha256, 'acceptance belongs to a different official Desktop artifact')
@@ -269,7 +270,7 @@ function desktopProof(acceptance, current, pack) {
   const artifact = current.desktopArtifact
   assert(desktop?.installationId === current.installationId && desktop.appPath === current.appPath && desktop.officialAppPath === artifact.appPath && desktop.url === 'dsh-app://app/', 'desktop verification is from another installation or UI origin')
   assert(desktop.artifactSha256 === artifact.sha256 && desktop.bundleId === artifact.bundleId && desktop.version === artifact.version && desktop.teamId === artifact.teamId, 'desktop verification does not match the signed official app identity')
-  assert(desktop.profile === 'desktop' && desktop.dshHome === current.home && desktop.userDataDir === current.desktopUserDataDir, 'desktop runtime did not use this isolated desktop profile and user-data directory')
+  assert(desktop.profile === 'desktop' && desktop.dshHome === current.home && desktop.userDataDir === current.desktopUserDataDir, 'desktop runtime did not use the recorded official desktop profile and user-data directory')
   for (const name of ['@linguist/dsh-plugin', '@wxg-prc-cpg/browser-skill-dsh-plugin']) assert(desktop.activeBundles?.includes(name), `desktop runtime did not observe the active ${name} bundle after reopening`)
   assert(desktop.fromDesktop === true && desktop.nonInteractivePath === true && desktop.shellClosed === true, 'desktop entry was not exercised independently of the construction shell')
   assert(Date.parse(desktop.firstOpenAt) < Date.parse(desktop.stoppedAt) && Date.parse(desktop.stoppedAt) < Date.parse(desktop.reopenedAt), 'desktop open/stop/reopen sequence was not observed')
@@ -336,7 +337,7 @@ export async function verifyReady() {
     accept()
     const build = readJson(join(root, 'integrations/browser-skill/dist/BUILD.json'))
     const local = readJson(join(root, 'integrations/browser-skill/dist/LOCALHOST_SMOKE.json'))
-    assert(build.sha256 === pack.browserSkill.sha256 && build.unitTests === '380 passed', 'adapted BrowserSkill build or regression evidence differs from installed pack')
+    assert(build.sha256 === pack.browserSkill.sha256 && build.unitTests === '382 passed', 'adapted BrowserSkill build or regression evidence differs from installed pack')
     assert(local.checks?.cli === 'PASS' && local.checks?.daemon === 'PASS' && local.checks?.fixtureHttp === 'PASS', 'BrowserSkill CLI/daemon localhost baseline did not pass')
     return [join(root, 'integrations/browser-skill/dist/BUILD.json'), join(root, 'integrations/browser-skill/dist/LOCALHOST_SMOKE.json'), ...browserProof(acceptance, current, pack), ...tests(['V21', 'V23', 'V24'])]
   }, true)

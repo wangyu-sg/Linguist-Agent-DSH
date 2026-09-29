@@ -7,9 +7,9 @@ import { classifyReceipt } from '../../scripts/notify.mjs'
 import { runInstalledSmoke } from '../../scripts/smoke-installed.mjs'
 
 const now = Date.parse('2026-09-28T15:00:00.000Z')
-const pack = { dshVersion: '0.1.7-rc.2', linguist: { sha256: 'a'.repeat(64) }, browserSkill: { sha256: 'b'.repeat(64) } }
-const desktopArtifact = { path: '/synthetic/official.dmg', sha256: '2'.repeat(64), appPath: '/synthetic/DeepSeek Harness.app', bundleId: 'synthetic.official.desktop', version: '0.1.7-rc.2', teamId: 'SYNTHETIC' }
-const current = { installationId: 'synthetic-install', dshVersion: desktopArtifact.version, profile: 'desktop', home: '/synthetic/desktop-home', dataRoot: '/synthetic', desktopUserDataDir: '/synthetic/electron', appPath: '/synthetic/Desktop/Linguist Agent DSH.app', desktopArtifact }
+const pack = { dshVersion: '0.2.0-rc.1', linguist: { sha256: 'a'.repeat(64) }, browserSkill: { sha256: 'b'.repeat(64) } }
+const desktopArtifact = { path: '/synthetic/official.dmg', sha256: '2'.repeat(64), appPath: '/synthetic/DeepSeek Harness.app', bundleId: 'synthetic.official.desktop', version: '0.2.0-rc.1', teamId: 'SYNTHETIC' }
+const current = { installationId: 'synthetic-install', dshVersion: desktopArtifact.version, profile: 'desktop', home: '/synthetic/.dsh', dataRoot: '/synthetic', desktopUserDataDir: '/synthetic/electron', appPath: desktopArtifact.appPath, desktopArtifact }
 const receipt = {
   schemaVersion: 1, status: 'READY', evaluatedAt: new Date(now).toISOString(),
   currentSha256: 'c'.repeat(64), packSha256: 'd'.repeat(64),
@@ -37,7 +37,7 @@ test('success notification requires the matching current receipt and every manda
   assert.equal(classifyReceipt({ ...input, pack: { ...pack, dshVersion: '0.1.7-rc.1' } }).status, 'FAILED')
   assert.equal(classifyReceipt({ ...input, receipt: { ...receipt, installed: { ...receipt.installed, desktopProfile: 'web' } } }).status, 'FAILED')
   assert.equal(classifyReceipt({ ...input, desktopArtifactSha256: '0'.repeat(64) }).status, 'FAILED')
-  assert.equal(classifyReceipt({ ...input, receipt: { ...receipt, launch: { ...receipt.launch, appPath: desktopArtifact.appPath } } }).status, 'FAILED')
+  assert.equal(classifyReceipt({ ...input, receipt: { ...receipt, launch: { ...receipt.launch, appPath: '/synthetic/wrong.app' } } }).status, 'FAILED')
   assert.equal(classifyReceipt({ ...input, receipt: { ...receipt, launch: { ...receipt.launch, url: 'http://127.0.0.1:39080/' } } }).status, 'FAILED')
   assert.equal(classifyReceipt({ ...input, currentSha256: 'f'.repeat(64) }).status, 'FAILED')
   assert.equal(classifyReceipt({ ...input, acceptanceSha256: '0'.repeat(64) }).status, 'FAILED')

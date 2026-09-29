@@ -17,7 +17,6 @@ const oldPaths = [
   join(homedir(), 'Library/Application Support/com.linguistagent.app-data'),
   join(homedir(), 'Library/Application Support/com.linguistagent.app.dev'),
   join(homedir(), 'Library/Application Support/@proma'),
-  join(homedir(), '.dsh'),
 ]
 const sha = value => createHash('sha256').update(value).digest('hex')
 const fileSha = path => sha(readFileSync(path))
@@ -63,15 +62,15 @@ check('product-path-isolation', () => {
   const dataRoot = realpathSync(current.dataRoot)
   const home = realpathSync(current.home)
   const userData = realpathSync(current.desktopUserDataDir)
-  requireFact(current.profile === 'desktop' && current.dataRoot === join(homedir(), 'Library/Application Support/Linguist-Agent-DSH'), 'current product is not the reserved isolated Desktop carrier')
-  requireFact(inside(home, dataRoot) && inside(userData, dataRoot) && current.home !== join(homedir(), '.dsh'), 'Desktop home or Chromium user data is outside the product data root')
+  requireFact(current.profile === 'desktop' && current.dataRoot === join(homedir(), 'Library/Application Support/Linguist-Agent-DSH'), 'plugin data root differs from the installed product')
+  requireFact(home === join(homedir(), '.dsh') && userData === join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop'), 'official Desktop default profile or user-data directory differs')
   requireFact(current.appPath !== '/Applications/Linguist Agent.app' && current.desktopArtifact.appPath !== '/Applications/Linguist Agent.app', 'product launcher or official app reuses the old LA app')
   const observed = oldPaths.map(path => ({ path, exists: existsSync(path) }))
   for (const old of observed.filter(item => item.exists)) {
     const resolved = realpathSync(old.path)
     requireFact(!inside(dataRoot, resolved) && !inside(resolved, dataRoot), `new product root overlaps old path: ${old.path}`)
   }
-  return { detail: 'current Desktop home, Chromium data and app paths are separate from observed old LA/Proma and default DSH roots', dataRoot, home, userData, oldPathMetadataOnly: observed }
+  return { detail: 'official Desktop uses its default profile; plugin data is separate from observed old LA/Proma roots', dataRoot, home, userData, oldPathMetadataOnly: observed }
 })
 
 check('three-copied-fixtures', () => {

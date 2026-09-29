@@ -32,15 +32,17 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
     event.preventDefault()
     if (!workspaceId) return
     setRunning(true)
+    setScan(undefined)
+    setSelected(new Set())
+    setReports([])
+    setErrors({})
+    setTotalSelected(0)
     setMessage('')
     setProgressError('')
     try {
       const result = await required<LinguistMigrationWorkspaceScanResult>('linguistLegacyMigrationScan', { workspaceId, legacyRootPath: legacyRootPath.trim() })
       setScan(result)
       setSelected(new Set(result.projects.map((project) => project.projectId)))
-      setReports([])
-      setErrors({})
-      setTotalSelected(0)
     } catch (error) { setMessage(String(error)) }
     finally { setRunning(false) }
   }
@@ -82,7 +84,7 @@ export function LegacyMigrationPanel({ workspaceId, onImported }: { workspaceId:
     <h2>{t('旧 LA 数据根迁移')}</h2>
     <p>{t('先将旧数据根的副本放在所选 DSH Workspace 内。扫描只读；导入逐项目执行并逐项目验证。旧聊天保留为只读转录。')}</p>
     <form className={styles.form} onSubmit={(event) => void scanRoot(event)}>
-      <label>{t('Workspace 内旧数据根相对目录')}<Input required value={legacyRootPath} onChange={(event) => setLegacyRootPath(event.target.value)} placeholder="." /></label>
+      <label>{t('Workspace 内旧数据根相对目录')}<Input required disabled={running} value={legacyRootPath} onChange={(event) => { setLegacyRootPath(event.target.value); setScan(undefined); setSelected(new Set()); setReports([]); setErrors({}); setTotalSelected(0) }} placeholder="." /></label>
       <Button type="submit" size="sm" disabled={!workspaceId || running || !legacyRootPath.trim()}>{t('扫描旧数据根')}</Button>
     </form>
     {message && <p role="alert">{message}</p>}

@@ -12,6 +12,7 @@ const pnpm = join(root, ".toolchain/pnpm-10.17/node_modules/pnpm/bin/pnpm.cjs");
 const baseline = JSON.parse(await readFile(join(here, "BASELINE.json"), "utf8"));
 const patch = join(here, "patches/browser-files.patch");
 const out = join(here, "dist");
+const adaptedLock = join(here, "pnpm-lock.yaml");
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 async function treeHash(directory) {
@@ -47,6 +48,7 @@ for (const [file, expected] of [
 ]) assert.equal(hash(await readFile(join(source, file))), expected, `upstream ${file} changed`);
 assert.equal(hash(await readFile(patch)), baseline.patchSha256, "BrowserSkill patch changed");
 assert.equal(JSON.parse(await readFile(join(root, ".toolchain/pnpm-10.17/node_modules/pnpm/package.json"), "utf8")).version, baseline.pnpmVersion);
+assert.equal(hash(await readFile(adaptedLock)), baseline.adaptedLockSha256, "adapted dependency lock changed");
 
 const temp = join(root, ".toolchain/browser-skill/adapter-build");
 await mkdir(join(root, ".toolchain/browser-skill"), { recursive: true });
@@ -59,9 +61,9 @@ try {
   for (const name of ["dsh-plugin-browserskill", "ui"]) {
     await cp(join(source, "packages", name), join(temp, "packages", name), { recursive: true });
   }
-  // Install the immutable upstream lock before changing the package's DSH peer version.
-  run(process.execPath, [pnpm, "install", "--frozen-lockfile", "--filter", "@wxg-prc-cpg/browser-skill-dsh-plugin...", "--ignore-scripts"], temp);
   run("patch", ["-p1", "-i", patch], temp);
+  await cp(adaptedLock, join(temp, "pnpm-lock.yaml"));
+  run(process.execPath, [pnpm, "install", "--frozen-lockfile", "--filter", "@wxg-prc-cpg/browser-skill-dsh-plugin...", "--ignore-scripts"], temp);
   for (const script of ["typecheck", "test", "build"]) {
     run(process.execPath, [pnpm, "--filter", "@wxg-prc-cpg/browser-skill-dsh-plugin", script], temp);
   }
@@ -85,7 +87,7 @@ try {
     sourceCommit: baseline.upstreamCommit,
     patchSha256: baseline.patchSha256,
     dshVersion: baseline.dshVersion,
-    unitTests: "380 passed",
+    unitTests: "382 passed",
   };
   await writeFile(join(out, "BUILD.json"), JSON.stringify(receipt, null, 2) + "\n");
   process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");

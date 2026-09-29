@@ -9,10 +9,14 @@ const source = join(root, 'packages/dsh-linguist')
 const stage = join(root, '.migration/pack-stage')
 const artifacts = join(root, 'artifacts')
 const tarball = join(artifacts, 'linguist-dsh-plugin-1.0.0.tgz')
-const browserSource = join(root, 'integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-0.3.1-la-dsh.1.tgz')
-const browserTarball = join(artifacts, 'browser-skill-dsh-plugin-0.3.1-la-dsh.1.tgz')
+const browserSource = join(root, 'integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-0.3.1-la-dsh.2.tgz')
+const browserTarball = join(artifacts, 'browser-skill-dsh-plugin-0.3.1-la-dsh.2.tgz')
 if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/client.cjs')) || !existsSync(join(source, 'lib/cat-job-worker.js')) || !existsSync(join(source, 'lib/integrity-scrub-worker.js'))) throw new Error('Build the complete plugin before packing')
 if (!existsSync(browserSource)) throw new Error('Pinned BrowserSkill adapted tarball is missing')
+const browserBaseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
+const browserBuild = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/dist/BUILD.json'), 'utf8'))
+const browserHash = createHash('sha256').update(readFileSync(browserSource)).digest('hex')
+if (browserHash !== browserBaseline.adaptedTarballSha256 || browserBuild.sha256 !== browserHash || browserBuild.patchSha256 !== browserBaseline.patchSha256 || browserBuild.dshVersion !== browserBaseline.dshVersion) throw new Error('BrowserSkill build receipt does not match its pinned source and artifact')
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
 mkdirSync(artifacts, { recursive: true })
@@ -34,8 +38,8 @@ for (const entry of entries.filter(name => name.startsWith('package/lib/') && /\
 }
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 writeFileSync(join(artifacts, 'pack.json'), `${JSON.stringify({
-  createdAt: new Date().toISOString(), dshVersion: '0.1.7-rc.2',
+  createdAt: new Date().toISOString(), dshVersion: '0.2.0-rc.1',
   linguist: { path: tarball, sha256: digest(tarball), version: manifest.version },
-  browserSkill: { path: browserTarball, sha256: digest(browserTarball), version: '0.3.1-la-dsh.1' },
+  browserSkill: { path: browserTarball, sha256: digest(browserTarball), version: '0.3.1-la-dsh.2' },
   entries,
 }, null, 2)}\n`)

@@ -14,7 +14,7 @@
     "initialState": "empty",
     "gitInitialized": true
   },
-  "currentWorkPackage": "W07-W12 (official Desktop carrier and full acceptance)",
+  "currentWorkPackage": "W07-W12 (official Desktop 0.2.0-rc.1 default profile and full acceptance)",
   "workPackages": [
     {
       "id": "W00",
@@ -88,7 +88,7 @@
   "externalPrerequisites": [
     {
       "id": "dsh-runtime",
-      "status": "official_0.1.7-rc.2_desktop_verified; current native install a3260da726fe and BrowserSkill ba6d99c6 active; new LA 8ca040bebfa6 packaged and staged, native manager update pending action-time confirmation and reopen",
+      "status": "Official 0.2.0-rc.1 verified at /Applications/DeepSeek Harness.app; candidate la-478ea64aa103-b4f81677 built and staged; native default-profile installation plus schedule bundle pending",
       "external": false
     },
     {
@@ -98,12 +98,12 @@
     },
     {
       "id": "provider-route",
-      "status": "configured deepseek-account/deepseek-flash/high route returned exact synthetic response in official Desktop; persisted request event and assistant message identities recorded in artifacts/evidence/provider-observation.json",
+      "status": "Prior official Desktop synthetic Provider response is historical evidence only; current 0.2 package/default profile requires new genuine Provider smoke",
       "external": false
     },
     {
       "id": "system-install-and-notification-permissions",
-      "status": "official DMG notarization/codesign passed; Finder double-click of isolated entry opened signed Desktop; BrowserSkill Chrome extension remains an external authorization prerequisite",
+      "status": "CUA getApp fails for DSH and Finder with ScreenCaptureKit -3811; no permission dialog observed by user; cause unconfirmed; desktop launch/install verification BLOCKED_ENV",
       "external": true
     }
   ],
@@ -134,7 +134,9 @@
     "2026-09-29 新 LA 包 ed21c0a83ae6 已按官方 Desktop RC 构建并暂存；打包后 8 项 typecheck、169 Node、11 Bun、隔离源与目标 CAT 各 151 项通过。当前官方 Desktop 仍安装 a3260da726fe，ed21 原生更新/重开/UI/Provider 证据尚未发生。",
     "新包代码已接原生 continuable 子任务、手动 Schedule 投递、Composer 范围提示和 CAT 网格焦点修复；固定 RC 的普通 Composer 提交前 hook、跨 Workspace 历史 fork、自动任务独立到期执行及完成回调仍缺公开接口，不能标 READY。",
     "BrowserSkill 两种 localhost 合成 runner 实测固定 CLI/daemon/fixture PASS，扩展连接 0，均返回 BLOCKED_ENV；扩展源码包身份与运行连接实例属于不同证据层。",
-    "2026-09-29 修复列映射 JSON 被误判 batch ready、HTTP 未分类异常原文泄露、专用 CAT requestId 到真实 toolCall 的 V1 生成来源缺失。中间包 ab706955141e 已暂存；其后补齐 HTTP 外层路由异常固定响应。最终候选 8ca040bebfa6 已暂存且摘要核对，打包后 8/8 typecheck、173 Node、21 Bun、源与目标 CAT 各 151/151 通过；正式 Desktop 仍为旧 a3260da726fe，READY=FAILED。"
+    "2026-09-29 修复列映射 JSON 被误判 batch ready、HTTP 未分类异常原文泄露、专用 CAT requestId 到真实 toolCall 的 V1 生成来源缺失。中间包 ab706955141e 已暂存；其后补齐 HTTP 外层路由异常固定响应。最终候选 8ca040bebfa6 已暂存且摘要核对，打包后 8/8 typecheck、173 Node、21 Bun、源与目标 CAT 各 151/151 通过；正式 Desktop 仍为旧 a3260da726fe，READY=FAILED。",
+    "2026-09-29 用户确认使用普通官方 DSH App 与默认 desktop profile。已复制官方 0.2.0-rc.1 到 /Applications/DeepSeek Harness.app；安装/启停/验收脚本同步该路径。BrowserSkill 改为插件配置传入私有 daemon home，正在修复 0.2 SDK 接口变化并重包。当前默认 profile 尚未完成原生插件安装；旧验收不适用于新包。",
+    "2026-09-29 当前 0.2 候选 la-478ea64aa103-b4f81677 已实际构建暂存；BrowserSkill 382/382，主插件 8 typecheck/173 Node/21 Bun，源与目标 CAT 各151及安装回执3项通过。官方普通路径签名/公证通过，LA品牌入口移入废纸篓。默认profile原生安装和重开/UI验证因CUA ScreenCaptureKit -3811阻塞；用户未见弹窗，显示器在线，原因待确认。verify:ready仍FAILED。"
   ],
   "customerDataTouched": false,
   "remotePublished": false,
