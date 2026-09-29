@@ -20,11 +20,15 @@ test('native Input owns its single border; plugin CSS styles only native select 
   }
 })
 
-test('native action buttons choose a visible container explicitly', () => {
+test('native form controls own visible containers', () => {
   let count = 0
   for (const name of readdirSync(client).filter(name => /\.tsx?$/.test(name))) {
     const file = ts.createSourceFile(name, readFileSync(new URL(name, client), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     const visit = node => {
+      if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(file) === 'input') {
+        const type = node.attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.text === 'type')?.initializer?.text ?? 'text'
+        assert(['checkbox', 'radio', 'file', 'range', 'color'].includes(type), `${name}: use native Input for ${type} so its border survives without descendant CSS`)
+      }
       if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(file) === 'Button') {
         count++
         const variant = node.attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.text === 'variant')

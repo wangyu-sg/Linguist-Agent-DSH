@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistLatestRunSummaryResult,
   LinguistRunUndoResult,
@@ -100,7 +100,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
     <h3>{t(editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
     <p>{t('到期在当前 DSH Session 执行，沿用当前模型和权限；需要登录或授权时会停在原生交互。')}</p>
     {editing && <p>{t('编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。')}{kind === 'after' && ` ${t('若修改延迟秒数，会从保存时重新计时并转换为绝对时间。')}`}</p>}
-    <label>{t('任务名称')}<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+    <label>{t('任务名称')}<Input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
     <label>{t('任务描述')}<textarea required value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
     <div className={styles.form}>
       <label>{t('执行范围')}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
@@ -116,12 +116,12 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
         <option value="every">{t('按间隔重复')}</option><option value="daily">{t('每天')}</option>
         <option value="weekly">{t('每周')}</option><option value="cron">Cron</option>
       </select></label>
-      {(kind === 'after' || kind === 'every') && <label>{t('秒数')}<input type="number" min="60" step="1" value={seconds} onChange={(event) => setSeconds(event.target.value)} /></label>}
-      {kind === 'at' && <label>{t('执行时间')}<input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} /></label>}
-      {(kind === 'daily' || kind === 'weekly') && <label>{t('每天时间')}<input type="time" step="1" value={time} onChange={(event) => setTime(event.target.value)} /></label>}
+      {(kind === 'after' || kind === 'every') && <label>{t('秒数')}<Input type="number" min="60" step="1" value={seconds} onChange={(event) => setSeconds(event.target.value)} /></label>}
+      {kind === 'at' && <label>{t('执行时间')}<Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} /></label>}
+      {(kind === 'daily' || kind === 'weekly') && <label>{t('每天时间')}<Input type="time" step="1" value={time} onChange={(event) => setTime(event.target.value)} /></label>}
       {kind === 'weekly' && <fieldset className={styles.formFields}><legend>{t('星期')}</legend>{[1, 2, 3, 4, 5, 6, 7].map((day) => <label key={day}><input type="checkbox" checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />{t(['一', '二', '三', '四', '五', '六', '日'][day - 1]!)}</label>)}</fieldset>}
-      {kind === 'cron' && <label>Cron<input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
-      {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
+      {kind === 'cron' && <label>Cron<Input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
+      {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<Input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
     <div className={styles.toolbar}><Button variant="outline" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
     {created && <p role="status">{t(editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
