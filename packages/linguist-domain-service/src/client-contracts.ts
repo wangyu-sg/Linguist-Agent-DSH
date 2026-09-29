@@ -1279,7 +1279,7 @@ export interface LinguistScheduleCancelResult { scheduleId: string; cancelled: b
 
 export interface LinguistScheduleHistoryResult {
   scheduleId: string
-  executions: Array<{ turn: number; messageId: string; admittedAt: string; endedAt?: string; outcome: string; failure?: { code: string; status?: number } }>
+  executions: Array<{ turn: number; messageId: string; admittedAt: string; endedAt?: string; outcome: string; phase: 'admission' | 'execution'; failure?: { code: string; status?: number } }>
   records: Array<{ scheduledAt: string; deliveredAt: string; messageId: string; prompt?: string }>
   earlierRecordsUnavailable: boolean
   earlierRecordsPruned: boolean

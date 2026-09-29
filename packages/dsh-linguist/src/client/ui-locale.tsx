@@ -2,6 +2,8 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '未进入执行': 'Not admitted for execution',
+  '授权与模型准备': 'Authorization and model preparation', '已进入执行': 'Execution admitted',
   '已恢复 DSH 调度': 'DSH schedule resumed',
   '重新核验并恢复': 'Revalidate and resume',
   '连续失败已暂停': 'Paused after consecutive failures', '连续失败次数': 'Consecutive failures',

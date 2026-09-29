@@ -92,7 +92,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit }: { sess
         <strong>{t('最近执行记录')}</strong>
         <p>{t('执行状态来自 DSH 会话结束事件；专业完成情况请查看对应岗位决策。')}</p>
         {history.executions.length === 0 && <p>{t('暂无执行记录。')}</p>}
-        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(({ unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
+        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
         <strong>{t('原生投递记录')}</strong>
         {history.records.length === 0 && <p>{t('暂无投递记录。')}</p>}
         {history.records.map((record) => <p key={record.messageId}>{t('到期')} {new Date(record.scheduledAt).toLocaleString()} · {t('投递')} {new Date(record.deliveredAt).toLocaleString()} · {record.messageId}</p>)}

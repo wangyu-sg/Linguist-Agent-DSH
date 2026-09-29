@@ -34,6 +34,8 @@ import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts 
 import { ScheduleContextManager, scheduleExecutions, scheduleRunPolicy } from '../../packages/dsh-linguist/src/host/schedule-context.ts'
 import { ScheduleId, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-schedule/lib/index.js'
 
+import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-session/lib/index.js'
+
 const requireFormats = createRequire(new URL('../../packages/linguist-cat-formats/package.json', import.meta.url))
 const requireDsh = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
 const JSZip = requireFormats('jszip')
@@ -1284,7 +1286,11 @@ test('Schedule execution history follows committed native turns, not delivery or
   const admitted = id => event('user/message', { id, source: { kind: 'linguist-schedule-execution', scheduleId: 'scheduled-A' } })
   const events = [event('turn/start', { turn: 1 }), event('user/message', { id: 'delivery', source: { kind: 'schedule' } })]
   assert.deepEqual(scheduleExecutions(events, 'scheduled-A'), [])
+  events.push(event('linguist/schedule-attempt', { turn: 1, scheduleId: 'scheduled-A', nativeScheduleId: 'scheduled-A', messageId: 'claimed-A' }))
+  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].phase, 'admission')
   events.push(admitted('run-A'), admitted('duplicate-step'))
+  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].phase, 'execution')
+  assert.equal(scheduleExecutions(events, 'scheduled-A')[0].messageId, 'claimed-A')
   assert.equal(scheduleExecutions(events, 'scheduled-A').length, 1)
   assert.equal(scheduleExecutions(events, 'scheduled-A')[0].outcome, 'unfinished')
   events.push(event('assistant/message', { message: { content: [{ type: 'text', text: 'complete' }] } }))
@@ -1308,4 +1314,83 @@ test('Schedule pauses after five consecutive failures, resets after success, and
   assert.deepEqual(scheduleRunPolicy(['error', 'error', 'error', 'error', 'error'].map(run)), { runCount: 5, consecutiveFailures: 5, stopReason: 'consecutive-failures' })
   assert.deepEqual(scheduleRunPolicy(['error', 'error', 'completed', 'error'].map(run)), { runCount: 4, consecutiveFailures: 1 })
   assert.deepEqual(scheduleRunPolicy(['error', 'completed'].map(run), 2), { runCount: 2, consecutiveFailures: 0, stopReason: 'max-runs' })
+})
+
+
+test('native Session records schedule admission failures before a model-visible user message exists', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-schedule-admission-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic admission', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'first.csv' })
+    const bindings = new BindingStore(root)
+    bindings.bindProject(project.id, 'workspace-admission')
+    const session = Session.create(SessionId('session-admission'))
+    const agent = { id: session.id, session }
+    bindings.bindSession(session.id, { workspaceId: 'workspace-admission', projectId: project.id, role: 'reviewer', workMode: 'cat' })
+    const native = {
+      rows: [],
+      async create(sessionId, request) {
+        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.every_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, sessionId, status: 'active' })
+        return record
+      },
+      async catalog() { return this.rows },
+      async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
+      async delete({ id }) { this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
+    }
+    const manager = new ScheduleContextManager(root, native, service, bindings, async (sid, pid) => { assert.equal(sid, session.id); assert.equal(pid, project.id) }, async () => session.ownEvents())
+    const created = await manager.create({ sessionId: session.id, projectId: project.id, title: 'Admission fixture', prompt: 'Review synthetic project', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
+    const due = { id: 'native-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
+    await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\nb,结束,End\n'), filename: 'second.csv' })
+    for (let turn = 1; turn <= 5; turn++) {
+      session.append('turn/start', { turn })
+      const message = { ...due, id: `native-due-${turn}` }
+      manager.recordAttempts(agent, [message], turn)
+      await assert.rejects(manager.onPreStep(agent, { kind: 'enter', messages: [message] }, turn, 1), /project revision changed/)
+      session.append('turn/end', { turn, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'synthetic authorization rejection' } } })
+      await manager.enforceRunPolicy(session.id)
+      assert.equal(native.rows.length, turn < 5 ? 1 : 0)
+    }
+    assert(!session.ownEvents().some(event => event.type === 'user/message'), 'rejected task never reached model-visible input')
+    const history = await manager.history(session.id, created.scheduleId, 10)
+    assert.equal(history.executions.length, 5)
+    assert(history.executions.every(run => run.phase === 'admission' && run.outcome === 'error'))
+    const restored = Session.create(session.id, JSON.parse(JSON.stringify(session.ownEvents())))
+    assert.equal(scheduleExecutions(restored.ownEvents(), created.scheduleId).length, 5, 'custom attempt events survive native cold restore')
+    session.append('turn/start', { turn: 6 })
+    manager.recordAttempts(agent, [{ ...due, id: 'late-due' }], 6)
+    session.append('turn/end', { turn: 6, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'stopped' } } })
+    assert.equal(scheduleExecutions(session.ownEvents(), created.scheduleId).length, 5, 'already stopped tasks do not accumulate phantom attempts')
+    const modelTask = await manager.create({ sessionId: session.id, projectId: project.id, title: 'Model admission fixture', prompt: 'Review current synthetic project', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
+    const modelDue = { ...due, id: 'model-due', content: [{ type: 'text', text: renderReminderFraming(native.rows[0]) }] }
+    session.append('turn/start', { turn: 7 })
+    manager.recordAttempts(agent, [modelDue], 7)
+    await manager.onPreStep(agent, { kind: 'enter', messages: [modelDue] }, 7, 1)
+    await assert.rejects(manager.validateModelRequest(agent, 7, 1, { provider: 'synthetic', model: 'chosen' }, async () => { throw new Error('model unavailable') }), /model unavailable/)
+    session.append('turn/end', { turn: 7, reason: { kind: 'error', error: { code: 'MODEL_UNAVAILABLE', message: 'synthetic model failure' } } })
+    manager.clearTurn(session.id, 7)
+    await manager.validateModelRequest(agent, 7, 1, { provider: 'synthetic', model: 'chosen' }, async () => { throw new Error('ended turn must not resolve model again') })
+    assert.equal(scheduleExecutions(session.ownEvents(), modelTask.scheduleId)[0].phase, 'admission')
+    session.append('turn/start', { turn: 8 })
+    const nextDue = { ...modelDue, id: 'model-due-next' }
+    manager.recordAttempts(agent, [nextDue], 8)
+    manager.recordAttempts(agent, [nextDue], 8)
+    const admitted = await manager.onPreStep(agent, { kind: 'enter', messages: [nextDue] }, 8, 1)
+    session.append('step/start', { turn: 8, step: 1 })
+    session.append('user/message', admitted.messages[1], { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 8, reason: { kind: 'completed' } })
+    const modelRuns = scheduleExecutions(session.ownEvents(), modelTask.scheduleId)
+    assert.deepEqual(modelRuns.map(run => run.phase), ['admission', 'execution'])
+    assert.equal(modelRuns.length, 2, 'repeated observations in the same turn count once')
+    assert.equal(scheduleRunPolicy(modelRuns).consecutiveFailures, 0)
+    session.append('turn/start', { turn: 9 })
+    manager.recordAttempts(agent, [{ ...modelDue, id: 'rewritten-away' }], 9)
+    session.append('turn/end', { turn: 9, reason: { kind: 'completed' } })
+    const withNoop = scheduleExecutions(session.ownEvents(), modelTask.scheduleId)
+    assert.equal(withNoop.at(-1).outcome, 'not-admitted')
+    assert.equal(scheduleRunPolicy(withNoop).runCount, 2, 'empty completed turn is not an executed task')
+
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })

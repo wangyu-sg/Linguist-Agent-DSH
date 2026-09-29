@@ -230,15 +230,20 @@ export function apply(ctx: Context, config: Config): void {
       if (!await ctx.sessions.flush(resolved.agent.session)) throw new Error('Native DSH Session did not acknowledge manual Schedule delivery')
     })
   ctx.on('session/event', async (session, event) => {
-    if (event.type === 'turn/end' && bindings.session(session.id)?.projectId) await scheduleContext.enforceRunPolicy(session.id)
+    if (event.type === 'turn/end') {
+      scheduleContext.clearTurn(session.id, event.data.turn)
+      if (bindings.session(session.id)?.projectId) await scheduleContext.enforceRunPolicy(session.id)
+    }
   })
-  ctx.on('agent/pre-step', async ({ agent, turn, step }, next) => scheduleContext.onPreStep(agent, await next(), turn, step))
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, step }, next) => {
+    scheduleContext.recordAttempts(agent, messages, turn)
+    return scheduleContext.onPreStep(agent, await next(), turn, step)
+  })
   ctx.on('agent/request', async ({ agent, turn, step }, next) => {
     const config = await next()
     await scheduleContext.validateModelRequest(agent, turn, step, config, (provider, model) => ctx.llm.resolveModelInfo(provider, model))
     return config
   })
-  ctx.on('agent/turn-stopping', ({ agent, turn }) => { scheduleContext.clearTurn(agent.id, turn) })
   ctx.on('agent/disposed', ({ agent }) => { scheduleContext.clearSession(agent.id) })
   const detachSessionBinding = async (sessionId: string) => {
     const previous = bindings.session(sessionId)
