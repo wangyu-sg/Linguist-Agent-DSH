@@ -95,6 +95,7 @@ const checks = [
       'tests/copied-renderer/native-controls.nodetest.mjs',
       'tests/required/capability-coverage.nodetest.mjs',
       'tests/required/workbench-ui-parity.nodetest.mjs',
+      'tests/required/live-panel-mutation.nodetest.mjs',
       'tests/required/css-modules-bundle.nodetest.mjs',
       'tests/required/locale-select.nodetest.mjs',
       'tests/required/backup-preview.nodetest.mjs',

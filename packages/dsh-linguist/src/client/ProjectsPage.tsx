@@ -28,7 +28,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
   onEnter: (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
-  onOpenProject: (projectId: string) => Promise<void>
+  onOpenProject: (projectId: string, dock?: 'qa' | 'proposals') => Promise<void>
   onOpenSession: (binding: LinguistBinding) => Promise<void>
 }): React.ReactElement {
   const t = useT()
@@ -115,10 +115,10 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
-  const openProject = async (project: Project) => {
+  const openProject = async (project: Project, dock?: 'qa' | 'proposals') => {
     setBusy(true)
     showMessage('')
-    try { await onOpenProject(project.id); showMessage(t('会话已打开')) }
+    try { await onOpenProject(project.id, dock); showMessage(t('会话已打开')) }
     catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
@@ -268,7 +268,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
         {message && <p role={messageIsError ? 'alert' : 'status'} className={messageIsError ? styles.warning : styles.message}>{message}</p>}
       </Modal>
       <Modal open={Boolean(settingsProject)} onClose={() => setSettingsProjectId(undefined)} title={settingsProject ? `${settingsProject.name} · ${t('项目设置')}` : t('项目设置')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
-        {settingsProject && <ProjectSettingsPanel capabilities={capabilities} key={settingsProject.id} project={settingsProject} hasBatches={(details[settingsProject.id]?.summary?.assetCount ?? 0) > 0} onChanged={() => setRefresh((value) => value + 1)} />}
+        {settingsProject && <ProjectSettingsPanel mutation={refresh} onOpenHistory={(dock) => { setSettingsProjectId(undefined); void openProject(settingsProject, dock) }} capabilities={capabilities} key={settingsProject.id} project={settingsProject} hasBatches={(details[settingsProject.id]?.summary?.assetCount ?? 0) > 0} onChanged={() => setRefresh((value) => value + 1)} />}
       </Modal>
     </div>
     {message && !dialog && <p role={messageIsError ? 'alert' : 'status'} className={messageIsError ? styles.warning : styles.message}>{message}</p>}

@@ -41,7 +41,7 @@ function load(name) {
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './api') return { required: (...args) => apiRequired(...args), subscribeProject: () => () => {} }
-    if (name === './cat-navigation') return { useCatNavigation: () => navigation }
+    if (name === './cat-navigation') return { useCatNavigation: () => navigation, requestCatNavigation: input => { navigation = { ...input, revision: (navigation?.revision ?? 0) + 1 } } }
     if (name === './workbench-location') return { readWorkbenchLocation: () => ({ value: { assetId: 'asset-A', segmentId: 'row-199', assetNavigatorOpen: true, assetNavigatorWidth: 240, inspectorWidth: 320, dockOpen: true, dock: 'qa', dockHeight: 240 } }), writeWorkbenchLocation() {} }
     if (name === './composer-context') return { publishWorkbenchComposerContext() {} }
     if (name === './Panels') return Object.fromEntries(['QaPanel', 'ProposalPanel', 'ReferencePanel', 'AssetsPanel', 'DeliveryPanel', 'ProjectSettingsPanel'].map(name => [name, name]))
@@ -572,4 +572,24 @@ test('resizing a native CAT column remeasures the target without disturbing IME 
   assert.equal(textarea.style.height, '320px')
   editor.unmount()
   assert.equal(observer.disconnected, true)
+})
+
+test('project history clears the prior batch and selection while Agent references display the segment number', async () => {
+  const fixture = await workbenchFixture('project-history-entry', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  fixture.rows().onReferenceAgent(fixture.segments[7]); fixture.workbench.render()
+  const reference = fixture.workbench.nodes().find(node => node.props?.role === 'status' && node.props.title === 'row-7')
+  assert(reference, 'the reference keeps its stable ID as a tooltip')
+  assert(React.Children.toArray(reference.props.children).includes('#8'), 'visible reference uses the human segment number')
+  fixture.rows().onToggleSelected('row-7'); fixture.workbench.render()
+  navigation = { sessionId: 'project-history-entry', projectId: 'project-synthetic', dock: 'settings', revision: 1 }
+  await fixture.settle()
+  fixture.workbench.nodes().find(node => node.type === 'ProjectSettingsPanel').props.onOpenHistory('qa')
+  await fixture.settle()
+  assert.equal(fixture.workbench.nodes().find(node => node.type === 'QaPanel').props.assetId, undefined)
+  assert.equal(fixture.rows().selectedId, undefined)
+  assert.equal(fixture.rows().selectedIds.size, 0)
+  navigation = { sessionId: 'project-history-entry', projectId: 'project-synthetic', dock: 'proposals', revision: 2 }
+  await fixture.settle()
+  assert.equal(fixture.workbench.nodes().find(node => node.type === 'ProposalPanel').props.assetId, undefined)
+  fixture.workbench.unmount()
 })

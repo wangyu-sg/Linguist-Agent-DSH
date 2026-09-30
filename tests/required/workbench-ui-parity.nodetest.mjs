@@ -166,11 +166,14 @@ test('term labels cover filters, edits, lists, conflicts and import candidates w
   component.dispose()
 })
 
-test('QA does not fetch a project-wide list when no batch is chosen and the current-segment filter keeps the run batch', async () => {
+test('QA shows project-wide history without a batch and the current-segment filter keeps the run batch', async () => {
   const calls = []
   const component = mount('Panels.tsx', 'QaPanel', { projectId: 'p', segmentId: segment.id, archived: false, onNavigate() {}, onChanged() {} }, { required: async (operation, input) => { calls.push({ operation, input }); return { items: [], total: 0, hasMore: false } } })
   assert.match(component.render(), /选择一个工作批次/)
-  assert.equal(calls.length, 0)
+  assert.equal(component.button('运行 QA').disabled, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].input.assetId, undefined)
+  assert.equal(calls[0].input.segmentId, undefined)
   component.render({ assetId: 'batch-synthetic' }); await tick(); component.render()
   assert.equal(calls.at(-1).input.assetId, 'batch-synthetic')
   component.nodes().find(node => node.type === 'checkbox').props.onChange(true)

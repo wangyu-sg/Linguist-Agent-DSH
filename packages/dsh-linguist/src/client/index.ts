@@ -333,7 +333,7 @@ export function apply(ctx: Context): void {
     return ctx.sidebarRight.mounted.subscribe(remember)
   }, 'linguist: project Session visits')
   const pendingProjectSessions = new Map<string, Promise<LinguistBinding>>()
-  const openProject = async (projectId: string) => {
+  const openProject = async (projectId: string, dock?: 'qa' | 'proposals') => {
     const navigation = ctx.layout.beginNavigation()
     const opened = await required<LinguistProjectOpenResult & { project: { workspaceId?: string } }>('linguistProjectsOpen', { projectId })
     if (navigation.aborted) return
@@ -363,7 +363,10 @@ export function apply(ctx: Context): void {
       pendingProjectSessions.set(projectId, pending)
     }
     const binding = await pending
-    if (!navigation.aborted) await openBoundSession(binding, true)
+    if (!navigation.aborted) {
+      if (dock) requestCatNavigation({ sessionId: binding.sessionId, projectId, dock })
+      await openBoundSession(binding, true)
+    }
   }
   const openExecutionSession = async (sessionId: string) => {
     await ctx.sessions.refresh()

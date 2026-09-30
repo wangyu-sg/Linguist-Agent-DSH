@@ -69,7 +69,7 @@ function QaFindingText({ projectId, finding }: { projectId: string; finding: Lin
   </details>
 }
 
-export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSegmentId, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentId?: string; focusFindingId?: string; focusSegmentId?: string; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
+export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSegmentId, mutation, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentId?: string; focusFindingId?: string; focusSegmentId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistCatListQaFindingsResult>()
   const [status, setStatus] = React.useState('open')
@@ -90,14 +90,13 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
   React.useEffect(() => { if (currentSegmentOnly) { setScopedSegmentId(segmentId); setPage(0) } }, [segmentId, currentSegmentOnly])
   React.useEffect(() => { if (focusFindingId) { setStatus(''); setPage(0) } }, [focusFindingId])
   React.useEffect(() => {
-    if (!assetId && !scopedSegmentId) { setList(undefined); setLoading(false); setLoadError(''); return }
     let live = true
     setLoading(true)
     setLoadError('')
     required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId: scopedSegmentId ? undefined : assetId, segmentId: scopedSegmentId, status: status || undefined, severity: severity || undefined, disposition: disposition || undefined, limit: 100, offset: page * 100 })
       .then((next) => { if (live) { setList(next); setMessage(''); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
     return () => { live = false }
-  }, [projectId, assetId, scopedSegmentId, status, severity, disposition, page, refresh])
+  }, [projectId, assetId, scopedSegmentId, status, severity, disposition, page, refresh, mutation])
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived || mutating) return false
     setMutating(true)
@@ -121,7 +120,7 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
     <details className={styles.callout}><summary>{t('豁免操作人和理由')}</summary><div className={styles.toolbar}><Input disabled={archived} maxLength={120} aria-label={t("豁免操作人")} placeholder={t("豁免操作人")} value={operator} onChange={(event) => setOperator(event.target.value)} /><Input disabled={archived} maxLength={500} aria-label={t("豁免理由")} placeholder={t("填写豁免理由")} value={reason} onChange={(event) => setReason(event.target.value)} /></div></details>
     {bulkWaiver && <div className={styles.callout} role="alert"><p>{t('将在整个项目中豁免规则 {code} 的 {count} 条开放 Finding。', { code: bulkWaiver.code, count: bulkWaiver.findingIds.length })}{bulkWaiver.total > bulkWaiver.findingIds.length && ` ${t('该规则共 {total} 条，本批只处理前 {count} 条。', { total: bulkWaiver.total, count: bulkWaiver.findingIds.length })}`}</p><p>{t('理由')}：{reason} · {t('操作者')}：{operator}</p><Button variant="outline" size="sm" disabled={archived || bulkWaiver.findingIds.length === 0 || !reason.trim() || !operator.trim()} onClick={() => void confirmBulkWaiver()}>{t('确认项目范围豁免')}</Button><Button variant="outline" size="sm" onClick={() => setBulkWaiver(undefined)}>{t('取消')}</Button></div>}
     {message && <p role="status">{message}</p>}
-    {!assetId && !scopedSegmentId && <p className={styles.notice}>{t('选择一个工作批次以查看或运行 QA。')}</p>}
+    {!assetId && <p className={styles.notice}>{t('选择一个工作批次以运行 QA。')}</p>}
     {loading && <p role="status">{t('正在读取 QA…')}</p>}
     {loadError && <p role="alert">{loadError}</p>}
     {!loading && !loadError && list?.items.length === 0 && <p>{t("当前筛选没有 Finding。")}</p>}
@@ -138,7 +137,7 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
   </section>
 }
 
-export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentIds: readonly string[]; focusProposalId?: string; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
+export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId, mutation, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentIds: readonly string[]; focusProposalId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistProposalListResult>()
   const [status, setStatus] = React.useState('pending')
@@ -163,7 +162,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
       .then((diff) => { if (live) setFocusedDiff(diff) })
       .catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, focusProposalId, refresh])
+  }, [projectId, focusProposalId, refresh, mutation])
   React.useEffect(() => {
     let live = true
     setLoading(true)
@@ -171,7 +170,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
     required<LinguistProposalListResult>('linguistProposalsList', { projectId, assetId, status: status || undefined, limit: 100, offset: page * 100 })
       .then((next) => { if (live) { setList(next); setSelected(new Set()); setMessage(''); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
     return () => { live = false }
-  }, [projectId, assetId, status, page, refresh])
+  }, [projectId, assetId, status, page, refresh, mutation])
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived) return false
     try { await required(operation, input); setRefresh((value) => value + 1); onChanged(); setMessage(t("建议已处理")); return true }
@@ -266,7 +265,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   </section>
 }
 
-export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNavigate, onChanged, onSendAgentTask }: { projectId: string; assetId?: string; segmentIds: readonly string[]; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void> }): React.ReactElement {
+export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archived, onNavigate, onChanged, onSendAgentTask }: { projectId: string; assetId?: string; segmentIds: readonly string[]; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void> }): React.ReactElement {
   const t = useT()
   const [kind, setKind] = React.useState<'tm' | 'terms'>('terms')
   const [query, setQuery] = React.useState('')
@@ -306,7 +305,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNav
       if (live) { setList(next); setConflicts(conflictList); setSelectedTermIds(new Set()); setMessage('') }
     }).catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, kind, query, termFilter, page, refresh])
+  }, [projectId, kind, query, termFilter, page, refresh, mutation])
 
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived) return false
@@ -442,7 +441,7 @@ function suggestedXlsxColumns(sheet: LinguistXlsxMappingPreviewSheet | undefined
   return columns
 }
 
-export function AssetsPanel({ projectId, segmentId, focusDocId, archived, onChanged, onSendAgentTask, onOpenBatchPreview }: { projectId: string; segmentId?: string; focusDocId?: string; archived: boolean; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void>; onOpenBatchPreview: (assetId: string) => void }): React.ReactElement {
+export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archived, onChanged, onSendAgentTask, onOpenBatchPreview }: { projectId: string; segmentId?: string; focusDocId?: string; mutation: number; archived: boolean; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void>; onOpenBatchPreview: (assetId: string) => void }): React.ReactElement {
   const t = useT()
   const [kind, setKind] = React.useState<AssetKind>('contextDocs')
   const [items, setItems] = React.useState<LinguistAssetsQueryResult>()
@@ -475,7 +474,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, archived, onChan
       required<{ assets: LinguistAssetInfo[] }>('linguistProjectsGetSummary', { projectId }),
     ]).then(([data, overview]) => { if (live) { setItems(data); setSummary(overview.assets) } }).catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, kind, assetQuery, assetPage, sentenceStatus, refresh])
+  }, [projectId, kind, assetQuery, assetPage, sentenceStatus, refresh, mutation])
   const changed = () => { setRefresh((value) => value + 1); onChanged() }
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived) return false
@@ -624,7 +623,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, archived, onChan
   </section>
 }
 
-export function DeliveryPanel({ projectId, assets, archived }: { projectId: string; assets: readonly LinguistAssetInfo[]; archived: boolean }): React.ReactElement {
+export function DeliveryPanel({ projectId, assets, mutation, archived }: { projectId: string; assets: readonly LinguistAssetInfo[]; mutation: number; archived: boolean }): React.ReactElement {
   const t = useT()
   const [assetId, setAssetId] = React.useState(assets[0]?.assetId ?? '')
   const [prepared, setPrepared] = React.useState<LinguistPrepareDeliveryResult>()
@@ -643,7 +642,7 @@ export function DeliveryPanel({ projectId, assets, archived }: { projectId: stri
     finally { setLoadingExports(false) }
   }, [projectId])
   React.useEffect(() => { if (!assets.some((asset) => asset.assetId === assetId)) { setAssetId(assets[0]?.assetId ?? ''); setPrepared(undefined); setDownload(undefined) } }, [assets, assetId])
-  React.useEffect(() => { void refreshExports() }, [refreshExports])
+  React.useEffect(() => { setPrepared(undefined); void refreshExports() }, [refreshExports, mutation])
   const prepare = async (): Promise<LinguistPrepareDeliveryResult | undefined> => {
     setBusy(true); setError(''); setMessage('')
     try { const result = await required<LinguistPrepareDeliveryResult>('linguistExportsPrepareAsset', { projectId, assetId }); setPrepared(result); setMessage(t("预检已完成")); return result }
@@ -698,7 +697,7 @@ interface ProjectDiagnosticsStatus {
   }
 }
 
-export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId, capabilities }: { project: LinguistProjectInfo; hasBatches: boolean; onChanged: () => void; sessionId?: string; capabilities: React.ReactNode }): React.ReactElement {
+export function ProjectSettingsPanel({ project, hasBatches, mutation, onChanged, onOpenHistory, sessionId, capabilities }: { project: LinguistProjectInfo; hasBatches: boolean; mutation: number; onChanged: () => void; onOpenHistory: (tab: 'qa' | 'proposals') => void; sessionId?: string; capabilities: React.ReactNode }): React.ReactElement {
   const t = useT()
   const [name, setName] = React.useState(project.name)
   const [sourceLocale, setSourceLocale] = React.useState(project.sourceLocale)
@@ -772,7 +771,7 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
       .then((items) => { if (live) setUnknownTags(items) })
       .catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId])
+  }, [projectId, mutation])
   const exportManagedFile = async (operation: 'linguistIntegrityExportReport' | 'linguistDiagnosticsExportBundle', input: object) => {
     try {
       const result = await required<unknown>(operation, input)
@@ -795,6 +794,7 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
     </form>
     <p className={styles.notice}>{t(hasBatches ? '已有批次，不能修改项目语言。' : '导入首个批次或 TM/TB 后，语言方向将冻结以避免数据不一致。')}</p>
     <div className={styles.toolbar}><label>{t("阶段")}<select disabled={archived} value={workflowStage} onChange={(event) => { const next = event.target.value as LinguistWorkflowStage; setWorkflowStage(next); setOutputStatus((project.outputStatusPolicy?.sdlxliff_1_2?.[next] as 'Translated' | 'ApprovedTranslation' | 'ApprovedSignOff' | undefined) ?? 'default') }}><option value="translation">{t("翻译")}</option><option value="editing">{t("审校")}</option><option value="proofreading">{t("校对")}</option></select></label><label>{t('SDLXLIFF 确认输出')}<select disabled={archived} value={outputStatus} onChange={(event) => setOutputStatus(event.target.value as typeof outputStatus)}><option value="default">{t('随 T / E / P 阶段')}</option><option value="Translated">Translated</option><option value="ApprovedTranslation">ApprovedTranslation</option><option value="ApprovedSignOff">ApprovedSignOff</option></select></label><label>{t("QA 配置")}<select disabled={archived} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general'|'subtitle')}><option value="general">{t("通用")}</option><option value="subtitle">{t("字幕")}</option></select></label><Button variant="outline" size="sm" disabled={archived || (workflowStage === (project.workflowStage ?? 'translation') && qaProfile === (project.qaProfile ?? 'general') && outputStatus === ((project.outputStatusPolicy?.sdlxliff_1_2?.[workflowStage] as typeof outputStatus | undefined) ?? 'default'))} onClick={() => void mutate('linguistProjectsSetWorkflowConfig', { projectId, workflowStage, outputStatusPolicy: outputStatus === 'default' ? null : { sdlxliff_1_2: { [workflowStage]: outputStatus } }, qaProfile })}>{t("保存工作流")}</Button></div>
+    <div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => onOpenHistory('qa')}>{t('QA 历史')}</Button><Button variant="outline" size="sm" onClick={() => onOpenHistory('proposals')}>{t('建议历史')}</Button></div>
     </details>
     <details className={styles.settingsSection}><summary>{t("Agent 能力与项目指令")}</summary>{capabilities}</details>
     <details className={styles.settingsSection}><summary>Tag Profile</summary>

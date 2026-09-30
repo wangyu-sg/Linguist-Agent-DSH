@@ -163,7 +163,7 @@ test('a copied Session can retry navigation without creating a second copy', asy
 
 test('opening a project reuses native CAT history, lazily ensures one Session, and rejects stale navigation and read errors', async () => {
   const registrations = new Map(), listeners = new Set(), bindings = new Map()
-  const opened = [], resources = [], creates = [], binds = []
+  const opened = [], resources = [], creates = [], binds = [], navigationRequests = []
   let mounted, navigation = new AbortController(), createResult, projectResult, bindingError
   const workspace = { workspaceId: 'workspace-A', path: '/synthetic/workspace' }
   const byId = {}, sessionIds = []
@@ -193,7 +193,8 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
     if (name === './CatToolResult') return { catToolNames: [] }
     if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
     if (name === '@deepseek-ai/dsh-client-ui-plugin-manager/client') return { PANEL_ID: 'plugins' }
-    if (name === './ui-locale' || name === './composer-reference' || name === './cat-editor-state' || name === './cat-navigation' || name === '@deepseek-ai/dsh-client-ui-primitives' || components.some(component => name === `./${component}`)) return {}
+    if (name === './cat-navigation') return { requestCatNavigation: value => navigationRequests.push(value) }
+    if (name === './ui-locale' || name === './composer-reference' || name === './cat-editor-state' || name === '@deepseek-ai/dsh-client-ui-primitives' || components.some(component => name === `./${component}`)) return {}
     throw new Error(`Unexpected Client import: ${name}`)
   } })
   exports.apply(ctx)
@@ -209,6 +210,9 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
   addSession('ordinary', {}, 1000); visit('ordinary')
   await onOpenProject('project-A')
   assert.equal(opened.at(-1), 'cat-current', 'observed native MRU wins over update timestamp')
+  await onOpenProject('project-A', 'qa')
+  assert.deepEqual(JSON.parse(JSON.stringify(navigationRequests.at(-1))), { sessionId: 'cat-current', projectId: 'project-A', dock: 'qa' })
+  assert.equal(creates.length, 0, 'project history reuses its native CAT Session')
   await onOpenProject('empty-project')
   assert.equal(creates.length, 1)
   assert.deepEqual(JSON.parse(JSON.stringify(binds[0])), { sessionId: 'created-1', projectId: 'empty-project', role: 'general', workMode: 'cat' })

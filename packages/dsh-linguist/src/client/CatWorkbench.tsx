@@ -29,7 +29,7 @@ import { QaPanel, ProposalPanel, ReferencePanel, AssetsPanel, DeliveryPanel, Pro
 import { RunPanel } from './RunPanel'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { UnknownTagNotice } from './UnknownTagNotice'
-import { useCatNavigation, type CatDock } from './cat-navigation'
+import { requestCatNavigation, useCatNavigation, type CatDock } from './cat-navigation'
 import { TERM_STATUS_LABELS, nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
 import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
@@ -73,7 +73,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [stageFilter, setStageFilter] = React.useState('')
   const [selectedId, setSelectedId] = React.useState<string | undefined>(storedLocation.value.segmentId)
   const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(new Set())
-  const [agentReference, setAgentReference] = React.useState<{ segmentId: string; assetId: string }>()
+  const [agentReference, setAgentReference] = React.useState<{ segmentId: string; assetId: string; ordinal: number }>()
   const uiRevision = React.useRef(0)
   // Background selection cleanup must not cancel an explicit jump.
   const navigationRevision = React.useRef(0)
@@ -506,6 +506,14 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       setAssetId(navigation.assetId)
       setStageFilter('')
       setSearch('')
+    } else if (navigation.dock === 'qa' || navigation.dock === 'proposals') {
+      setAssetId(undefined)
+      setSelectedId(undefined)
+      setSelectedIds(new Set())
+      setQaNavigation(undefined)
+      setProposalNavigation(undefined)
+      setStageFilter('')
+      setSearch('')
     }
   }, [navigation])
 
@@ -552,7 +560,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>
       </div>}
     </header>
-    {agentReference && <div className={styles.agentReference} role="status">{t('已为 Agent 引用句段')} {agentReference.segmentId}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
+    {agentReference && <div className={styles.agentReference} role="status" title={agentReference.segmentId}>{t('已为 Agent 引用句段')} {`#${agentReference.ordinal + 1}`}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
     <div ref={bodyRef} className={styles.body}>
       {assetNavigatorOpen && <nav id={`linguist-batches-${sessionId}`} className={styles.assets} style={{ width: Math.min(assetNavigatorWidth, assetMaximum) }} aria-label={t("批次导航")}>
@@ -584,7 +592,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
               setFocusIndex((current) => current !== undefined && dataset.ids[current] === id ? current : undefined)
             }} onToggleSelected={(id) => setSelectedIds((current) => {
               const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next
-            })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
+            })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId, ordinal: segment.ordinal })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
       {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={320} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
@@ -599,13 +607,13 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
       }}>{t(item.label)}</Button>)}</div><Tooltip portal label={t(dockOpen ? '收起辅助区' : '展开辅助区')}><Button className={styles.dockToggle} variant="ghost" size="sm" aria-label={t(dockOpen ? '收起辅助区' : '展开辅助区')} aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip></div>
       {dockOpen && <div role="tabpanel" className={styles.dockBody}>
-        {dock === 'qa' && <QaPanel projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'proposals' && <ProposalPanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'references' && <ReferencePanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
-        {dock === 'assets' && <AssetsPanel projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
-        {dock === 'delivery' && <DeliveryPanel projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
+        {dock === 'qa' && <QaPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'proposals' && <ProposalPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'references' && <ReferencePanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
+        {dock === 'assets' && <AssetsPanel mutation={mutation} projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
+        {dock === 'delivery' && <DeliveryPanel mutation={mutation} projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
         {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} onOpenSession={onOpenSession} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'settings' && <ProjectSettingsPanel mutation={mutation} onOpenHistory={(dock) => requestCatNavigation({ sessionId, projectId, dock })} project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
     <CatStatusBar projectId={projectId} assetId={assetId} summary={summary} active={active} selectedCount={selectedIds.size} revision={`${mutation}:${reload}`} />
