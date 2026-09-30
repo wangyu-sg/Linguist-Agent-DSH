@@ -2662,7 +2662,7 @@
       "implementationStatus": "entry-mapped-parity-unverified",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-10-01：候选3fe新增设置面板“QA 历史”实际入口；项目页和CAT两个消费者均接入原生CAT导航，全项目历史清除旧批次/选区/筛选。QaPanel在未选批次时加载项目历史；运行QA仍要求批次。源码回归已执行，候选原生点击仍待安装后验收。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
@@ -3108,7 +3108,7 @@
       "implementationStatus": "entry-mapped-parity-unverified",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-10-01：候选3fe新增设置面板“建议历史”实际入口；复用原生CAT会话并清除旧批次、选区和筛选后查询全项目建议。源码导航回归已执行，候选原生点击仍待安装后验收。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
@@ -4791,7 +4791,7 @@
       "implementationStatus": "entry-mapped-parity-unverified",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-10-01：候选3fe将显式句段引用的可见标签改为行号，完整stable ID保留在提示和发送scope内。清除引用/选区仍沿原生Composer；候选实际点击和请求冻结仍待安装后验收。",
       "sourceTests": []
     },
     {

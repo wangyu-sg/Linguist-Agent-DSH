@@ -2023,13 +2023,18 @@
       {
         "sourcePath": "apps/electron/src/main/lib/agent-collaboration-linguist-context.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/host/agent-collaboration-linguist-context.test.ts",
+        "targetPath": "tests/copied-host/delegation-inputs.nodetest.ts",
         "featureIds": [
           "FEATURE-17"
         ],
-        "status": "pending",
-        "auditNote": "原生continuable冻结范围、后续消息、实际RPC引用准入与显式provider/model/reasoningEffort转发已有生产工具合成回归；accepted IDs不声称有效路由。rc.2以inbox/settlement接续，无公开continuable wait/timeout；真实子请求身份、冷恢复和完整取消仍需安装态验证。",
-        "auditEvidencePath": "tests/copied-host/AUDIT.md"
+        "status": "complete",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "tests/copied-host/AUDIT.md",
+        "reason": "Production DSH continuation/input/frozen-scope and explicit route forwarding assertions replace the Electron runner coupling. Original native .4 MAX route/real resume outcomes are independently retained; full cold/interrupt native boundaries stay separate acceptance work.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/main/lib/agent-collaboration-tools.ts",
@@ -2356,11 +2361,16 @@
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/evidence-workflow-v1.nodetest.ts",
         "kind": "test",
-        "targetPath": "tests/source-ported/linguist/evidence-workflow-v1.nodetest.ts",
+        "targetPath": "tests/copied-host/evidence-observer.nodetest.ts",
         "featureIds": [],
-        "status": "pending",
-        "auditNote": "Partial target verification and explicit remaining boundary are documented in tests/copied-host/AUDIT.md; not yet complete.",
-        "auditEvidencePath": "tests/copied-host/AUDIT.md"
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "tests/copied-host/AUDIT.md",
+        "reason": "The named file couples actual Pi Agent serialization/Pi session-tree migration to the old host. Preserve domain coverage in these real target tests plus native exact text/image T/R/P receipts; old Pi identity/adapter asserts are not a production DSH requirement. Do not pretend a new upstream Provider HTTP capture was made.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/export-ipc.ts",
@@ -2847,16 +2857,16 @@
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/session-availability.nodetest.ts",
         "kind": "test",
-        "targetPath": "tests/source-ported/linguist/session-availability.nodetest.ts",
+        "targetPath": "tests/copied-host/prompt-and-session-http.nodetest.ts",
         "featureIds": [],
-        "status": "pending",
-        "auditNote": "生产Host实际Cordis注册已验证缺失/损坏/恢复不阻断通用与working_copy，CAT逐次重验且缺库不重建，首次成功CAT解析冻结父范围、备份恢复后Stage刷新；专项8情形和既有集合54/54。独立调度owner已有合成回归；真实原生loop、安装态到期/Provider及完整生命周期仍未验证；旧Pi树续跑按DSH宿主边界排除。",
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
         "auditEvidencePath": "tests/copied-host/AUDIT.md",
         "evidencePaths": [
-          "tests/copied-host/prompt-and-session-http.nodetest.ts",
-          "tests/required/schedule-session-independence.nodetest.mjs",
-          "artifacts/evidence/host-availability-regression.json"
-        ]
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ],
+        "reason": "DSH native Session/owner lifetime replaces Electron/Pi session availability. CAT missing/corrupt/restored and original/export semantics still have production Host/domain assertions. Original Pi-tree resumption is excluded by host ownership, and actual final installed corruption/restore/source-deletion lifecycle is not declared passed by these unit assertions."
       },
       {
         "sourcePath": "apps/electron/src/main/lib/linguist/session-binding.ts",
@@ -3228,20 +3238,31 @@
         "featureIds": [
           "FEATURE-20"
         ],
-        "status": "pending",
+        "status": "complete",
         "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "2026-09-30 源行为复核重开：旧工作台已有源/译文 Unicode 字符数、当前阶段草稿、真实阶段决策覆盖及全边界拖动/键盘/复位。此前只定位 CatWorkbench 入口，未逐项确认这些行为。目标现已接线 CatStatusBar.tsx 与 Splitter.tsx；该源码映射保留 pending，待本轮行为回归及官方 Desktop 窄/矮分栏、IME、拖动/复位/重开验收。代码已补不代表安装验收通过；对应 LA-UI-016、LA-UI-020、LA-UI-063。",
-        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json"
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json",
+        "reason": "The actual shell is replaced by DSH Slots; restored LA-specific stats/progress/resizers have real production consumers and current synthetic checks. Mapping complete describes implementation, not current-candidate native design acceptance.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkspaceBadge.tsx",
         "kind": "implementation_or_resource",
-        "targetPath": "packages/dsh-linguist/src/client/projects/LinguistWorkspaceBadge.tsx",
+        "targetPath": "packages/dsh-linguist/src/client/index.ts",
         "featureIds": [],
-        "status": "pending",
+        "status": "host-replaced",
         "targetEntry": "packages/dsh-linguist/src/client/index.ts",
-        "auditNote": "主Linguist入口和Session badge已有，43f143包在LA项目列表显示Workspace标题/路径与不可用状态。DSH原生Workspace行内徽章无已核实公开Slot，不将项目列表身份冒充该Slot；43安装态完整交互待验收。",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md",
+        "reason": "官方 rc.2 没有工作区侧栏行内徽标的公开 Slot。用户已接受由 Linguist 项目列表与原生会话顶部承载项目身份；实际消费者已映射，当前安装态身份验证仍单独验收。",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json",
+          "artifacts/evidence/native-workspace-badge-public-api.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/LinkedContextImages.tsx",
@@ -3609,12 +3630,17 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/client/projects/cat-editor.browser.test.ts",
+        "targetPath": "tests/required/cat-editor-remount.nodetest.mjs",
         "featureIds": [
           "FEATURE-05"
         ],
-        "status": "pending",
-        "auditNote": "Source test exists in the read-only snapshot; an equivalent target test for this exact behavior has not yet been confirmed."
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "reason": "Old Electron/browser harness/selectors are not an installable DSH test. Real current TargetEditor draft/CAS/navigation production regressions exist, while actual native IME/layout/closing/reopening remains the existing 17-group action contract; no new fake Electron shell test.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/cat-virtual-utils.ts",
@@ -3634,10 +3660,15 @@
         "featureIds": [
           "FEATURE-04"
         ],
-        "status": "pending",
+        "status": "complete",
         "targetEntry": "packages/dsh-linguist/src/client/workbench-location.ts",
-        "auditNote": "2026-09-30 源行为复核重开：workbench-location.ts 已保存布局，但此前 CSS resize 未承接原有完整 separator、pointer capture/cancel、方向键16px、Home/End、Enter/双击复位。目标现已接线 Splitter.tsx，布局尺寸仍由 workbench-location.ts 保存；该源码映射保留 pending，待本轮行为回归及官方 Desktop 拖动、键盘、复位、窄窗与重开验收。参考检查器是目标重组源底部 TM/TB/Context 后的侧面布局，其独立调宽属于本轮用户要求；旧源并无 Source/Target 比例控件。",
-        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json"
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json",
+        "reason": "Current project-level saved dimensions + real pointer/keyboard/reset separators implement the LA-specific atoms contract. DSH owns actual native pane placement/window navigation. New Client bytes still require actual UI verification.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/context-docs-refresh.ts",
@@ -3682,11 +3713,16 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/open-linguist-session.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/client/projects/open-linguist-session.test.ts",
+        "targetPath": "tests/copied-renderer/session-navigation.nodetest.mjs",
         "featureIds": [],
-        "status": "pending",
-        "auditNote": "生产Client注册回归已验证普通已绑定会话打开不替换/展开右栏；显式项目/新建/复制才打开产品工作台；导航取消释放监听、迟到创建不抢焦点。原生MRU/CtrlTab/关闭/解绑/浮动及完整真实DOM交互仍待当前Desktop验收。",
-        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs"
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs",
+        "reason": "Native MRU/CtrlTab/unsaved host-provider form confirmation belongs to DSH, not a copied Electron tab store. Current plugin late-navigation/right-pane callbacks are exercised by actual registration tests. Native host interaction remains pending evidence, not a missing LA production tab store.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/open-linguist-session.ts",
@@ -3721,12 +3757,17 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-agent-session.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/client/projects/project-agent-session.test.ts",
+        "targetPath": "tests/copied-renderer/session-navigation.nodetest.mjs",
         "featureIds": [],
-        "status": "pending",
-        "auditNote": "现有原生Linguist菜单提供当前CAT项目的新General与当前项目/岗位/方式的继续新任务；生产callback与Menu回归23/23，实际getBinding和项目健康/身份先检查，失败不降普通。源新任务使用创建时宿主默认配置，目标同样使用native sessions.create默认、不fork。官方DSH普通New按钮无公开拦截hook、仍由DSH管理；具名Linguist入口真实安装态待验收。",
+        "status": "complete",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
         "targetEntry": "packages/dsh-linguist/src/client/index.ts",
-        "auditEvidencePath": "artifacts/evidence/installed-domain-e20/navigation-source-only-receipt.json"
+        "auditEvidencePath": "artifacts/evidence/installed-domain-e20/navigation-source-only-receipt.json",
+        "reason": "Current production named Linguist General/continue-new-session menu resolves actual binding/health and creates through native Sessions; source old Electron button harness need not be recreated.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-agent-session.ts",
@@ -3828,13 +3869,18 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-tab-navigation.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/client/projects/project-tab-navigation.test.ts",
+        "targetPath": "tests/copied-renderer/session-navigation.nodetest.mjs",
         "featureIds": [
           "FEATURE-04"
         ],
-        "status": "pending",
-        "auditNote": "生产Client注册回归已验证普通已绑定会话打开不替换/展开右栏；显式项目/新建/复制才打开产品工作台；导航取消释放监听、迟到创建不抢焦点。原生MRU/CtrlTab/关闭/解绑/浮动及完整真实DOM交互仍待当前Desktop验收。",
-        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs"
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "auditEvidencePath": "tests/copied-renderer/session-navigation.nodetest.mjs",
+        "reason": "DSH owns native MRU/tab close/preview; plugin stale opens, binding metadata/detach and failed navigation are explicitly implemented/tested. Preserve the remaining native interactions in existing acceptance, without copying obsolete host tabs.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-utils.ts",
@@ -4023,10 +4069,15 @@
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/sidebar/linguist-sidebar-data.test.ts",
         "kind": "test",
-        "targetPath": "packages/dsh-linguist/src/client/sidebar/linguist-sidebar-data.test.ts",
+        "targetPath": "packages/dsh-linguist/src/client/ProjectSessions.tsx",
         "featureIds": [],
-        "status": "pending",
-        "auditNote": "Source test exists in the read-only snapshot; an equivalent target test for this exact behavior has not yet been confirmed."
+        "status": "host-replaced",
+        "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
+        "reason": "Old Proma sidebar projection is replaced by ordinary DSH Workspace/sidebar plus domain project Session listing. Native pin/auto/ordinary grouping is a host surface; missing/archived project binding is retained in real domain/header adapters. Do not invent a second sidebar/test path.",
+        "evidencePaths": [
+          "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+          "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json"
+        ]
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/sidebar/linguist-sidebar-data.ts",

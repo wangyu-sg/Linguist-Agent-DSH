@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T15:43:06.176141+00:00",
+  "updatedAt": "2026-09-30T20:27:07.204178+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -26,7 +26,7 @@
       ".DS_Store"
     ]
   },
-  "currentWorkPackage": "W00–W12: installed 0fde native UI/domain/browser acceptance; memoQ and duplicate selection labels fixed in integrated 4f2e candidate, awaiting native update and revalidation",
+  "currentWorkPackage": "W00–W12: final grouped LA3fe/.5 code packaged; actual LA7678/.5 cold native Browser and scoped domain checks observed; final candidate installation and full current native acceptance remain pending",
   "workPackages": [
     {
       "id": "W00",
@@ -102,22 +102,23 @@
     "officialDesktopPath": "/Applications/DeepSeek Harness.app",
     "desktopEvidence": "artifacts/evidence/dsh-rc2-official-desktop.json",
     "sourceHead": "70d6b1feab08b2767189e3597a69d81d86adb2a8",
-    "lastInstalledPluginSha256": "06190cb843e078df7201d7767aaddca1cc378ba94b83486ef778fa09668f7329",
+    "lastInstalledPluginSha256": "76789f203f48a66eaf8ef319e282d1590059b9c440529eb1a501c89df2a618c1",
     "lastInstalledPluginRuntime": "0.2.0-rc.2",
-    "pluginStatus": "0619 installed with explicit action-time approval via official manager, enabled, all installed lib files match fixed tarballs. Native arrow reproduction now passes including cold reopen.",
-    "installationRegistryStatus": "current.json, installed package bytes and real Host status resolve la-06190cb843e0-7a6cfa1d. Official application quit and Finder double-click reopen observed.",
-    "nativeInstallEvidence": "artifacts/evidence/native-install-la-06190cb843e0-7a6cfa1d.json",
-    "nativeRecheckEvidence": "artifacts/evidence/native-install-la-06190cb843e0-7a6cfa1d-trace.json",
+    "pluginStatus": "LA7678/Browser.5 actually installed/enabled and cold reopened through official menu Quit then Finder double click; exact disk code fixed fingerprints now genuinely loaded.",
+    "installationRegistryStatus": "la-76789f203f48-5c93f36b remains actual installed identity; latest UI changes are source only until new candidate native install.",
+    "nativeInstallEvidence": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b.json",
+    "nativeRecheckEvidence": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b-trace.json",
     "auditDirectory": "docs/migration/audit-2026-09-29",
-    "packagePolicy": "One integrated rc.2 native candidate after full diff review; installed acceptance remains mandatory",
+    "packagePolicy": "Latest grouped LA3fe548dc2f09 plus installed Browser .5 remains candidate only. Historical .4/.5 raw proofs retain original identity; final native install and affected UI verification must use current actual package.",
     "knownEngineeringGaps": [
-      "Remaining full current-package UI/model/delegation/schedule/Browser evidence incomplete.",
-      "Adjacent navigation corrections awaiting final correctness review, frozen package and real native acceptance."
+      "Latest LA3fe grouped live-panel/history fix awaits its current native install confirmation and actual QA GREEN; no new candidate native PASS yet.",
+      "Full final native UI/IME, bounded delegation queue/steer/interrupt and complete current capability coverage remain unverified. Native Browser .5 borrow/return,130s wait,cancel/late output and reload with foreign peer were observed under actual7678/.5; native equivalent key reorder remains NOT_VERIFIED.",
+      "maintenance-7678 original FAILED retained: old runner required internal pre-restore snapshots in public list. Corrected real contract runner is prepared but not yet executed on final installed candidate."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: 0619 smoke9/9, native grid keyboard and official cold reopen passed; cold domain23/23 with274HTTP and all8formats passed. Remaining full UI/model/delegation/schedule/Browser acceptance still pending.",
+    "installedAcceptanceStatus": "NOT_READY: current7678/.5 actual cold restart, browser130s and native cancellation observed; whole final candidate/UI/capability gates still incomplete. Feishu BLOCKED_ENV.",
     "implementedAwaitingInstalledAcceptance": [
-      "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
+      "DSH rc.2 and BrowserSkill .4 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
       "Term match insert with tag/lock/IME protection; QA source-target comparison",
       "Live job progress and native whole-Session cancellation",
@@ -147,13 +148,11 @@
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 258,
-      "bunTests": 21,
+      "nodeTests": 274,
+      "bunTests": 22,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/cat-arrow-build.log",
-      "privatePushBoundaryTests": 4,
-      "freshForCurrentWorkingTree": false
+      "freshForCurrentWorkingTree": true
     },
     "knownHostApiBoundaries": [
       {
@@ -165,16 +164,15 @@
         "acceptedBehavior": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。"
       }
     ],
-    "candidateStatus": "Adjacent navigation and QA action grouping remain under review; 29bf candidate invalidated by reproduced races and subsequent design edits. Actual installed identity remains 0619.",
-    "candidatePluginSha256": "06190cb843e078df7201d7767aaddca1cc378ba94b83486ef778fa09668f7329",
-    "lastInstalledBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
+    "candidateStatus": "3fe548dc2f09/.5 grouped live UI candidate built, 6 real package resource checks, staged and selected in official Install dialog; awaiting current action-time confirmation. Old ad2 confirmation superseded.",
+    "candidatePluginSha256": "3fe548dc2f094bc2d2a496ef1d00caa50f1f2ad0004a12ecd24cc9dda30a4fc3",
+    "lastInstalledBrowserSkillSha256": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "81e18cd6e98bb2059963e67468f864fa8e7a1524be53b02647ba327bcc44f657",
+      "sha256": "9e509a396f4dafd43931699ab6537c58bfadba917448dfeeefa74a9ca64683f7",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "376b841",
-      "receipt": "artifacts/evidence/ponytail-review-cat-arrow.json",
-      "scope": "Six-file exact staged diff: keyboard focus source/tests and continuation plus accepted identity placement. Subsequent cold-domain summary update remains uncommitted."
+      "committedAs": "0cd31b9",
+      "evidencePath": "artifacts/evidence/qa-live-panel-fix/ponytail-product-review.json"
     },
     "acceptedProductAdjustments": [
       {
@@ -194,47 +192,61 @@
       }
     ],
     "browserCliCheck": {
-      "status": "CLI_CHAIN_PASS",
-      "receipt": "artifacts/evidence/browser-skill-localhost.json",
-      "installedNativeToolAcceptance": "0fde actual tool chain and fixture effects observed; full edge/reload/peer acceptance still pending",
-      "nativeEvidence": "artifacts/evidence/browser-native-0fde/observation.json"
+      "status": "PASS_CURRENT_CLI_AND_STRICT_NATIVE_BASIC_CHAIN",
+      "receipt": "artifacts/evidence/browser-native-7678/cli/browser-skill-localhost.json",
+      "installedNativeToolAcceptance": "Browser .5 after actual cold reopen used semantic fixed-field fingerprint; native same-order retry, borrow/return,130s wait,cancel and late-output boundary,plugin owned cleanup and foreign peer preservation observed. These are LA7678/.5 scopes; final current strict native and CLI chain pending.",
+      "nativeEvidence": "artifacts/evidence/browser-native-7678/strict-native/browser-observation.json",
+      "retainedDefect": "artifacts/evidence/browser-native-7678/native-edges/observation.json",
+      "sourceFix": "artifacts/evidence/browser-native-7678/fingerprint-fix/receipt.json",
+      "nativeV5Evidence": [
+        "artifacts/evidence/browser-native-7678/edges-next/observation.json",
+        "artifacts/evidence/browser-native-7678/edges-cold/observation.json",
+        "artifacts/evidence/browser-native-7678/long-wait/native-long/observation.json",
+        "artifacts/evidence/browser-native-7678/long-wait/native-cancel/observation.json",
+        "artifacts/evidence/browser-native-7678/long-wait/reload-peer/observation.json"
+      ]
     },
-    "resourceCheckEvidence": "artifacts/evidence/cat-arrow-pack.log",
-    "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
+    "resourceCheckEvidence": "artifacts/evidence/cat-navigation-final-pack.log",
+    "sourceReadonlyEvidence": "artifacts/evidence/qa-live-panel-fix/source-readonly-20261001.json",
     "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
-    "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
+    "candidateBrowserSkillSha256": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006",
     "browserAdapterValidationEvidence": "artifacts/evidence/browser-adapter4-validation.json",
     "projectOpenRegressionEvidence": "artifacts/evidence/installed-domain-e20/project-open-regression.json",
     "hostAvailabilityRegressionEvidence": "artifacts/evidence/host-availability-regression.json",
     "navigationRegressionEvidence": "artifacts/evidence/installed-domain-e20/navigation-source-only-receipt.json",
     "privacyPreflightEvidence": "artifacts/evidence/preinstall-boundary-recheck.json",
-    "installedObservationEvidence": "artifacts/evidence/ui-0fde/observations.json",
+    "installedObservationEvidence": "artifacts/evidence/ui-7678/cat-navigation.png",
     "uiDesign": "docs/migration/UI-DESIGN.md",
-    "nativeUpdateConfirmation": "User explicitly approved 0619 update and native verification; actual Install and Enable now performed.",
-    "installationId": "la-06190cb843e0-7a6cfa1d",
-    "coldStartStatusEvidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
-    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0619-cold/domain-acceptance-summary.json",
+    "nativeUpdateConfirmation": "User explicitly approved current7678 installation: 安装你自己安装啊，我同意的. Install and Enable performed. User also gave continuing authorization for future packages; local-build action-time confirmation remains subject to desktop tool policy.",
+    "installationId": "la-76789f203f48-5c93f36b",
+    "coldStartStatusEvidence": "artifacts/evidence/native-status-76789f203f48.json",
+    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-7678-cold/receipt.json",
     "keyboardNavigationRegression": {
       "reproduction": "artifacts/evidence/cat-arrow-reproduction-4f2e.json",
       "red": "artifacts/evidence/cat-arrow-red.log",
       "green": "artifacts/evidence/cat-arrow-green.log",
       "build": "artifacts/evidence/cat-arrow-build.log",
       "installedFixVerified": true,
-      "nativeEvidence": "artifacts/evidence/cat-arrow-native-0619.json"
+      "nativeEvidence": "artifacts/evidence/ui-7678/cat-navigation.png",
+      "previousNativeEvidence": "artifacts/evidence/cat-arrow-native-0619.json"
     },
     "nativeHostReloadObservation": {
       "hotEnabledDomain": "15 pass / 1 memoQ failure, original trace retained",
       "coldSameRequest": "strict export succeeds with4/4 native status preserved",
       "evidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
-      "conclusion": "Use official cold restart before Host regression acceptance; native manager hot enable did not demonstrate updated Host behavior."
+      "conclusion": "Use official cold restart before Host regression acceptance; native manager hot enable did not demonstrate updated Host behavior.",
+      "installationId": "la-06190cb843e0-7a6cfa1d",
+      "currentColdRestartObserved": true
     },
     "backupRestoreAcceptance": {
-      "installationId": "la-06190cb843e0-7a6cfa1d",
-      "status": "PASS_INSTALLED_BACKUP_RESTORE",
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "FAILED",
       "httpRequestCount": 41,
-      "checksPassed": 6,
-      "evidence": "artifacts/evidence/maintenance-0619/domain-acceptance-summary.json",
-      "limits": "Native UI and model evidence are separate. Initial assertion incorrectly expected raw pre-restore safety snapshot in normal backup list; original failed receipt retained, identical source/target contract verified."
+      "checksPassed": 0,
+      "evidence": "artifacts/evidence/maintenance-7678/receipt.json",
+      "observedSuccessfulRestore": "before.json and after-restore.json are structurally identical, including CAT values, terminology/TM data and six original reference-byte SHA values. Restore returned backupName and preRestoreName.",
+      "limits": "Runner failed on its requirement that normal listBackups expose internal pre-restore-* snapshots. Original FAILED receipt retained; successful preceding restore observations do not convert it to a pass. Native UI/model evidence remains separate.",
+      "independentReadbackEvidence": "artifacts/evidence/maintenance-7678/restore-readback-verification.json"
     },
     "professionalSessionPreparation": {
       "evidence": "artifacts/evidence/roles-0619/native-bindings.json",
@@ -244,12 +256,192 @@
         "reviewer",
         "proofreader"
       ],
-      "modelCallsPerformed": false
+      "modelCallsPerformed": false,
+      "historicalPreparationOnly": true
     },
     "externalNavigationRegression": {
-      "status": "REPRODUCED_ON_INSTALLED_0619",
-      "evidence": "artifacts/evidence/cat-navigation-0619-before.json",
-      "detail": "Installed 0619 next-untouched focuses HTML root; source corrections add explicit jump focus, stable post-confirm successor, filter cancellation and page identity. Review continues; no new native pass claimed."
+      "status": "PASS_CURRENT_NATIVE_NAVIGATION_OBSERVED",
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "evidence": "artifacts/evidence/ui-7678/navigation-and-splitters.json",
+      "detail": "Root observed native search retain input focus across refresh; next-untouched focused an actual row and subsequent Up/Down continued. Under untouched filter, confirming original segment200 removed it from the index, skipped locked201 and focused202 across the page boundary; continuous arrows still worked afterwards. Complete current UI receipt and other editor coverage remain pending.",
+      "previousReproduction": "artifacts/evidence/cat-navigation-0619-before.json"
+    },
+    "providerImageEnvironmentProbe": {
+      "installationId": "la-06190cb843e0-7a6cfa1d",
+      "evidence": "artifacts/evidence/provider-image-probe-0619.json",
+      "sessionId": "session-c75b0010-cbca-44a7-81e9-cb22fe895c49",
+      "status": "PASS_READONLY_IMAGE_PROBE",
+      "professionalStageProof": false,
+      "finalCandidateProof": false
+    },
+    "maintenanceSurfaceAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_INSTALLED_HTTP_SCOPE",
+      "checksPassed": 6,
+      "httpRequestCount": 101,
+      "sseEventCount": 18,
+      "evidence": "artifacts/evidence/maintenance-surfaces-7678/receipt.json",
+      "limits": "Public installed API evidence only: no native UI or genuine model-stage coverage inferred."
+    },
+    "candidateNotInstalled": {
+      "installationId": "la-ad2a792259d3-5c93f36b",
+      "pluginHashes": {
+        "linguist": "ad2a792259d3cae67a6dd3c7a038fe9a7b66b39a438ac15cb7eb585208d7d5c4",
+        "browserSkill": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006"
+      },
+      "createdAt": "2026-09-30T17:34:20.396Z",
+      "observedAt": "2026-09-30T17:38:21.465797+00:00",
+      "status": "PACKAGED_NOT_INSTALLED",
+      "linguistArtifactUnchanged": false,
+      "packPath": "artifacts/pack.json",
+      "capturedPackSha256": "22627915e19007a8182824b84c5bb350d8773f85b3452617c1733cc8551aec08",
+      "sourceReviewPending": true,
+      "scope": "New LAad2 candidate packaged after additional source edit, not installed. Actual installed remains LA7678/Browser.5; original .4 model/UI receipts remain historical and immutable."
+    },
+    "professionalRolesAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_NATIVE_DECLARED_PROFESSIONAL_SCOPE",
+      "evidencePaths": [
+        "artifacts/evidence/roles-7678/translator-audit.json",
+        "artifacts/evidence/roles-7678/reviewer-audit.json",
+        "artifacts/evidence/roles-7678/proofreader-audit.json",
+        "artifacts/evidence/roles-7678/translator-decision-contract.json"
+      ],
+      "scope": "Each actual native T/R/P reviews all3 current revision1 segments with model-visible required text+image2/2. pending0; R/P no writes; Translator actual edits/proposal precede real unchanged decisions. Observed request/response/actor kept. No external delivery claim."
+    },
+    "generalLongContextAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_NATIVE_READONLY_LONG_CONTEXT_PAGINATION",
+      "evidence": "artifacts/evidence/roles-7678/long-context-audit.json",
+      "modelVisibleCharacters": 18938,
+      "pages": [
+        8000,
+        8000,
+        2938
+      ],
+      "scope": "Actual three offsets with stable docVersion and terminal hasMorefalse, source body18899 exactly matched; readonly General, no professional Stage or write claim."
+    },
+    "workingCopyAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_NATIVE_WORKING_COPY_T_R_P_CHAIN",
+      "evidence": "artifacts/evidence/roles-7678/working-copy-chain-audit.json",
+      "scope": "Each role actually sees8 Source/currentTarget records. Original SHA/stable IDs/revisions/source and previous-resultSHA chain preserved. T left Chinese lore empty; R corrected it; P8 unchanged. Zero cat tools, submittedfalse, no formal export."
+    },
+    "scheduleAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_NATIVE_DUE_AND_MANUAL_DECLARED_SCOPE",
+      "dueEvidence": "artifacts/evidence/schedule-7678/native-due-audit.json",
+      "manualEvidence": "artifacts/evidence/schedule-7678/native-manual-audit.json",
+      "scope": "Two real due completed turns reuse exec SID, maxRuns2 stops; separate actual manual before due completed, maxRuns1 stops. Source/owner/exec independent, frozen General project scope, MAX route. Update/pause/delete/source-missing/cold persistence not claimed."
+    },
+    "providerAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_CURRENT_NATIVE_PROVIDER_OBSERVED",
+      "evidence": "artifacts/evidence/browser-native-7678/strict-native/provider-observation.json",
+      "indexFields": "artifacts/evidence/browser-native-7678/strict-native/provider-fields.json",
+      "scope": "Real original configured deepseek-account/deepseek-flash/MAX completed response and request/response identity observed. Official ready gate evaluation still pending."
+    },
+    "nativeUiAcceptance": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "status": "PASS_OBSERVED_CAT_NAVIGATION_AND_THREE_SPLITTERS",
+      "evidence": "artifacts/evidence/ui-7678/navigation-and-splitters.json",
+      "screenshots": [
+        "artifacts/evidence/ui-7678/cat-navigation.png",
+        "artifacts/evidence/ui-7678/cat-full.png"
+      ],
+      "scope": "Actual search focus, continuous arrows, confirm200 filtered successor202 skipping lock201; three actual pointer drags plus keys/reset, Source13440 Target4620 progress1/420. Only2 PNG/light/narrow/full; eight-view/dark/full editor/UI coverage incomplete."
+    },
+    "acceptanceDraft": {
+      "path": "artifacts/evidence/acceptance-7678-draft.json",
+      "capabilityProof": "artifacts/evidence/capability-proof-7678-draft.json",
+      "status": "FAILED",
+      "formalReadyEvaluated": false,
+      "requiredDistinctIds": 202,
+      "passedDeclaredScopes": 23,
+      "blockedExternal": 2,
+      "pending": 177,
+      "scope": "FAILED historical .4 normalization draft, current installed .5 snapshot and uninstalled LAad2 candidate distinguished. 202 statuses are declared scopes, not completion percent. Root owns final current identity and complete formal gates.",
+      "freshForCurrentInstallation": false
+    },
+    "currentInstalledSnapshot": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "pluginHashes": {
+        "linguist": "76789f203f48a66eaf8ef319e282d1590059b9c440529eb1a501c89df2a618c1",
+        "browserSkill": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006"
+      },
+      "currentJsonSha256": "9ffbd3b97819f2f46fd1181b7a3719faf40b06156948a771c040823e0f9dc97b",
+      "observedAt": "2026-09-30T17:38:21.465797+00:00",
+      "status": "NATIVE_INSTALLED_ENABLED_COLD_REOPEN_PENDING",
+      "installProof": {
+        "path": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b.json",
+        "sha256": "507cbae75bf0c88c2fccc2ed0733a537863e38ccb6c68d5e2c86ee6cd82dfe1a"
+      },
+      "installTrace": {
+        "path": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b-trace.json",
+        "sha256": "e8cabfcb5161b840b0a1b31359e86b11f8b7c4d7d9388748683147658d368448"
+      },
+      "scope": "Actual Browser .5 installed/enabled and17 lib files byte-checked. LA remains7678. Current cold Host reload and fresh affected runtime proof pending; old .4 evidence identities unchanged."
+    },
+    "nativeDelegationHistorical": {
+      "installationId": "la-76789f203f48-7a6cfa1d",
+      "evidence": "artifacts/evidence/delegation-7678/native-delegation-audit.json",
+      "status": "OBSERVED_NATIVE_DELEGATION_RESUME_SCOPE",
+      "scope": "Actual native Translator scope1/1 currentrev1 required2/2; Reviewer first-turn blocked required1/2, then native parent message+resume second-turn full3 scope/text/image required2/2 complete. First gap and inventory error preserved; native approval parentask/childnever observed, not claim identical approval. Other queue/steer/interrupt boundaries separate."
+    },
+    "newDefectsRepairedAwaitingCurrentPairVerification": [
+      {
+        "symptom": "Equal browser file request with reordered properties rejected as different operation",
+        "fix": "Fixed semantic field ordering in existing download/upload fingerprints",
+        "regression": "artifacts/evidence/browser-native-7678/fingerprint-fix/receipt.json"
+      },
+      {
+        "symptom": "cat_refresh_project_inventory fails on same-name duplicate gap IDs",
+        "fix": "Stable gap identity includes suggested action; exact duplicate gaps collapse without dropping scanned items or counts",
+        "red": "artifacts/evidence/browser-native-7678/fingerprint-fix/inventory-red.log",
+        "green": "artifacts/evidence/browser-native-7678/fingerprint-fix/inventory-green.log"
+      }
+    ],
+    "nativePilot20261001": {
+      "coldMenuQuitAt": "2026-09-30T18:31:42.415Z",
+      "finderDoubleClickAt": "2026-09-30T18:33:13.887Z",
+      "scope": "installed7678/.5 only",
+      "qaRedEvidence": "artifacts/evidence/ui-native-lifecycle-7678/qa-live-red-actor.json",
+      "sourceFixEvidence": "artifacts/evidence/qa-live-panel-fix/green.log",
+      "actualBrowserLongWaitMs": 130003,
+      "browserCancel": "actual native Stop, tool aborted; status unknown; own stop failed cleanup once then same-session retry succeeded; no output after original130s deadline",
+      "scheduleColdEvidence": "artifacts/evidence/schedule-v5-cold/native-cold-schedule-audit.json",
+      "browserReload": "actual official BrowserSkill top-level switch off/on; native-owned gthp closed, fresh foreign peer gbcn exactwindow+URL preserved, then only that peer stopped by its creator",
+      "browserLongEvidence": "artifacts/evidence/browser-native-7678/long-wait/native-long/observation.json",
+      "browserCancelEvidence": "artifacts/evidence/browser-native-7678/long-wait/native-cancel/observation.json",
+      "browserReloadEvidence": "artifacts/evidence/browser-native-7678/long-wait/reload-peer/observation.json"
+    },
+    "candidateSourceCheckEvidence": "artifacts/evidence/qa-live-panel-fix/post-pack-checks-summary.json",
+    "currentScopedDomainEvidence": "artifacts/evidence/current-invariance-7678-v5/index.json",
+    "sourceImplementationAudit": {
+      "evidencePath": "artifacts/evidence/current-to-3fe-readonly-scope-audit.json",
+      "requiredContracts": 202,
+      "mappedProductionFiles": 119,
+      "confirmedMissingProductionImplementations": [],
+      "sourceMappings": 335,
+      "complete": 277,
+      "hostReplaced": 57,
+      "excluded": 1,
+      "installedAcceptanceAdvanced": false
+    },
+    "nativeContextCompaction": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "sessionId": "session-0d483d56-9709-4cc4-a88f-4877b40a0108",
+      "nativeCommand": "/compact",
+      "observedHistoryItems": 16,
+      "observedEstimatedTokens": 22659,
+      "nativeFollowup": "completed; one actual bounded readOnly 9000–9800 Context page; no new whole-document or professional Stage claim",
+      "evidenceDirectory": "artifacts/evidence/context-compaction-native-7678-v5",
+      "rawAudit": "PASS_SCOPED_NATIVE_GENERAL_COMPACTION_AND_MISSING_PAGE",
+      "assertions": 20,
+      "receiptPath": "artifacts/evidence/context-compaction-native-7678-v5/receipt.json",
+      "receiptSha256": "091cb77378af3cb4b3113e25d19fec9b089db4fd78104180d5e1824c66736156",
+      "indexPath": "artifacts/evidence/context-compaction-native-7678-v5/index.json",
+      "providerBodyProof": "Official Session fold reconstruction, not upstream HTTP capture. Pre-page has no exact missing page; post-page contains exact800 plus actual compaction summary. Main MAX; auxiliary compaction effort unrecorded."
     }
   },
   "externalPrerequisites": [
@@ -267,7 +459,9 @@
   "readyReceipt": {
     "path": "artifacts/READY.json",
     "status": "FAILED",
-    "freshForCurrentState": false
+    "freshForCurrentState": true,
+    "evidencePath": "artifacts/evidence/qa-live-panel-fix/verify-ready-preinstall.log",
+    "reason": "Latest3fe candidate is not yet installed and final current acceptance is not assembled; existing registry remains7678/.5. Source checks are distinct from final mandatory gates."
   },
   "historyArchive": "docs/migration/history/2026-09-29-before-rc2-full-audit.json",
   "hostCapabilityBoundary": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。",
