@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { CsvAdapter, FormatExportError, JsonAdapter } from '@linguist/cat-formats'
+import { CsvAdapter, FormatExportError, JsonAdapter, MqXliffAdapter } from '@linguist/cat-formats'
 import { CatStore } from './store'
 import { stageAssetExport } from './export-staging'
 import { readBackupManifest } from './backup'
@@ -52,6 +52,58 @@ test('交付往返：单语 JSON 写入译文，双语 JSON/CSV 保留源文，�
         rmSync(rootDir, { recursive: true, force: true })
       }
     })
+  }
+})
+
+test('memoQ 交付：草稿保留原生状态，仅本轮确认按项目策略写回，严格回读不放宽', async () => {
+  const rootDir = makeTempDir()
+  const store = new CatStore({ rootDir, entropy: makeEntropy('mqxliff-stage-export'), now: makeClock() })
+  const project = store.createProject({ name: 'Synthetic memoQ export', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+  const db = store.openProject(project.id)
+  const adapter = new MqXliffAdapter(undefined, () => '2026-09-30T00:00:00.123Z')
+  try {
+    const bytes = new Uint8Array(readFileSync(new URL('../../../tests/linguist-fixtures/sample.mqxliff', import.meta.url)))
+    const imported = await adapter.import({ bytes, filename: 'sample.mqxliff', sourceLocale: project.sourceLocale, targetLocale: project.targetLocale })
+    const { asset, segments } = db.assets.insertImported(imported)
+    db.saveAssetSourceForImport(asset, bytes)
+    const input = { project, projectDir: store.index.projectDir(project.id), db, assetId: asset.id, adapter }
+    const original = await stageAssetExport(input)
+    assert.deepEqual(readFileSync(original.stagingPath), Buffer.from(bytes))
+
+    const edited = db.segments.applyTargetEdit(segments[0]!.id, 'Synthetic revised target', 0).segment
+    assert.equal(edited.currentStageState, 'draft')
+    assert.equal(edited.importedNativeStatus, 'PartiallyEdited')
+    db.segments.applyTargetEdit(segments[2]!.id, `Revised ${segments[2]!.target}`, 0)
+    const draft = await stageAssetExport(input)
+    const draftBytes = new Uint8Array(readFileSync(draft.stagingPath))
+    const draftReimport = await adapter.import({ bytes: draftBytes, filename: 'sample.mqxliff', sourceLocale: project.sourceLocale, targetLocale: project.targetLocale })
+    assert.equal(draft.verification.changedTargetSegments, 2)
+    assert.equal(draft.verification.changedNativeStatusSegments, 0)
+    assert.deepEqual(draftReimport.segments.map(segment => segment.importedNativeStatus), imported.segments.map(segment => segment.importedNativeStatus))
+    assert.equal(draftReimport.segments[2]!.target, `Revised ${segments[2]!.target}`)
+    assert.ok(new TextDecoder().decode(draftBytes).includes('<ph id="1">'))
+
+    db.segments.confirmCurrentStage(segments[0]!.id, 'translation', 1)
+    const confirmedWithoutPolicy = await stageAssetExport(input)
+    assert.deepEqual(readFileSync(confirmedWithoutPolicy.stagingPath), Buffer.from(draftBytes))
+    const policyInput = { ...input, project: { ...project, outputStatusPolicy: { mqxliff_1_2: { translation: 'ConfirmedTranslator' } } } }
+    db.segments.confirmCurrentStage(segments[1]!.id, 'translation', 0)
+    const confirmed = await stageAssetExport(policyInput)
+    const confirmedBytes = new Uint8Array(readFileSync(confirmed.stagingPath))
+    const confirmedReimport = await adapter.import({ bytes: confirmedBytes, filename: 'sample.mqxliff', sourceLocale: project.sourceLocale, targetLocale: project.targetLocale })
+    assert.equal(confirmed.verification.changedTargetSegments, 2)
+    assert.equal(confirmed.verification.changedNativeStatusSegments, 2)
+    assert.deepEqual(confirmedReimport.segments.map(segment => segment.importedNativeStatus), ['ConfirmedTranslator', 'ConfirmedTranslator', 'PartiallyEdited', 'PartiallyEdited'])
+    assert.equal(confirmedReimport.segments[1]!.target, segments[1]!.target)
+    assert.equal(confirmedReimport.segments[3]!.target, segments[3]!.target)
+    assert.deepEqual(db.readAssetSource(asset.id), Buffer.from(bytes))
+
+    const exportValid = adapter.export.bind(adapter)
+    adapter.export = async exportInput => new TextEncoder().encode(new TextDecoder().decode(await exportValid(exportInput)).replaceAll('mq:status="PartiallyEdited"', 'mq:status="ConfirmedTranslator"'))
+    await assert.rejects(stageAssetExport(policyInput), /reimported native status differs/)
+  } finally {
+    db.close()
+    rmSync(rootDir, { recursive: true, force: true })
   }
 })
 

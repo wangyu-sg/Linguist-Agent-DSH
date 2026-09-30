@@ -72,7 +72,8 @@ describe('MqXliffAdapter round-trip', () => {
     expect(report.segmentCount).toBe(imported.segments.length)
     expect(report.modifiedSegmentIds).toHaveLength(3)
     const output = new TextDecoder().decode(report.exportedBytes)
-    expect(output).toContain('mq:status="ConfirmedTranslator"')
+    expect(output).toContain('mq:status="PartiallyEdited"')
+    expect(output).not.toContain('mq:status="ConfirmedTranslator"')
     expect(output).toContain('mq:lastchangedtimestamp="2026-08-28T12:00:00Z"')
     const unit3 = /<trans-unit id="3"[\s\S]*?<\/trans-unit>/.exec(output)?.[0] ?? ''
     const target3 = /<target\b[^>]*>([\s\S]*?)<\/target>/.exec(unit3)?.[1] ?? ''

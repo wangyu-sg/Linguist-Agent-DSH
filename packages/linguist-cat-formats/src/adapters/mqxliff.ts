@@ -1,3 +1,5 @@
+import { nativeStatusForStage } from '@linguist/cat-core'
+import type { CatFormatExportInput } from '../adapter'
 import { sha256Hex, type HashFn } from '../hash'
 import { FormatExportError } from '../errors'
 import {
@@ -132,6 +134,36 @@ export class MqXliffAdapter extends XliffAdapter {
     return filename.toLowerCase().endsWith('.mqxliff') ? 1 : 0.95
   }
 
+  override async export(input: CatFormatExportInput): Promise<Uint8Array> {
+    const output = await super.export(input)
+    const { workflow } = input
+    if (workflow === undefined) return output
+    const nativeStatus = nativeStatusForStage(workflow.stage, this.id, workflow.outputStatusPolicy)
+    if (nativeStatus === undefined) return output
+    const confirmedKeys = new Set(input.segments
+      .filter(segment => segment.currentStageState === 'confirmed')
+      .map(segment => segment.key))
+    if (confirmedKeys.size === 0) return output
+
+    const text = this.decode(output, input.asset.originalFilename)
+    const { units } = this.parseTemplate(text, input.asset.originalFilename)
+    let cursor = 0
+    let changed = false
+    TRANS_UNIT_PATTERN.lastIndex = 0
+    const next = text.replace(TRANS_UNIT_PATTERN, (full, tagName: string, attrsRaw: string) => {
+      const unit = units[cursor++]!
+      if (!confirmedKeys.has(unit.key) || unit.attrs['mq:status'] === nativeStatus) return full
+      if (unit.locked) {
+        throw new FormatExportError(this.id, `segment ${JSON.stringify(unit.key)} is locked but its workflow status was changed`)
+      }
+      changed = true
+      let attrs = setAttr(attrsRaw, 'mq:status', nativeStatus)
+      attrs = setAttr(attrs, 'mq:lastchangedtimestamp', mqTimestamp(this.now()))
+      return full.replace(`<${tagName}${attrsRaw}>`, `<${tagName}${attrs}>`)
+    })
+    return changed ? new TextEncoder().encode(next) : output
+  }
+
   protected override decodeInline(value: string): string {
     return decodeMqInline(value)
   }
@@ -144,8 +176,7 @@ export class MqXliffAdapter extends XliffAdapter {
     const rewritten = super.rewriteUnit(unit, newTarget)
     const open = /<((?:[\w.-]+:)?trans-unit)\b([^>]*)>/i.exec(rewritten)
     if (!open) return rewritten
-    let attrs = setAttr(open[2] ?? '', 'mq:status', 'ConfirmedTranslator')
-    attrs = setAttr(attrs, 'mq:lastchangedtimestamp', mqTimestamp(this.now()))
+    const attrs = setAttr(open[2] ?? '', 'mq:lastchangedtimestamp', mqTimestamp(this.now()))
     return rewritten.replace(open[0], `<${open[1]}${attrs}>`)
   }
 }

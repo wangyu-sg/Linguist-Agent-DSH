@@ -134,6 +134,12 @@ test('term labels cover filters, edits, lists, conflicts and import candidates w
   component.render(); await tick()
   let text = component.render()
   const select = label => component.nodes().find(node => node.type === 'select' && node.props['aria-label'] === label)
+  for (const term of terms) {
+    const checkbox = component.nodes().find(node => node.type === 'checkbox' && node.props.title === `选择术语 ${term.term}`)
+    assert.equal(checkbox.props.label, term.term)
+    const row = component.nodes().find(node => React.Children.toArray(node.props?.children).some(child => child.type === 'checkbox' && child.props.label === term.term))
+    assert(!React.Children.toArray(row.props.children).some(node => node.type === 'strong' && node.props.children === term.term))
+  }
   for (const label of ['术语状态筛选', '术语约束']) {
     const options = React.Children.toArray(select(label).props.children).filter(node => node.props.value)
     assert.deepEqual(Object.fromEntries(options.map(node => [node.props.value, node.props.children])), labels)

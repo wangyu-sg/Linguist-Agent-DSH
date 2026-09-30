@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T13:29:18.493100+00:00",
+  "updatedAt": "2026-09-30T14:12:43.231342+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -26,7 +26,7 @@
       ".DS_Store"
     ]
   },
-  "currentWorkPackage": "W00–W12: unified UI corrections built and synthetically verified; native package update confirmation and complete installed acceptance pending",
+  "currentWorkPackage": "W00–W12: installed 0fde native UI/domain/browser acceptance; memoQ and duplicate selection labels fixed in integrated 4f2e candidate, awaiting native update and revalidation",
   "workPackages": [
     {
       "id": "W00",
@@ -102,20 +102,20 @@
     "officialDesktopPath": "/Applications/DeepSeek Harness.app",
     "desktopEvidence": "artifacts/evidence/dsh-rc2-official-desktop.json",
     "sourceHead": "70d6b1feab08b2767189e3597a69d81d86adb2a8",
-    "lastInstalledPluginSha256": "eb8b31ac99ffe838bea39472fd69ff1d9ecd3b41ce67df21aba0ed05b33a7964",
+    "lastInstalledPluginSha256": "0fde55ac885b516286b817840ed65325f3dc58894cc460e072bbca5c03fb173d",
     "lastInstalledPluginRuntime": "0.2.0-rc.2",
-    "pluginStatus": "Official desktop manifest and Host/Client bytes resolve LA eb8b31ac99ff and BrowserSkill .3. Installation was observed, not performed by this agent. Native project layout, footer and all three pointer/keyboard splitters were exercised.",
-    "installationRegistryStatus": "Desktop manifest and bytes resolve eb8+.3; current.json still records b9+.3. Do not treat old registry/smoke as acceptance.",
-    "nativeInstallEvidence": "artifacts/evidence/native-install-b9c16b6d1905.json",
-    "nativeRecheckEvidence": "artifacts/evidence/native-install-9e362081d5d9-recheck.json",
+    "pluginStatus": "0fde and BrowserSkill .4 installed and enabled through the official manager; installed lib members match the tarballs. Integrated 4f2e update is staged, not installed.",
+    "installationRegistryStatus": "current.json, installed bytes and cold-start public Host status all resolve la-0fde55ac885b-7a6cfa1d.",
+    "nativeInstallEvidence": "artifacts/evidence/native-install-la-0fde55ac885b-7a6cfa1d.json",
+    "nativeRecheckEvidence": "artifacts/evidence/native-install-0fde55ac885b-bytes.json",
     "auditDirectory": "docs/migration/audit-2026-09-29",
     "packagePolicy": "One integrated rc.2 native candidate after full diff review; installed acceptance remains mandatory",
     "knownEngineeringGaps": [
-      "Final native replacement and complete per-capability UI/model/browser/desktop acceptance pending.",
+      "Current 0fde domain acceptance: 22 passed, memoQ edited export failed. Root cause fixed in source with strict Store regression; current 4f2e candidate requires native install and repeat acceptance. Required per-capability and UI evidence remains incomplete.",
       "LA-UI-136: official rc.2 exposes no Workspace row decoration Slot; project-page and Session-header identity surfaces await explicit product adjustment decision."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: native eb8 observations confirm compact project page, footer counts and three working separators. Final 0fde candidate includes remaining button-size corrections and awaits native update/full acceptance.",
+    "installedAcceptanceStatus": "NOT_READY: 0fde smoke9/9 and cold start passed; domain22/23; native BrowserSkill localhost save/upload/download/stop observed with matching server effects; not transferable to an uninstalled candidate.",
     "implementedAwaitingInstalledAcceptance": [
       "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
@@ -141,15 +141,17 @@
       "Native theme focus/diff tokens and target autosizing on column resize",
       "Compact project/session rows with consistent command buttons",
       "Three real pointer/keyboard/reset splitters with persisted dimensions; fixed equal source and target columns",
-      "Persistent CAT full-batch character counts, confirmation/draft counts and real professional decision coverage"
+      "Persistent CAT full-batch character counts, confirmation/draft counts and real professional decision coverage",
+      "memoQ preserves imported status for drafts; confirmed status follows explicit project policy; strict export readback unchanged",
+      "Native selection checkboxes show the term or segment number once; selection help uses title instead of long visible IDs"
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 256,
+      "nodeTests": 257,
       "bunTests": 21,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/ui-contract-build.log",
+      "buildLog": "artifacts/evidence/ui-label-mqxliff-final-build.log",
       "privatePushBoundaryTests": 4,
       "freshForCurrentWorkingTree": true
     },
@@ -162,15 +164,15 @@
         "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge."
       }
     ],
-    "candidateStatus": "Unified UI candidate 0fde55ac885b built, 256 Node + 21 Bun + 8 typechecks and 6 actual-tarball resource checks passed. Thirteen remaining default/medium buttons now use the shared small size, enforced by the existing AST check. Native installation and actual visual acceptance pending.",
-    "candidatePluginSha256": "0fde55ac885b516286b817840ed65325f3dc58894cc460e072bbca5c03fb173d",
-    "lastInstalledBrowserSkillSha256": "a61fd813bed53154f6555dbad046924f6820912ee469d7191bd25fa47aad350e",
+    "candidateStatus": "Integrated 4f2e memoQ and compact checkbox labels candidate passed257Node/21Bun/8type/6tarball checks; staged, not installed.",
+    "candidatePluginSha256": "4f2e16f1e65ad87deb4ee0168738806955afedb7c13371c8ee7d6a52020846e1",
+    "lastInstalledBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "72604ff620aae0351fb97e6a2529f7f0f0ecfd4445a607bde5bebb4b1f0badf4",
+      "sha256": "a07b42e0e4ce821e282f758a2eced274c54dea2ea2898679ad1355ab6bd947c6",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "331c117fb5d77fa7b52a8ff886c2acf7fd86a93a",
-      "receipt": "artifacts/evidence/ponytail-review-daily-workbench.json"
+      "committedAs": "72a1fe5c63a2843da4d00b605f5b346c8785e843",
+      "receipt": "artifacts/evidence/ponytail-review-ui-contract.json"
     },
     "acceptedProductAdjustments": [
       {
@@ -185,9 +187,10 @@
     "browserCliCheck": {
       "status": "CLI_CHAIN_PASS",
       "receipt": "artifacts/evidence/browser-skill-localhost.json",
-      "installedNativeToolAcceptance": "pending"
+      "installedNativeToolAcceptance": "0fde actual tool chain and fixture effects observed; full edge/reload/peer acceptance still pending",
+      "nativeEvidence": "artifacts/evidence/browser-native-0fde/observation.json"
     },
-    "resourceCheckEvidence": "artifacts/evidence/ui-contract-pack.log",
+    "resourceCheckEvidence": "artifacts/evidence/ui-label-mqxliff-final-pack.log",
     "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
     "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
     "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
@@ -196,9 +199,12 @@
     "hostAvailabilityRegressionEvidence": "artifacts/evidence/host-availability-regression.json",
     "navigationRegressionEvidence": "artifacts/evidence/installed-domain-e20/navigation-source-only-receipt.json",
     "privacyPreflightEvidence": "artifacts/evidence/preinstall-boundary-recheck.json",
-    "installedObservationEvidence": "artifacts/evidence/ui-contract-native-observations.json",
+    "installedObservationEvidence": "artifacts/evidence/ui-0fde/observations.json",
     "uiDesign": "docs/migration/UI-DESIGN.md",
-    "nativeUpdateConfirmation": "pending for the integrated UI update and BrowserSkill .4; no native update action performed; final sizing corrections changed the candidate hash after the initial confirmation card"
+    "nativeUpdateConfirmation": "4f2e staged at official Install button; explicit action-time confirmation requested, awaiting user reply.",
+    "installationId": "la-0fde55ac885b-7a6cfa1d",
+    "coldStartStatusEvidence": "artifacts/evidence/native-status-0fde55ac885b.json",
+    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0fde/domain-acceptance-summary.json"
   },
   "externalPrerequisites": [
     {
