@@ -837,12 +837,15 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     const intents = new Map()
     const catalog = []
     const calls = []
+    let requestedRoute
     const native = {
       resolveMaxDepth: () => 1,
       async startContinuable(spec) {
         assert.equal(spec.provider, 'spawn')
         assert.equal(spec.request.maxDepth, 1)
         assert.equal(spec.request.parent, agent)
+        assert.deepEqual(spec.request.agentOptions, requestedRoute)
+        if (requestedRoute === undefined) assert.equal(Object.hasOwn(spec.request, 'agentOptions'), false)
         assert.deepEqual(intents.get(spec.childId).delegatedScope.segmentIds, [segment.id])
         assert.match(spec.request.prompt[0].text, /Review context/)
         bindings.bindSession(spec.childId, intents.get(spec.childId))
@@ -875,13 +878,16 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     })
     const args = { role: 'reviewer', objective: 'Review this synthetic segment', scope: { segmentIds: [segment.id] },
       inputs: [{ path: 'reference.txt', purpose: 'Review context', required: false }], expectedOutcome: 'A segment-level review with unresolved items' }
-    const result = await tool.execute(args, { agent, callId: 'synthetic-tool-call', signal: new AbortController().signal })
+    const callerWait = new AbortController()
+    const result = await tool.execute(args, { agent, callId: 'synthetic-tool-call', signal: callerWait.signal })
     assert.equal(result.status, 'started')
     assert.equal(result.messageId, 'first-message')
     assert.deepEqual(result.checkedInputs, [])
     assert.deepEqual(result.notChecked, [])
     assert.equal(calls[0], 'start')
     assert.equal(intents.size, 0)
+    callerWait.abort()
+    assert.equal(calls.some(call => Array.isArray(call) && call[0] === 'interrupt'), false, 'cancelling the accepted caller wait does not interrupt the child')
     assert.deepEqual(new BindingStore(root).session(result.childSessionId).delegatedScope.segmentIds, [segment.id])
     assert.equal((await listTool.execute({}, { agent })).items[0].childSessionId, result.childSessionId)
     const message = await messageTool.execute({ childSessionId: result.childSessionId, message: 'Continue within the same scope' },
@@ -908,6 +914,16 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     assert.equal((await dispatchOperation({ ...operationInput, operation: 'linguistDelegationsInterrupt', payload: {
       parentSessionId: agent.id, childSessionId: result.childSessionId,
     } })).scope, 'current-turn')
+    for (const field of ['provider', 'model', 'reasoningEffort']) {
+      assert.equal(tool.parameters.properties[field].type, 'string')
+      assert.equal(tool.parameters.required.includes(field), false)
+    }
+    requestedRoute = { provider: 'synthetic-selected-provider', model: 'synthetic-selected-model', reasoningEffort: 'max' }
+    const routed = await tool.execute({ ...args, ...requestedRoute }, { agent, callId: 'synthetic-selected-route', signal: new AbortController().signal })
+    assert.equal(routed.status, 'started')
+    assert.notEqual(routed.childSessionId, result.childSessionId)
+    assert.equal(Object.hasOwn(routed, 'effectiveModel'), false, 'accepted ids do not claim a resolved model route')
+    assert.equal(intents.size, 0)
     bindings.bindSession(result.childSessionId, { ...parentBinding, role: 'reviewer', delegatedScope: { assetIds: [], segmentIds: [] } })
     await assert.rejects(() => control.prompt(agent.id, result.childSessionId, randomUUID(), 'Blocked', 'queue'), /frozen binding/i)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }

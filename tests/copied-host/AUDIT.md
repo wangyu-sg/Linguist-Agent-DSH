@@ -10,6 +10,16 @@ node --experimental-transform-types --import ./packages/linguist-cat-store/test/
 
 下表中的“完整迁入”表示原测试主体与断言基本原样运行，只替换 Proma/Electron 耦合的导入或已删除字段；“部分验证”明确列出尚未覆盖的边界。
 
+## 本轮有效状态（2026-09-30）
+
+固定宿主现为官方 **0.2.0-rc.2**。实际安装仍为 LA `b9c16b6d1905`＋BrowserSkill `.3` `a61fd813`；`9b0275459a72` 候选未点击安装。下面的2026-09-29安装小节保留为历史记录，不能用其版本、数量或“尚未打包”描述当前状态。
+
+本轮惰性 CAT 修复通过真实 Cordis `agent/created`、原生 ToolRuntime/SystemPrompt 和生产 Host 的合成回归：缺失/损坏/恢复时同一个已注册 CAT 工具逐次重验，通用工具与工作副本仍可执行，缺失库不重建；显式子范围优先，首次成功任意 CAT 读取冻结父范围（包括当时没有父 Stage），Host 备份恢复后读取当前 Stage。专项8情形及既有集合共54/54、0 fail/skip，证据 `artifacts/evidence/host-availability-regression.json`。未运行真实 Provider 或原生 Agent loop，不能替代安装态验收。
+
+`linguist_delegate` 已补原生 `provider`/`model`/`reasoningEffort`，实际生产工具回归验证显式值进入 `startContinuable.request.agentOptions`，省略时不传 `agentOptions`；accepted IDs 不声称有效模型身份。受理后取消 caller wait 不会调用子任务 interrupt，显式 interrupt 仍走原生控制。rc.2 continuable 受理即返回，以原生 inbox/settlement notice 接续；没有公开 continuable wait/timeout 接口，尚未验证真实子 loop 的完整中断/冷恢复。
+
+整合构建与 required：253 Node、21 Bun、8项类型检查通过，见 `artifacts/evidence/required-synthetic.json`。这些是当前源码证据；修复后的新候选尚需完整 diff 审查、打包、官方安装和当前产物验收。
+
 ## 逐项对应
 
 | 原测试文件与用例 | 目标证据 | 结论与剩余边界 |
@@ -37,13 +47,13 @@ node --experimental-transform-types --import ./packages/linguist-cat-store/test/
 | 同文件：QA 批次隔离 | 同上 | 完整迁入并通过。 |
 | `project-import-preview.nodetest.ts`：真实解析、Phrase master/标签恢复不随扩展名改变 | `project-import-preview.nodetest.ts` | 完整迁入并通过；这是 domain service dry-run/commit 路径，另需安装态 Client 文件 token 流程。 |
 | `session-availability.nodetest.ts`：定时范围与来源删除后只读执行 | `tests/required/acceptance.nodetest.mjs` 的 native Schedule 范围；`host/schedule-context.ts` | 本轮独立任务 owner 合成回归已覆盖来源删除后的冻结项目/模型/权限、冷重建与旧 source-owned 任务拒绝执行；执行权限取创建时冻结授权，不宣称统一只读。最终安装态来源删除、到期执行及专业结果仍待验证。 |
-| 同文件：CAT 缺失/损坏/归档/恢复时保留宿主能力 | `prompt-and-session-http.nodetest.ts` 缺 DB 不重建、Prompt 降级；`tests/required/acceptance.nodetest.mjs` 归档只读 | 部分验证：缺 DB 与归档已测；真实 DSH Agent 通用工具在损坏/恢复期间的可用性未测。 |
+| 同文件：CAT 缺失/损坏/归档/恢复时保留宿主能力 | `prompt-and-session-http.nodetest.ts` 缺 DB 不重建、Prompt 降级；`tests/required/acceptance.nodetest.mjs` 归档只读 | 生产Host合成回归已验证注册不读DB、通用/工作副本可用、同一CAT工具损坏后恢复和当前Stage刷新；归档只读已有回归。真实原生Agent loop与当前安装态仍待验收。 |
 | 同文件：旧格式项目/Pi Session 备份、恢复、verified 导出重导 | `tests/required/acceptance.nodetest.mjs` 历史 metadata、外部备份导入；目标 domain-service 交付测试 | CAT 数据路径部分验证；Pi 会话树续跑按新宿主边界排除，完整 verified 导出重导可复用 domain 测试但不是旧 Pi Session 等价。 |
 | `session-ipc.test.ts`：已用岗位身份拒绝并返回 typed `INVALID_INPUT` | `prompt-and-session-http.nodetest.ts` 驱动目标 `registerHttpRoutes` handler | 目标岗位冻结已测：首次用户消息后改岗返回 HTTP 409 且旧绑定不变。协议从 Electron typed IPC 改为 HTTP 409，不宣称旧信封等价；本沙箱禁止监听 127.0.0.1，故此项未做 socket 测试。 |
 | `stage-evidence-host.nodetest.ts`：独立 Plan/恢复、Context warning、current actor、revision | `stage-evidence-host.nodetest.ts` | 完整迁入并通过。 |
 | 同文件：130k anchors 与 865 句恢复身份/范围 | 同上 | 完整迁入并通过。 |
 
-## 当前接线与安装边界（2026-09-29）
+## 历史接线与安装边界（2026-09-29）
 
 固定宿主为官方 `0.2.0-rc.1`。其公开 `session/event` 是提交后事件，`Session.ownEvents()` 与 `SessionPersistence.open(id, read)` 可读取真实 `turn/end`。原生 Schedule 的投递历史不等于模型完成；当前实现从原生日志派生执行历史并区分受理、真实结束与专业完成，冷读排除 fork 继承前缀，不保存模型错误原文。早期 `0.1.7-rc.2` 的“无运行结果接缝、只能向来源 Session 投递”结论已被后续实现取代。
 

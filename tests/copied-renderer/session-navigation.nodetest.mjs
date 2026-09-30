@@ -78,14 +78,24 @@ test('native navigation cancels pending LA opens and late session creation', asy
   await assert.rejects(onPickDirectory('workspace-A'), /Workspace/)
   const binding = { sessionId: 'synthetic-A', projectId: 'project-A', workMode: 'cat' }
   const pending = onOpenSession(binding)
+  await pending
+  assert.equal(listeners.size, 0, 'ordinary bound-Session opening leaves the native rightbar presentation untouched')
+  assert.equal(opened.length, 0, 'opening a saved Session must not replace Files or preview with CAT')
+  const revealing = onEnter({ projectId: 'project-A', workspaceId: 'workspace-A', role: 'general', workMode: 'cat' })
+  completeCreate('synthetic-A')
+  await new Promise(resolve => setImmediate(resolve))
   assert.equal(listeners.size, 1)
   ctx.layout.selectPanel('another-panel')
-  await pending
+  await revealing
   assert.equal(listeners.size, 0)
   mounted = binding.sessionId
   listeners.forEach(listener => listener())
   assert.equal(opened.length, 0)
   await onOpenSession(binding)
+  assert.equal(opened.length, 0)
+  const explicitEntry = onEnter({ projectId: 'project-A', workspaceId: 'workspace-A', role: 'general', workMode: 'cat' })
+  completeCreate('synthetic-A')
+  await explicitEntry
   assert.equal(opened.length, 1)
   assert.equal(opened[0][0], binding.sessionId)
   const entering = onEnter({ projectId: 'project-B', workspaceId: 'workspace-B', role: 'translator', workMode: 'cat' })
@@ -232,4 +242,73 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
   resolveCreate('late-created'); await lateCreate
   assert.equal(opened.at(-1), current, 'late Session completion cannot steal another project navigation')
   assert.equal(resources.at(-1)[0], current)
+  createResult = undefined
+  const { onNewTask } = registrations.get('conversation.session.header.utilities')({ sessionId: 'cat-current' }).child.props
+  const sourceBinding = bindings.get('cat-current')
+  await onNewTask(sourceBinding, 'general')
+  assert.deepEqual(JSON.parse(JSON.stringify(creates.at(-1))), { workspaceId: workspace.workspaceId }, 'new tasks use native creation defaults, without forking or setting a model route')
+  assert.deepEqual(JSON.parse(JSON.stringify(binds.at(-1))), { sessionId: 'created-4', projectId: 'project-A', role: 'general', workMode: 'cat' })
+  await onNewTask(sourceBinding, 'continue')
+  assert.deepEqual(JSON.parse(JSON.stringify(binds.at(-1))), { sessionId: 'created-5', projectId: 'project-A', role: 'reviewer', workMode: 'cat' })
+  const taskCount = creates.length, taskOpenCount = opened.length
+  for (const changed of [undefined, { ...sourceBinding, projectId: 'other-project' }, { ...sourceBinding, workspaceId: 'other-workspace' }, { ...sourceBinding, role: 'translator' }, { ...sourceBinding, workMode: 'browser' }]) {
+    bindings.set('cat-current', changed)
+    await assert.rejects(onNewTask(sourceBinding, 'continue'), /绑定已变化/)
+  }
+  bindings.set('cat-current', sourceBinding)
+  bindingError = 'cat-current'
+  await assert.rejects(onNewTask(sourceBinding, 'continue'), /binding read failure/)
+  bindingError = undefined
+  projectResult = Promise.reject(new Error('Synthetic ProjectOpen failure'))
+  await assert.rejects(onNewTask(sourceBinding, 'continue'), /ProjectOpen failure/)
+  projectResult = { project: { id: 'project-A', archivedAt: 1 }, health: { projectId: 'project-A', healthy: true } }
+  await assert.rejects(onNewTask(sourceBinding, 'continue'), /已归档/)
+  projectResult = { project: { id: 'project-A' }, health: { projectId: 'project-A', healthy: false } }
+  await assert.rejects(onNewTask(sourceBinding, 'continue'), /需要修复/)
+  projectResult = { project: { id: 'other-project' }, health: { projectId: 'project-A', healthy: true } }
+  await assert.rejects(onNewTask(sourceBinding, 'continue'), /项目身份校验失败/)
+  assert.equal(creates.length, taskCount, 'failed binding or project checks never create an ordinary fallback Session')
+  assert.equal(opened.length, taskOpenCount)
+  projectResult = new Promise(resolve => { resolveProject = resolve })
+  const lateTask = onNewTask(sourceBinding, 'continue')
+  await new Promise(resolve => setImmediate(resolve))
+  ctx.layout.selectPanel('another-panel')
+  resolveProject({ project: { id: 'project-A' }, health: { projectId: 'project-A', healthy: true } })
+  await lateTask
+  assert.equal(creates.length, taskCount, 'cancelled task checks do not create or focus a Session')
+  assert.equal(opened.length, taskOpenCount)
+})
+
+test('the native Linguist menu exposes project tasks and displays failures', async () => {
+  const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
+  const React = require('react')
+  const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
+  const code = ts.transpileModule(source + '\nexport { SessionBadge }', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const binding = { sessionId: 'synthetic-cat', workspaceId: 'workspace-A', projectId: 'project-A', role: 'reviewer', workMode: 'cat' }
+  const state = [binding, 'Synthetic project', '', '', false, false, false, false, undefined, '']
+  let cursor = 0
+  const exports = {}, taskKinds = []
+  runInNewContext(code, { exports, require: name => {
+    if (name === 'react') return { ...React, useEffect() {}, useState() { const index = cursor++; return [state[index], value => { state[index] = value }] } }
+    if (name === './ui-locale') return { useT: () => value => value }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Tooltip: 'tooltip', Modal: 'modal', Menu: 'menu' }
+    if (name.endsWith('.module.css')) return { default: {} }
+    return {}
+  } })
+  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)]
+  const render = () => { cursor = 0; return nodes(exports.SessionBadge({ sessionId: binding.sessionId, onNewTask: async (actual, kind) => { assert.equal(actual, binding); taskKinds.push(kind); throw new Error('Synthetic project task failure') } })) }
+  let menu = render().find(node => node.type === 'menu')
+  assert(menu.props.items.some(item => item.id === 'new-general'))
+  assert(menu.props.items.some(item => item.id === 'continue'))
+  menu.props.onSelect('new-general')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.match(render().find(node => node.props.role === 'alert').props.children, /Synthetic project task failure/)
+  menu = render().find(node => node.type === 'menu')
+  menu.props.onSelect('continue')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(taskKinds, ['general', 'continue'])
+  assert.equal(state[4], false, 'failed actions release the menu busy state')
+  state[0] = { ...binding, projectId: undefined, workMode: 'browser' }
+  menu = render().find(node => node.type === 'menu')
+  assert(!menu.props.items.some(item => item.id === 'new-general' || item.id === 'continue'), 'non-project Sessions must not create a CAT project')
 })

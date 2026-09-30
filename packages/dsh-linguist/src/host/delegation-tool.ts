@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -14,6 +15,9 @@ import { deliverDelegationInputs, preflightDelegationInputs } from './delegation
 const parameters = Type.Object({
   role: Type.Union([Type.Literal('translator'), Type.Literal('reviewer'), Type.Literal('proofreader')]),
   objective: Type.String({ minLength: 1, maxLength: 10000 }),
+  provider: Type.Optional(Type.String({ minLength: 1 })),
+  model: Type.Optional(Type.String({ minLength: 1 })),
+  reasoningEffort: Type.Optional(Type.String({ minLength: 1 })),
   scope: Type.Object({
     batchIds: Type.Optional(Type.Array(Type.String(), { maxItems: 200 })),
     segmentIds: Type.Optional(Type.Array(Type.String(), { maxItems: 2000 })),
@@ -52,13 +56,14 @@ export function createLinguistDelegationTool(input: {
 }): { tool: ToolDefinition; messageTool: ToolDefinition; listTool: ToolDefinition; interruptTool: ToolDefinition } {
   const tool: ToolDefinition = {
     name: 'linguist_delegate',
-    description: 'Start a durable, continuable DSH child for one bounded Linguist CAT task. State the professional role, objective, actual Asset/Segment scope, explicit file purposes and expected outcome. This only reports accepted child creation; it does not claim that the child read inputs or completed review.',
+    description: 'Start a durable, continuable DSH child for one bounded Linguist CAT task. State the professional role, objective, actual Asset/Segment scope, explicit file purposes and expected outcome. Optionally select the child provider, model and reasoningEffort; omitted route settings use DSH inheritance. This only reports accepted child creation; it does not claim that the child read inputs or completed review.',
     parameters: JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>, output: output(),
     async execute(args, exec) {
       if (!Value.Check(parameters, args)) throw new Error(`Invalid linguist_delegate arguments: ${Value.Errors(parameters, args)[0]?.message}`)
       if (exec.agent !== input.agent) throw new Error('Delegation caller is not the bound DSH Agent')
       const call = args as {
         role: 'translator' | 'reviewer' | 'proofreader'; objective: string; expectedOutcome: string
+        provider?: string; model?: string; reasoningEffort?: string
         scope: { batchIds?: string[]; segmentIds?: string[] }
         inputs?: Array<{ path: string; purpose: string; required: boolean; expectedSha256?: string; snapshot?: boolean }>
       }
@@ -82,9 +87,15 @@ export function createLinguistDelegationTool(input: {
           'Inputs have been handed off, not checked by you. Report checkedInputs and notChecked in your result. A completed turn is not professional review completion.',
         ].join('\n')
         const maxDepth = input.subagents.resolveMaxDepth()
+        const agentOptions: AgentOptions = {
+          ...(call.provider === undefined ? {} : { provider: call.provider }),
+          ...(call.model === undefined ? {} : { model: call.model }),
+          ...(call.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(call.reasoningEffort) }),
+        }
         const accepted = await input.subagents.startContinuable({
           provider: 'spawn', childId, label: call.objective.slice(0, 120),
           request: { parent: input.agent, prompt: [{ type: 'text', text: prompt }],
+            ...(Object.keys(agentOptions).length ? { agentOptions } : {}),
             ...(maxDepth === undefined ? {} : { maxDepth }) },
           signal: exec.signal,
         })

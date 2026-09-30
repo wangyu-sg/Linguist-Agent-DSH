@@ -4,6 +4,7 @@ import { basename } from 'node:path'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import fileType from 'file-type'
 import type { LinguistCatToolsDeps } from '@linguist/cat-tools'
+import type { ProjectDatabase } from '@linguist/cat-store'
 import { runLinguistConsistencyWorker, runLinguistQaWorker, type LinguistProjectService } from '@linguist/domain-service'
 import type { ProjectDiscoveryScope } from '@linguist/domain-service/contracts'
 
@@ -16,6 +17,8 @@ export interface CreateCatDepsInput {
   attachments: AttachmentStore
   /** Rechecks the persisted DSH Session binding for this project before every operation. */
   assertBound: () => void
+  /** Refreshes Host Stage state after a successful, revalidated project resolution. */
+  onProjectResolved?: (db: ProjectDatabase) => void
   /** Returns an authorized real file or directory path for the current Session. */
   authorizeReadPath: (requestedPath: string) => Promise<string>
   /** Returns an authorized absolute output path after checking overwrite permission. */
@@ -37,7 +40,10 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
   return {
     resolveProject() {
       input.assertBound()
-      return { project: service.getProject(projectId), db: service.openProject(projectId) }
+      const project = service.getProject(projectId)
+      const db = service.openProject(projectId)
+      input.onProjectResolved?.(db)
+      return { project, db }
     },
     resultProjectId: projectId,
     sessionId: input.sessionId,

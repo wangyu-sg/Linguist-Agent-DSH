@@ -11,8 +11,8 @@
 
 ## 下一步直接执行
 
-1. 收口真实源遗漏：项目拖拽、归档确认、报告复制、调度主动暂停/恢复与执行会话导航已实现；monthly 短月及 every 运行时段/星期薄适配已实现。整包构建、248 项 Node、21 项 Bun、8 项类型检查全过。保留后续控件修正。先构建，再顺序执行 required 检查，避免并发 build 清理 lib。
-2. 核对真实 tarball 的动态资源：PDF worker 缺资源与 OfficeParser nested file-type API 冲突已修正，六项实际资源解析通过；接入永久整包资源守卫。隔离 BrowserSkill 自动升级已恢复固定0.3.1；生产 runner 禁止自动升级的 .4 薄适配已通过383测试和两次可复现构建；项目名点击复用原生CAT会话的遗漏已修正并通过实际production callback回归。最终 LA **9b0275459a72**＋BrowserSkill **7a6cfa1d** 整包资源检查通过，接下来对精确整合 diff 完整 Ponytail 审查、提交并原生更新这两个候选。用户确认过 e20，但该包因已发现资源缺陷而未安装。
+1. 收口真实源遗漏：项目拖拽、归档确认、报告复制、调度主动暂停/恢复与执行会话导航已实现；monthly 短月及 every 运行时段/星期薄适配已实现。最新整合构建、253 项 Node、21 项 Bun、8 项类型检查全过。保留后续控件修正。先构建，再顺序执行 required 检查，避免并发 build 清理 lib。
+2. 核对真实 tarball 的动态资源：PDF worker 缺资源与 OfficeParser nested file-type API 冲突已修正，六项实际资源解析通过；接入永久整包资源守卫。隔离 BrowserSkill 自动升级已恢复固定0.3.1；生产 runner 禁止自动升级的 .4 薄适配已通过383测试和两次可复现构建；项目名点击复用原生CAT会话的遗漏已修正并通过实际production callback回归。最终 LA **9b0275459a72**＋BrowserSkill **7a6cfa1d** 整包资源检查通过，完整21文件精确diff经Ponytail放行后已本地提交 **bfd2e2e**；未推送。9b安装对话框已取消，尚未点击安装：真实Cordis回归发现缺失/损坏CAT在绑定时阻断会话，已按旧LA补回惰性装配，缺失/损坏/原子恢复期间保留通用与工作副本工具，并在首次成功CAT解析冻结父范围；专业委派已补原生provider/model/reasoningEffort。整合构建、253项Node、21项Bun、8项类型检查全过，专项实际Host回归54/54。另已补普通会话打开保留原生右栏状态及Linguist菜单新General/继续新任务入口，23/23源码回归通过；完整整合构建和253项Node/21项Bun/8项类型检查已过，新包 **10d2851f0618**＋BrowserSkill **7a6cfa1d** 实际资源守卫通过；完整新diff审查/本地提交后，通过官方管理器更新。用户确认过 e20，但该包因已发现资源缺陷而未安装。
 3. 当前安装完整 UI、四岗位、三路径、真实模型、BrowserSkill localhost、桌面双击/停止/重开及逐能力验收。G13 每个必需能力需要真实安装态观察，不能用源码存在代替。
 4. 更新证据和状态后 `verify:ready`；仅全部必需门禁通过才通知完整完成。`deliver-local` 会重新打包，不能在当前验收中间运行。
 

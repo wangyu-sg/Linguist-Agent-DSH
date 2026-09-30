@@ -113,7 +113,7 @@ function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
   return createElement(BatchPreview, { projectId, asset, onClose: () => info.tab.actions.close() })
 }
 
-function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession }: { sessionId: string; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void> }) {
+function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession, onNewTask }: { sessionId: string; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
   const t = useT()
   const [binding, setBinding] = useState<LinguistBinding | undefined>()
   const [projectName, setProjectName] = useState('')
@@ -148,6 +148,13 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
     catch (cause) { setActionError(String(cause)) }
     finally { setRoleBusy(false) }
   }
+  const newTask = async (kind: 'general' | 'continue') => {
+    if (roleBusy) return
+    setRoleBusy(true)
+    try { await onNewTask(binding, kind); setActionError('') }
+    catch (cause) { setActionError(String(cause)) }
+    finally { setRoleBusy(false) }
+  }
   const detach = async () => {
     if (detachBusy) return
     setDetachBusy(true)
@@ -172,13 +179,15 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
       open: menuOpen, portal: true, align: 'end', autoFocus: true,
       anchor: createElement(Button, { size: 'sm', variant: 'ghost', 'aria-label': t('Linguist 操作'), 'aria-expanded': menuOpen, onClick: () => setMenuOpen(!menuOpen) }, '···'),
       items: [
+        ...(binding.projectId && binding.workMode === 'cat' ? [{ id: 'new-general', label: t('新建项目通用会话'), disabled: roleBusy }] : []),
+        ...(binding.projectId ? [{ id: 'continue', label: t('继续新任务'), disabled: roleBusy }] : []),
         ...(binding.projectId ? [{ id: 'copy', label: t('复制到项目') }] : []),
         { id: 'role', label: t('开启新岗位会话'), disabled: roleBusy, submenu: (['general', 'translator', 'reviewer', 'proofreader'] as const).map(role => ({ id: `role:${role}`, label: t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[role]), disabled: role === binding.role })) },
         { type: 'separator', id: 'detach-separator' },
         { id: 'detach', label: t('解除 Linguist 绑定'), danger: true },
       ],
       onClose: () => setMenuOpen(false),
-      onSelect: id => { setMenuOpen(false); if (id === 'copy') openCopy(sessionId); else if (id === 'detach') setDetachOpen(true); else if (id.startsWith('role:')) void changeRole(id.slice(5) as Role) },
+      onSelect: id => { setMenuOpen(false); if (id === 'new-general') void newTask('general'); else if (id === 'continue') void newTask('continue'); else if (id === 'copy') openCopy(sessionId); else if (id === 'detach') setDetachOpen(true); else if (id.startsWith('role:')) void changeRole(id.slice(5) as Role) },
     }),
     createElement(Modal, { open: detachOpen, onClose: () => setDetachOpen(false), title: t('解除 Linguist 绑定'), closeLabel: t('关闭'),
       description: t('解除后此 Session 成为普通 Agent，会取消活跃的 Linguist 专用定时任务；历史专业证据保留。'),
@@ -272,10 +281,11 @@ export function apply(ctx: Context): void {
     pendingAgentTasks.delete(sessionId)
     ctx.uiWorkspace.openSession(id)
   }
-  const openBoundSession = async (binding: LinguistBinding) => {
+  const openBoundSession = async (binding: LinguistBinding, revealWorkbench = false) => {
     const id = binding.sessionId as Parameters<typeof ctx.uiWorkspace.openSession>[0]
     ctx.layout.selectPanel(null)
     ctx.uiWorkspace.openSession(id)
+    if (!revealWorkbench) return
     const navigation = ctx.layout.beginNavigation()
     await new Promise<void>((resolve, reject) => {
       if (ctx.sidebarRight.mounted.getSnapshot() === id) { resolve(); return }
@@ -293,11 +303,22 @@ export function apply(ctx: Context): void {
     if (binding.workMode === 'working-copy') openWorkingCopy(binding.sessionId)
     if (binding.workMode === 'browser') openBrowser(binding.sessionId)
   }
-  const enter = async (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => {
-    const navigation = ctx.layout.beginNavigation()
+  const enter = async (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }, navigation = ctx.layout.beginNavigation()) => {
     const id = await ctx.sessions.create({ workspaceId: input.workspaceId })
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
-    if (!navigation.aborted) await openBoundSession(binding)
+    if (!navigation.aborted) await openBoundSession(binding, true)
+  }
+  const newProjectTask = async (binding: LinguistBinding, kind: 'general' | 'continue') => {
+    const navigation = ctx.layout.beginNavigation()
+    const current = await getBinding(binding.sessionId)
+    if (navigation.aborted) return
+    if (!current?.projectId || current.projectId !== binding.projectId || current.workspaceId !== binding.workspaceId || current.role !== binding.role || current.workMode !== binding.workMode || (kind === 'general' && current.workMode !== 'cat')) throw new Error(t('当前会话绑定已变化，请刷新后重试。'))
+    const opened = await required<LinguistProjectOpenResult>('linguistProjectsOpen', { projectId: current.projectId })
+    if (navigation.aborted) return
+    if (opened.project.id !== current.projectId || opened.health.projectId !== current.projectId) throw new Error(t('项目身份校验失败'))
+    if (opened.project.archivedAt !== undefined) throw new Error(t('已归档，只读'))
+    if (!opened.health.healthy) throw new Error(t('需要修复'))
+    await enter({ projectId: current.projectId, workspaceId: current.workspaceId as WorkspaceId, role: kind === 'general' ? 'general' : current.role, workMode: current.workMode }, navigation)
   }
   const visitedSessions: Parameters<typeof ctx.sessions.scope>[0][] = []
   ctx.effect(() => {
@@ -342,7 +363,7 @@ export function apply(ctx: Context): void {
       pendingProjectSessions.set(projectId, pending)
     }
     const binding = await pending
-    if (!navigation.aborted) await openBoundSession(binding)
+    if (!navigation.aborted) await openBoundSession(binding, true)
   }
   const openExecutionSession = async (sessionId: string) => {
     await ctx.sessions.refresh()
@@ -361,8 +382,8 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: WORKING_PROVIDER_ID, kind: WORKING_KIND, priority: 'extension', keepMounted: true, title: () => t('Linguist 工作副本') }), 'linguist: working-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: WORKING_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkingCopyPage, { sessionId: String(props.sessionId), onOpenFile: (path: string) => openWorkingFile(String(props.sessionId), path) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy) }))))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy, true) }))))
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), openCat, openWorkingCopy, openBrowser, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId), connect: connectReference, inputActions: props.inputActions }))))
   ctx.slots.inject('tool.call.toolview', function* () {
     for (const toolName of catToolNames) yield ctx.slots.register({ name: 'tool.call.toolview', key: toolName }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatToolResult, { props, onNavigate: navigateToToolResult })))

@@ -13,6 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat-tools'
+import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
 import { LinguistProjectService } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
 import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
@@ -161,18 +162,30 @@ export function apply(ctx: Context, config: Config): void {
       if (binding.projectId) {
         const projectId = binding.projectId
         const sessionId = agent.id
-        const db = service.openProject(projectId)
-        let stage = db.stageEvidence.list().find(item => item.sessionId === sessionId)
+        let stage: StageEvidenceState | undefined
         const parentSession = agent.session.header.origin === 'subagent' ? agent.session.header.parentSession : undefined
-        const parentStage = parentSession === undefined ? undefined : db.stageEvidence.list().find(item => item.sessionId === parentSession)
-        const delegatedScope = binding.delegatedScope?.segmentIds ?? parentStage?.plan.segmentIds
+        let delegatedScope = binding.delegatedScope?.segmentIds
+        let parentScopeResolved = delegatedScope !== undefined || parentSession === undefined
         const assertBound = () => {
           const current = bindings.session(sessionId)
           if (!current || current.projectId !== projectId || current.workspaceId !== workspace.id) throw new Error('Linguist Session project binding changed')
         }
+        const refreshStage = (db: ProjectDatabase) => {
+          stage = db.stageEvidence.list().find(item => item.sessionId === sessionId)
+          if (!parentScopeResolved) {
+            delegatedScope = db.stageEvidence.list().find(item => item.sessionId === parentSession)?.plan.segmentIds
+            parentScopeResolved = true
+          }
+        }
+        const resolveStage = () => {
+          assertBound()
+          const db = service.openProject(projectId)
+          refreshStage(db)
+          return { db, delegatedScope }
+        }
         const scope = () => projectDiscoveryScope(service, projectId, workspace.id, workspace.path)
         const prepareStage = (segmentIds: readonly string[], task?: { scope?: 'segments' | 'assets' | 'project'; restart?: boolean; toolCallId: string }) => {
-          assertBound()
+          const { db, delegatedScope } = resolveStage()
           if (binding.role === 'general' || db.readOnly) return
           const segments = db.segments.getByIds(segmentIds)
           if (segments.length !== new Set(segmentIds).size) throw new Error('Stage task contains missing segments')
@@ -193,13 +206,14 @@ export function apply(ctx: Context, config: Config): void {
         const deps = createCatDeps({
           service, projectId, sessionId, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
+          onProjectResolved: refreshStage,
           authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path),
           authorizeWritePath: (path, overwrite) => authorizeWorkspaceWrite(path, workspace.path, overwrite),
           discoveryScope: async () => scope(),
           onMutation: mutation => { mutations.publish(projectId, mutation) },
           prepareStage,
           prepareContextDoc: docId => {
-            assertBound()
+            const { db } = resolveStage()
             if (!stage || db.readOnly) return
             stage = ensureStageEvidenceForSession({
               session: { id: sessionId, linguistRole: binding.role }, db,
@@ -208,9 +222,9 @@ export function apply(ctx: Context, config: Config): void {
           },
           onEvidencePrepared: (receipt) => evidence.prepare(projectId, receipt),
           generationProvenance: toolCallId => ({ sessionId, toolCallId, runId: `dsh:${sessionId}:${toolCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native', ...(turnContextProvenance?.forCall(toolCallId) ?? {}) }),
-          stageEvidenceRunId: () => stage?.stageRunId,
-          reviewScopeSegmentIds: () => stage?.plan.segmentIds,
-          delegatedScopeSegmentIds: () => delegatedScope,
+          stageEvidenceRunId: () => { resolveStage(); return stage?.stageRunId },
+          reviewScopeSegmentIds: () => { resolveStage(); return stage?.plan.segmentIds },
+          delegatedScopeSegmentIds: () => resolveStage().delegatedScope,
           ...(agent.options.model === undefined ? {} : { modelId: agent.options.model }),
         })
         for (const source of createLinguistCatTools(deps)) {
