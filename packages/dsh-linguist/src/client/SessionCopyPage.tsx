@@ -89,7 +89,7 @@ export function SessionCopyPage({ sessionId, onCopied }: {
         : t('此会话没有对话历史；将在目标 Workspace 创建空白 DSH Session。')}</p>}
       {mismatchedLocales && <p role="status" className={styles.warning}>{t('目标项目的语言方向与源项目不同；后续上下文将使用目标项目策略。')}</p>}
       {copied && <p role="status">{t('已创建 DSH Session')}：{copied.sessionId}</p>}
-      <Button variant="primary" disabled={copying || (!copied && (!target || !eligibility?.eligible || checking))} onClick={() => void copy()}>{copying ? t('正在打开…') : copied ? t('打开已创建会话') : t('复制并打开')}</Button>
+      <Button variant="primary" size="sm" disabled={copying || (!copied && (!target || !eligibility?.eligible || checking))} onClick={() => void copy()}>{copying ? t('正在打开…') : copied ? t('打开已创建会话') : t('复制并打开')}</Button>
     </>}
   </section>
 }

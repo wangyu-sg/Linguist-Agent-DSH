@@ -1,0 +1,14 @@
+.statusBar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 16px; box-sizing: border-box; min-height: 32px; padding: 6px 16px; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.statusBar strong { color: var(--dsw-alias-label-primary); font-weight: 500; }
+.scope { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.characters { white-space: nowrap; }
+.progress { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.progress progress { width: 64px; height: 4px; appearance: none; border: 0; border-radius: var(--dsw-radius-xs); overflow: hidden; background: var(--dsw-alias-border-l2); }
+.progress progress::-webkit-progress-bar { background: var(--dsw-alias-border-l2); }
+.progress progress::-webkit-progress-value { background: var(--dsw-alias-label-secondary); }
+.progress progress::-moz-progress-bar { background: var(--dsw-alias-label-secondary); }
+.coverage { overflow-wrap: anywhere; }
+.shortcuts { color: var(--dsw-alias-label-tertiary); }
+.error { color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }
+@container workbench (max-width: 1100px) { .shortcuts { display: none; } }
+@container workbench (max-width: 700px) { .scope { display: none; } .progress { margin-left: 0; } }

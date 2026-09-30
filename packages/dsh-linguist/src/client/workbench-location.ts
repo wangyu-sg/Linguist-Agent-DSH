@@ -5,16 +5,16 @@ export interface WorkbenchLocation {
   segmentId?: string
   assetNavigatorOpen: boolean
   assetNavigatorWidth: number
+  inspectorWidth: number
   dockOpen: boolean
   dock: CatDock
   dockHeight: number
-  sourceShare: number
 }
 
 const docks: readonly CatDock[] = ['qa', 'proposals', 'references', 'assets', 'delivery', 'run', 'settings']
 const defaults: WorkbenchLocation = {
-  assetNavigatorOpen: true, assetNavigatorWidth: 190,
-  dockOpen: true, dock: 'qa', dockHeight: 240, sourceShare: 50,
+  assetNavigatorOpen: true, assetNavigatorWidth: 240, inspectorWidth: 320,
+  dockOpen: true, dock: 'qa', dockHeight: 240,
 }
 
 function width(value: unknown, fallback: number, minimum: number, maximum: number): number {
@@ -32,11 +32,11 @@ export function readWorkbenchLocation(projectId: string): { value: WorkbenchLoca
       assetId: typeof value.assetId === 'string' && value.assetId ? value.assetId : undefined,
       segmentId: typeof value.segmentId === 'string' && value.segmentId ? value.segmentId : undefined,
       assetNavigatorOpen: typeof value.assetNavigatorOpen === 'boolean' ? value.assetNavigatorOpen : defaults.assetNavigatorOpen,
-      assetNavigatorWidth: width(value.assetNavigatorWidth, defaults.assetNavigatorWidth, 150, 280),
+      assetNavigatorWidth: width(value.assetNavigatorWidth, defaults.assetNavigatorWidth, 180, 420),
+      inspectorWidth: width(value.inspectorWidth, defaults.inspectorWidth, 240, 480),
       dockOpen: typeof value.dockOpen === 'boolean' ? value.dockOpen : defaults.dockOpen,
       dock: docks.includes(value.dock as CatDock) ? value.dock as CatDock : defaults.dock,
       dockHeight: width(value.dockHeight, defaults.dockHeight, 80, 480),
-      sourceShare: width(value.sourceShare, defaults.sourceShare, 30, 70),
     } }
   } catch (cause) { return { value: defaults, error: String(cause) } }
 }

@@ -165,7 +165,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       {kind === 'cron' && <label>Cron<Input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<Input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
-    <div className={styles.toolbar}><Button variant="primary" type="submit" size="md" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures || editing?.pausedByUser ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
+    <div className={styles.toolbar}><Button variant="primary" type="submit" size="sm" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures || editing?.pausedByUser ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
     {created && <p role="status">{t(editing?.pausedAfterFailures || editing?.pausedByUser ? '已恢复 DSH 调度' : editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
     {error && <p role="alert">{error}</p>}
   </form>
@@ -250,7 +250,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   }
 
   return <section className={styles.panel} aria-label={t("岗位覆盖与运行记录")}>
-    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button variant="ghost" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
+    <div className={styles.toolbar}><strong>{t("岗位决策覆盖")}</strong><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div>
     {loadError && <p role="alert">{loadError}</p>}
     {!assetId ? <p>{t("选择一个工作批次以查看当前岗位覆盖。")}</p> : !coverage && !loadError ? <p role="status">{t("正在读取覆盖…")}</p> : coverage &&
       <div className={styles.callout}><p>{t(stageName(workflowStage))} · {t({ in_progress: '决策进行中', complete: '决策覆盖完整', completed_with_blocks: '决策覆盖完整，仍有阻塞' }[coverage.status])}</p><p>{t("总计")} {coverage.total} · {t(stageCompletionLabel(workflowStage))} {coverage.confirmed} {t("· 原文无改动")} {coverage.unchanged} {t("· 已修订")} {coverage.corrected} {t("· 阻塞")} {coverage.blocked} {t("· 待决策")} {coverage.pending}</p><p>{t('阶段决策覆盖不等于正式交付完成；仍需处理 QA、建议与交付预检。')}</p></div>}

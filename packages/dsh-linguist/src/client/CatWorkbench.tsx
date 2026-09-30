@@ -34,6 +34,8 @@ import { TERM_STATUS_LABELS, nextStageItemLabel, segmentStatusBadgeTitle, stageA
 import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
 import { getCatEditorState, type CatEditorState } from './cat-editor-state'
+import { Splitter } from './Splitter'
+import { CatStatusBar } from './CatStatusBar'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { useT } from './ui-locale'
 import styles from './Workbench.module.css'
@@ -76,11 +78,12 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [dock, setDock] = React.useState<Dock>(storedLocation.value.dock)
   const [dockOpen, setDockOpen] = React.useState(storedLocation.value.dockOpen)
   const [dockHeight, setDockHeight] = React.useState(storedLocation.value.dockHeight)
+  const bodyRef = React.useRef<HTMLDivElement>(null)
   const dockRef = React.useRef<HTMLDivElement>(null)
   const [assetNavigatorOpen, setAssetNavigatorOpen] = React.useState(storedLocation.value.assetNavigatorOpen)
   const [assetNavigatorWidth, setAssetNavigatorWidth] = React.useState(storedLocation.value.assetNavigatorWidth)
-  const assetNavigatorRef = React.useRef<HTMLElement>(null)
-  const [sourceShare, setSourceShare] = React.useState(storedLocation.value.sourceShare)
+  const [inspectorWidth, setInspectorWidth] = React.useState(storedLocation.value.inspectorWidth)
+  const [workbenchSize, setWorkbenchSize] = React.useState({ width: 0, height: 0, availableHeight: 0 })
   const [inspectorOpen, setInspectorOpen] = React.useState(false)
   const workbenchRef = React.useRef<HTMLElement>(null)
   const compactLayout = React.useRef<boolean>()
@@ -113,35 +116,19 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const signature = `${projectId}\0${assetId ?? ''}\0${stageFilter}\0${search}`
   const active = selectedId === undefined ? undefined : [...(dataset?.rows.values() ?? [])].find((row) => row.id === selectedId)
   const workflowStage = project?.workflowStage ?? 'translation'
-  const currentBatch = summary?.assets.find((asset) => asset.assetId === assetId)
-  const stageCounts = assetId === undefined ? summary?.currentStageCounts : currentBatch?.currentStageCounts
-  const totalSegments = assetId === undefined ? summary?.totalSegments : currentBatch?.segmentCount
+  const assetMaximum = workbenchSize.width ? Math.max(180, Math.min(420, Math.floor(workbenchSize.width * .86))) : 420
+  const inspectorMaximum = workbenchSize.width ? Math.max(240, Math.min(480, Math.floor(workbenchSize.width < 980 ? workbenchSize.width * .9 : workbenchSize.width - (assetNavigatorOpen ? assetNavigatorWidth : 0) - 320))) : 480
+  const dockMaximum = workbenchSize.height ? Math.max(80, Math.floor(Math.min(480, workbenchSize.height * .6, workbenchSize.availableHeight - 120))) : 480
 
   React.useEffect(() => { if (storedLocation.error) setNotice(t('工作台位置读取失败，已使用默认布局：{error}', { error: storedLocation.error })) }, [storedLocation])
   React.useEffect(() => {
-    const location: WorkbenchLocation = { assetId, segmentId: selectedId, assetNavigatorOpen, assetNavigatorWidth, dockOpen, dock, dockHeight, sourceShare }
+    const location: WorkbenchLocation = { assetId, segmentId: selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight }
     const timer = window.setTimeout(() => {
       try { writeWorkbenchLocation(projectId, location) }
       catch (cause) { setNotice(t('工作台位置保存失败：{error}', { error: String(cause) })) }
     }, 150)
     return () => window.clearTimeout(timer)
-  }, [projectId, assetId, selectedId, assetNavigatorOpen, assetNavigatorWidth, dockOpen, dock, dockHeight, sourceShare])
-
-  React.useEffect(() => {
-    const element = assetNavigatorRef.current
-    if (!element) return
-    const observer = new ResizeObserver(() => setAssetNavigatorWidth(Math.round(element.getBoundingClientRect().width)))
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [assetNavigatorOpen])
-
-  React.useEffect(() => {
-    const element = dockRef.current
-    if (!element) return
-    const observer = new ResizeObserver(() => setDockHeight(Math.round(element.getBoundingClientRect().height)))
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [dockOpen])
+  }, [projectId, assetId, selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight])
 
   React.useEffect(() => {
     rowSignalLoaded.current.clear()
@@ -213,14 +200,17 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   React.useEffect(() => {
     const element = workbenchRef.current
     if (!element) return
-    const observer = new ResizeObserver(([entry]) => {
-      const width = entry!.contentRect.width
+    const observer = new ResizeObserver(() => {
+      const { width, height } = element.getBoundingClientRect()
+      const availableHeight = bodyRef.current!.getBoundingClientRect().height + dockRef.current!.getBoundingClientRect().height
+      setWorkbenchSize((current) => current.width === width && current.height === height && current.availableHeight === availableHeight ? current : { width, height, availableHeight })
       const compact = width < 980
-      if (compactLayout.current === undefined) { compactLayout.current = compact; if (compact) setAssetNavigatorOpen(false) }
-      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact); if (compact) setInspectorOpen(false) }
-      setInspectorOpen((current) => width > 1080 ? true : current && width > 740)
+      if (compactLayout.current === undefined) { compactLayout.current = compact; if (compact) setAssetNavigatorOpen(false); setInspectorOpen(width > 1080) }
+      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact); setInspectorOpen(!compact && width > 1080) }
     })
     observer.observe(element)
+    observer.observe(bodyRef.current!)
+    observer.observe(dockRef.current!)
     return () => observer.disconnect()
   }, [project?.id])
 
@@ -474,10 +464,10 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     }
   }, [navigation])
 
-  if (loadError && project === undefined) return <div role="alert" className={styles.center}>{loadError}<Button variant="outline" onClick={() => { setLoadError(''); setOpenRetry((value) => value + 1) }}>{t("重试")}</Button></div>
+  if (loadError && project === undefined) return <div role="alert" className={styles.center}>{loadError}<Button variant="outline" size="sm" onClick={() => { setLoadError(''); setOpenRetry((value) => value + 1) }}>{t("重试")}</Button></div>
   if (project === undefined) return <div role="status" className={styles.center}>{t("正在打开本地化项目…")}</div>
 
-  return <section ref={workbenchRef} className={styles.workbench} style={{ '--source-fr': `${sourceShare}fr`, '--target-fr': `${100 - sourceShare}fr` } as React.CSSProperties} aria-label={`${project.name} ${t('CAT 工作台')}`} onKeyDown={(event) => {
+  return <section ref={workbenchRef} className={styles.workbench} aria-label={`${project.name} ${t('CAT 工作台')}`} onKeyDown={(event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || !compactLayout.current) return
     if (inspectorOpen) { setInspectorOpen(false); displayTrigger.current?.focus(); event.preventDefault() }
     else if (assetNavigatorOpen) { setAssetNavigatorOpen(false); navigationTrigger.current?.focus(); event.preventDefault() }
@@ -499,18 +489,16 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
           <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
         </select>
         <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t(nextStageItemLabel(workflowStage))} disabled={jumpBusy} onClick={() => void nextUntouched()}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip>
-        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} ref={displayTrigger} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : []), `ratio-${sourceShare}`]} items={[
+        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} ref={displayTrigger} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : [])]} items={[
           { id: 'refresh', label: t('刷新') },
           { id: 'next-qa', label: t('下一个 QA 问题'), disabled: jumpBusy },
           { id: 'inspector', label: t('参考检查器') },
           { id: 'dock', label: t('辅助区') },
-          { id: 'ratio', label: t('Source / Target 比例'), submenu: [30, 35, 40, 45, 50, 55, 60, 65, 70].map((value) => ({ id: `ratio-${value}`, label: `${value} / ${100 - value}` })) },
         ]} onSelect={(id) => {
           if (id === 'refresh') setReload((value) => value + 1)
           else if (id === 'next-qa') void nextQa()
           else if (id === 'inspector') { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }
           else if (id === 'dock') setDockOpen((value) => !value)
-          else setSourceShare(Number(id.slice(6)))
           setDisplayOpen(false)
         }} />
       </div>
@@ -521,16 +509,19 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     </header>
     {agentReference && <div className={styles.agentReference} role="status">{t('已为 Agent 引用句段')} {agentReference.segmentId}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
-    <div className={styles.body}>
-      {assetNavigatorOpen && <nav ref={assetNavigatorRef} className={styles.assets} style={{ width: assetNavigatorWidth }} aria-label={t("批次导航")}>
+    <div ref={bodyRef} className={styles.body}>
+      {assetNavigatorOpen && <nav id={`linguist-batches-${sessionId}`} className={styles.assets} style={{ width: Math.min(assetNavigatorWidth, assetMaximum) }} aria-label={t("批次导航")}>
+        <div className={styles.assetContents}>
         <div className={styles.contextHeading}><strong>{t("工作批次")} {summary?.assetCount ?? ''}</strong><Button variant="ghost" size="sm" aria-label={t("收起批次导航")} onClick={() => { setAssetNavigatorOpen(false); navigationTrigger.current?.focus() }}>×</Button></div>
         <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('管理批次')}</Button>
         <Input aria-label={t('搜索批次')} placeholder={t('搜索批次')} value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
-        {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry}><Button variant="ghost" size="sm" className={assetId === asset.assetId ? styles.assetActive : styles.asset} onClick={() => setAssetId(asset.assetId)}>
-          <span>{asset.filename}</span><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small>
-        </Button><Button variant="ghost" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button></div>)}
+        {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry} data-active={assetId === asset.assetId}><Button variant="ghost" size="sm" className={styles.asset} title={asset.filename} onClick={() => setAssetId(asset.assetId)}>
+          <span>{asset.filename}</span>
+        </Button><div className={styles.assetDetails}><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small><Button variant="outline" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button></div></div>)}
         {summary?.assets.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
         {summary && summary.assets.length > 0 && !summary.assets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
+        </div>
+        <Splitter orientation="vertical" label={t('调整批次导航宽度')} controls={`linguist-batches-${sessionId}`} value={Math.min(assetNavigatorWidth, assetMaximum)} minimum={180} maximum={assetMaximum} defaultValue={240} onChange={setAssetNavigatorWidth} />
       </nav>}
       <div className={styles.gridColumn}>
         {loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
@@ -545,17 +536,18 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
               const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next
             })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId })} onFocusSettled={() => setFocusIndex(undefined)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
-      {inspectorOpen && <aside className={styles.inspector} aria-label={t("句段参考检查器")}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></aside>}
+      {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={320} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
-    <div ref={dockOpen ? dockRef : undefined} className={dockOpen ? styles.dock : styles.dockCollapsed} style={dockOpen ? { height: dockHeight } : undefined}>
-      <div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <Button key={item.id} variant="ghost" size="sm" role="tab" aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
+    <div ref={dockRef} id={`linguist-dock-${sessionId}`} className={dockOpen ? styles.dock : styles.dockCollapsed} style={dockOpen ? { height: Math.min(dockHeight, dockMaximum) } : undefined}>
+      {dockOpen && <Splitter orientation="horizontal" direction={-1} label={t('调整辅助区高度')} controls={`linguist-dock-${sessionId}`} value={Math.min(dockHeight, dockMaximum)} minimum={80} maximum={dockMaximum} defaultValue={240} onChange={setDockHeight} />}
+      <div className={styles.dockToolbar}><div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <Button key={item.id} variant="ghost" size="sm" role="tab" aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
         const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? dockItems.length - 1 : event.key === 'ArrowRight' ? (index + 1) % dockItems.length : event.key === 'ArrowLeft' ? (index + dockItems.length - 1) % dockItems.length : -1
         if (nextIndex < 0) return
         event.preventDefault()
         setDock(dockItems[nextIndex]!.id)
         setDockOpen(true)
         event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
-      }}>{t(item.label)}</Button>)}</div>
+      }}>{t(item.label)}</Button>)}</div><Tooltip portal label={t(dockOpen ? '收起辅助区' : '展开辅助区')}><Button className={styles.dockToggle} variant="ghost" size="sm" aria-label={t(dockOpen ? '收起辅助区' : '展开辅助区')} aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip></div>
       {dockOpen && <div role="tabpanel" className={styles.dockBody}>
         {dock === 'qa' && <QaPanel projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'proposals' && <ProposalPanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
@@ -566,11 +558,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
-    <footer className={styles.statusBar}>
-      <span>{assetId === undefined ? t('全部批次') : currentBatch?.filename}</span>
-      {stageCounts && totalSegments !== undefined && <span>{t(stageCompletionLabel(workflowStage))} <strong>{stageCounts.confirmed}</strong> / {totalSegments}</span>}
-      {selectedIds.size > 0 && <span>{t('已选 {count} 段', { count: selectedIds.size })}</span>}
-    </footer>
+    <CatStatusBar projectId={projectId} assetId={assetId} summary={summary} active={active} selectedCount={selectedIds.size} revision={`${mutation}:${reload}`} />
     {notice && <div role="status" className={styles.notice}>{notice}<Button variant="ghost" size="sm" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</Button></div>}
   </section>
 }

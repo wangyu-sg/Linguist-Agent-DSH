@@ -44,6 +44,8 @@ test('native form controls own visible containers', () => {
         count++
         const variant = node.attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.text === 'variant')
         assert(variant, `${name}:${file.getLineAndCharacterOfPosition(node.pos).line + 1}: action button defaults to invisible ghost container`)
+        const size = node.attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.text === 'size')
+        assert.equal(size?.initializer?.text, 'sm', `${name}:${file.getLineAndCharacterOfPosition(node.pos).line + 1}: button must use the shared small size`)
       }
       ts.forEachChild(node, visit)
     }

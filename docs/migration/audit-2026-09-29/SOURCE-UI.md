@@ -15,8 +15,16 @@
 - Proma独立Memory窗口不是LA领域后端；DSH只读Files不能冒称可手工编辑。
 - 源renderer无独立非CAT工作副本页，流程经工具+原生Files；需与Host工具盘点合并。
 
+## 2026-09-30 工作台行为复核
+
+- 旧 LA 已有底栏源/译文 Unicode 字符数、当前阶段草稿/决策覆盖，以及面板整条边界拖动、键盘和复位。此前仅找到目标入口，没有逐项确认这些行为。当前 `CatStatusBar` 和 `Splitter` 已补并接线；相关项记为 `implemented-awaiting-native-acceptance`，当前产物原生交互仍待验。
+- 旧 Source/Target 固定等宽（`SegmentGrid.tsx:289`、`:474`），没有比例菜单或列宽拖动。比例菜单为迁移时新增，本轮已移除，等宽行为保留。源 TM/TB/Context 位于 `LinguistBottomDock`，独立参考检查器是目标布局重组，其调宽属于本轮用户体验要求。
+- `FEATURE_MAP.sourceInventory` 的 pending 是文件实现／测试映射边界，不是剩余功能清单或完成率。本轮重开此前误标 complete 的 `LinguistWorkbenchShell.tsx` 与 `cat-workspace-atoms.ts`，等待行为回归与安装证据；既有运行面板阶段覆盖算法映射保留。
+- 本次复核只读源并检查目标生产接线，未执行本轮回归或原生安装验收，没有改变任何安装通过状态。
+
 ## 状态词典
 
+- `implemented-awaiting-native-acceptance`：本轮已补齐并接线相关源码行为；尚未据当前安装产物完成原生交互验收，回归记录另核对
 - `entry-mapped-parity-unverified`：源码行为已核对，目标入口已定位，尚未逐条件对比和安装验收
 - `host-native-adaptation-required`：保持LA特有身份/上下文，通过DSH原生表面承接宿主行为
 - `known-ui-gap`：已具体查明目标缺交互
@@ -85,17 +93,19 @@
 
 | ID | 用户操作 | 源依据 | 目标已知入口／状态 |
 | --- | --- | --- | --- |
-| LA-UI-016 | 看项目/语言对/批次/只读/当前阶段进度 | `LinguistWorkbenchShell.tsx:136` `progressLabel`<br>`workflow-ui.ts:79` `stageProgressSummary` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
+| LA-UI-016 | 看项目/语言对/批次/只读、源译字符数与当前阶段进度 | `LinguistWorkbenchShell.tsx:136` `progressLabel`<br>`workflow-ui.ts:79` `stageProgressSummary`<br>`LinguistWorkbenchShell.tsx:450` `footer / StageCoverageSpan` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`CatStatusBar.tsx`<br>`implemented-awaiting-native-acceptance` |
 | LA-UI-017 | 头部快速切换T/E/P | `LinguistWorkbenchShell.tsx:146` `handleWorkflowStageChange` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-018 | 搜索、选择、刷新、预览批次并直达管理 | `AssetNavigator.tsx:12` `AssetNavigator` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-019 | 恢复项目位置和面板布局 | `cat-workspace-atoms.ts:237` `serializeLinguistWorkbenchLocations` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
-| LA-UI-020 | 开合/拖动尺寸/复位批次导航与辅助面板 | `LinguistWorkbenchShell.tsx:36` `getAssetNavigatorWidthFromKey`<br>`cat-workspace-atoms.ts:38` `BOTTOM_DOCK_DEFAULT_HEIGHT` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
+| LA-UI-020 | 开合/拖动尺寸/复位批次导航与辅助面板 | `LinguistWorkbenchShell.tsx:36` `getAssetNavigatorWidthFromKey`<br>`cat-workspace-atoms.ts:38` `BOTTOM_DOCK_DEFAULT_HEIGHT` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`Splitter.tsx`<br>`implemented-awaiting-native-acceptance` |
 | LA-UI-021 | 切换TM/术语/QA/上下文证据/建议/准备交付 | `LinguistBottomDock.tsx:16` `TABS` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-022 | 分类打开项目设置、消费一次性直达tab | `ProjectSettingsSheet.tsx:60` `ProjectSettingsSheetBody` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-023 | 跨工具/Agent变更实时刷新网格与语言资产 | `project-mutation-atoms.ts:136` `getProjectMutationRefreshPlan`<br>`LocalizationProjectWorkbench.tsx:132` `synchronize` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-024 | 点击工具结果直达真实项目/句段 | `CatToolResultNavigationInitializer.tsx:32` `navigateToCatResult`<br>`cat-result.tsx:410` `proposalStatuses` | `CatWorkbench.tsx`<br>`workbench-location.ts`<br>`Panels.tsx`<br>`entry-mapped-parity-unverified` |
 
-**LA-UI-016** 默认：本批次与全项目口径明确；导入原生状态不当本轮确认。 空态：尚无批次与未选择批次区分。 异常：统计加载/不可用单独显示。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：本项无独立并发协议；不代表可忽略Host的身份/revision校验。
+**LA-UI-016** 默认：本批次与全项目口径明确；源/译文按 Unicode code point 计字符，非单词数；当前阶段草稿、确认/总量与本地决策覆盖分开，导入原生状态不当本轮确认。 空态：尚无批次与未选择批次区分。 异常：统计加载/不可用单独显示。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：本项无独立并发协议；不代表可忽略Host的身份/revision校验。
+
+目标复核：2026-09-30：此前目标底栏缺少旧 Shell 的完整统计展示。当前 CatStatusBar 已读取 summary 真实源/译字符数、当前阶段草稿/确认总量、活动句段与选择数；通过 linguistProjectsGetStageCoverage 读取批次当前阶段决策，错误实际显示。阶段覆盖不是 QA/客户 TM/外部平台或交付完成。代码已接线；本记录没有执行本轮回归或当前产物原生验收，须核对切批次/切阶段/正文变更后的刷新、空态/错误及窄窗。
 
 **LA-UI-017** 默认：切换后刷新summary与coverage。 空态：无独立空态，沿用所属面板的空态与选择条件。 异常：失败toast。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：stageSaving/归档/未变化不提交。
 
@@ -104,6 +114,8 @@
 **LA-UI-019** 默认：只持久化位置/开合/尺寸；不写CAT正文、草稿、临时筛选。 空态：真源无效ID清除，不猜段。 异常：本项无另立错误协议；依据所属组件的请求错误及Host拒绝处理。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：运行期已有状态优先，异步恢复不覆盖用户新操作。
 
 **LA-UI-020** 默认：导航240范围180–420，Dock240范围160–480；编辑区优先保留360px。 空态：无独立空态，沿用所属面板的空态与选择条件。 异常：本项无另立错误协议；依据所属组件的请求错误及Host拒绝处理。 键盘：方向键16px，Home/End最小最大，Enter/双击复位。 并发：pointer capture/cancel清理；ResizeObserver适配窗口。
+
+目标复核：2026-09-30：此前只有 CSS resize，没有旧源整条边界的可访问 separator、pointer capture/cancel、键盘16px与复位。当前 Splitter 已接线批次导航、底部辅助区与参考检查器，支持拖动、方向键、Home/End、Enter/双击复位；尺寸由 workbench-location 保存。目标为原生窄/矮分栏调整尺寸约束，仍须实际验证编辑区可见、IME增高、拖出边界/取消及重开恢复。参考检查器来自源底部 TM/TB/Context 能力重组，独立调宽是本轮用户体验要求；旧源无独立右侧检查器，也无 Source/Target 比例控件。代码已补，本记录未声明回归或安装验收通过。
 
 **LA-UI-021** 默认：默认TM；按项目保留标签。 空态：未选批次不请求全项目QA/建议。 异常：本项无另立错误协议；依据所属组件的请求错误及Host拒绝处理。 键盘：左右循环、Home/End、roving tabIndex及焦点滚入可见。 并发：本项无独立并发协议；不代表可忽略Host的身份/revision校验。
 
@@ -234,7 +246,7 @@
 | LA-UI-060 | 确认所选建议实际可操作集合与排除原因 | `ProposalInbox.tsx:219` `runBulkMutation`<br>`proposal-inbox-utils.ts:139` `bulkProposalReviewConfirmation` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-061 | 网格所选句段批量接受/拒绝建议 | `SegmentEditor.tsx:854` `reviewSelected` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-062 | 终态建议重新提出 | `ProposalInbox.tsx:48` `reissue` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
-| LA-UI-063 | 看阶段确认/未处理/未修改/修正/阻塞覆盖 | `ProposalInbox.tsx:65` `ProposalCoverageBanner`<br>`stage-coverage-atoms.ts:78` `formatStageCoverage`<br>`delegation-result.tsx:96` `formatDelegationCoverage` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
+| LA-UI-063 | 看阶段确认/未处理/未修改/修正/阻塞覆盖 | `ProposalInbox.tsx:65` `ProposalCoverageBanner`<br>`stage-coverage-atoms.ts:78` `formatStageCoverage`<br>`delegation-result.tsx:96` `formatDelegationCoverage` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`CatStatusBar.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-064 | 全项目建议历史入口 | `ProjectSettingsSheet.tsx:92` `proposalHistoryOpen` | `Panels.tsx`<br>`proposal-view.ts`<br>`RunPanel.tsx`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 
 **LA-UI-057** 默认：保留run/session/model/time/revision。 空态：无建议不等于已审校/QA/可交付。 异常：失败重试。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：generation防旧A覆盖B，筛选变重查。
@@ -250,6 +262,8 @@
 **LA-UI-062** 默认：创建带lineage新pending，旧accepted/rejected保留。 空态：锁/归档禁用。 异常：确认说明非原地恢复。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：新旧身份不混淆。
 
 **LA-UI-063** 默认：Translator确认、Reviewer/Proofreader决策分开；进程结束不是专业完成。 空态：零建议不代表全覆盖。 异常：无证据不能伪造完成。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：以current revision和冻结scope统计，mutation刷新。
+
+目标复核：2026-09-30：RunPanel 已有真实 linguistProjectsGetStageCoverage 请求与 total/confirmed/unchanged/corrected/blocked/pending 展示，算法映射并非缺失；此前缺的是旧 Shell 底栏的可见入口。当前 CatStatusBar 也接线同一公开操作：翻译显示确认数，审校/校对显示 total-pending 及 unchanged/corrected/blocked。本项整体仍待原生验收，不据进程结束、建议数量或 UI 数字推断专业完成。
 
 **LA-UI-064** 默认：设置details按需挂载。 空态：未展开不全量取。 异常：全项目与当前批次范围不得混淆。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：本项无独立并发协议；不代表可忽略Host的身份/revision校验。
 

@@ -766,7 +766,7 @@
     {
       "id": "LA-UI-016",
       "category": "工作台结构与导航",
-      "userAction": "看项目/语言对/批次/只读/当前阶段进度",
+      "userAction": "看项目/语言对/批次/只读、源译字符数与当前阶段进度",
       "source": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
@@ -777,10 +777,15 @@
           "file": "apps/electron/src/renderer/features/linguist/projects/workflow-ui.ts",
           "symbol": "stageProgressSummary",
           "line": 79
+        },
+        {
+          "file": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
+          "symbol": "footer / StageCoverageSpan",
+          "line": 450
         }
       ],
       "sourceBehavior": {
-        "default": "本批次与全项目口径明确；导入原生状态不当本轮确认。",
+        "default": "本批次与全项目口径明确；源/译文按 Unicode code point 计字符，非单词数；当前阶段草稿、确认/总量与本地决策覆盖分开，导入原生状态不当本轮确认。",
         "empty": "尚无批次与未选择批次区分。",
         "error": "统计加载/不可用单独显示。",
         "keyboard": "未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。",
@@ -801,12 +806,17 @@
           "file": "packages/dsh-linguist/src/client/Panels.tsx",
           "symbol": "Panels",
           "line": 1
+        },
+        {
+          "file": "packages/dsh-linguist/src/client/CatStatusBar.tsx",
+          "symbol": "CatStatusBar",
+          "line": 8
         }
       ],
-      "implementationStatus": "entry-mapped-parity-unverified",
+      "implementationStatus": "implemented-awaiting-native-acceptance",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-09-30：此前目标底栏缺少旧 Shell 的完整统计展示。当前 CatStatusBar 已读取 summary 真实源/译字符数、当前阶段草稿/确认总量、活动句段与选择数；通过 linguistProjectsGetStageCoverage 读取批次当前阶段决策，错误实际显示。阶段覆盖不是 QA/客户 TM/外部平台或交付完成。代码已接线；本记录没有执行本轮回归或当前产物原生验收，须核对切批次/切阶段/正文变更后的刷新、空态/错误及窄窗。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
@@ -994,12 +1004,17 @@
           "file": "packages/dsh-linguist/src/client/Panels.tsx",
           "symbol": "Panels",
           "line": 1
+        },
+        {
+          "file": "packages/dsh-linguist/src/client/Splitter.tsx",
+          "symbol": "Splitter",
+          "line": 4
         }
       ],
-      "implementationStatus": "entry-mapped-parity-unverified",
+      "implementationStatus": "implemented-awaiting-native-acceptance",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-09-30：此前只有 CSS resize，没有旧源整条边界的可访问 separator、pointer capture/cancel、键盘16px与复位。当前 Splitter 已接线批次导航、底部辅助区与参考检查器，支持拖动、方向键、Home/End、Enter/双击复位；尺寸由 workbench-location 保存。目标为原生窄/矮分栏调整尺寸约束，仍须实际验证编辑区可见、IME增高、拖出边界/取消及重开恢复。参考检查器来自源底部 TM/TB/Context 能力重组，独立调宽是本轮用户体验要求；旧源无独立右侧检查器，也无 Source/Target 比例控件。代码已补，本记录未声明回归或安装验收通过。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
@@ -3031,12 +3046,17 @@
           "file": "packages/dsh-linguist/src/client/CatToolResult.tsx",
           "symbol": "CatToolResult",
           "line": 1
+        },
+        {
+          "file": "packages/dsh-linguist/src/client/CatStatusBar.tsx",
+          "symbol": "CatStatusBar",
+          "line": 8
         }
       ],
       "implementationStatus": "entry-mapped-parity-unverified",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "",
+      "auditNote": "2026-09-30：RunPanel 已有真实 linguistProjectsGetStageCoverage 请求与 total/confirmed/unchanged/corrected/blocked/pending 展示，算法映射并非缺失；此前缺的是旧 Shell 底栏的可见入口。当前 CatStatusBar 也接线同一公开操作：翻译显示确认数，审校/校对显示 total-pending 及 unchanged/corrected/blocked。本项整体仍待原生验收，不据进程结束、建议数量或 UI 数字推断专业完成。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
@@ -5915,7 +5935,8 @@
     "known-ui-gap": "已具体查明目标缺交互",
     "known-sdk-boundary": "已按官方rc.2公开API重新核实的接口缺口，尚未闭合",
     "host-specific-excluded-from-la-domain": "原Proma独立宿主能力不重建为LA后端",
-    "source-unwired-not-current-requirement": "文件存在但当前renderer无调用方，不列当前可达UI要求"
+    "source-unwired-not-current-requirement": "文件存在但当前renderer无调用方，不列当前可达UI要求",
+    "implemented-awaiting-native-acceptance": "本轮已补齐并接线相关源码行为；尚未据当前安装产物完成原生交互验收，回归记录另核对"
   },
   "installedStatusRule": "Every action remains not-validated-per-interaction-in-this-audit. Historical package installation and test passes do not certify the new DSH/front-end delivery.",
   "coverage": [
@@ -7150,5 +7171,48 @@
       "tests/copied-renderer/session-navigation.nodetest.mjs"
     ],
     "buildLog": "artifacts/evidence/rc2-unified-build.log"
+  },
+  "interactionRecheck": {
+    "date": "2026-09-30",
+    "actionIds": [
+      "LA-UI-016",
+      "LA-UI-020",
+      "LA-UI-063"
+    ],
+    "method": "只读对照本机旧源有效实现与本轮目标生产接线；未执行源测试、模型、客户操作或安装验收。",
+    "findings": [
+      "旧 Shell 已有字符/阶段统计与全边界面板尺寸交互，原入口映射不足以证明完整承接；本轮代码已补，等待行为回归及当前产物原生验收。",
+      "旧 Source/Target 采用固定等宽 1fr/1fr，未发现比例控件；迁移时新增的比例菜单本轮已移除，等宽行为保留；旧 TM/TB/Context 在 LinguistBottomDock，独立侧检查器是目标布局重组。",
+      "sourceInventory 的 pending 是文件实现/测试映射边界，不是剩余功能表或完成率；本轮将此前误标 complete 的 Shell 与布局状态条目重开 pending。"
+    ],
+    "sourceReferences": [
+      {
+        "file": "apps/electron/src/renderer/features/linguist/projects/SegmentGrid.tsx",
+        "line": 289,
+        "meaning": "Source/Target 固定等宽列"
+      },
+      {
+        "file": "apps/electron/src/renderer/features/linguist/projects/LinguistBottomDock.tsx",
+        "line": 99,
+        "meaning": "源 TM/TB/Context 位于辅助 dock"
+      },
+      {
+        "file": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
+        "line": 351,
+        "meaning": "整条批次面板 separator"
+      },
+      {
+        "file": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
+        "line": 414,
+        "meaning": "整条底部辅助面板 separator"
+      },
+      {
+        "file": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkbenchShell.tsx",
+        "line": 450,
+        "meaning": "字符/当前阶段/选区底栏"
+      }
+    ],
+    "targetTestsExecutedInThisRecheck": false,
+    "runtimeAcceptancePerformed": false
   }
 }

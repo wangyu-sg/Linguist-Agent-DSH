@@ -46,24 +46,29 @@ export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISes
     finally { setOpening(undefined) }
   }
 
-  return <section className={styles.sessionGroups} aria-label={t('项目会话')}>
-    <div className={styles.toolbar}><h3>{t('项目会话')}</h3><Button variant="ghost" size="sm" disabled={loading || snapshot.phase === 'pending'} onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button></div>
-    <p>{t('按已保存的 Linguist 绑定归组；普通 DSH Session 仍由原生 Workspace 侧栏管理。')}</p>
-    {snapshot.phase === 'pending' || loading ? <p role="status">{t('正在读取会话绑定…')}</p> : groups.size === 0 && <p>{t('当前没有已绑定的项目会话。')}</p>}
-    {errors.length > 0 && <p role="alert" className={styles.warning}>{t('有 {count} 个会话绑定读取失败：', { count: errors.length })} {errors.slice(0, 3).join('；')}</p>}
-    {openError && <p role="alert" className={styles.warning}>{openError}</p>}
-    {[...groups].map(([projectId, entries]) => {
-      const project = projects.find((item) => item.id === projectId)
-      return <div className={styles.sessionGroup} key={projectId}>
-        <strong>{project?.name ?? t('项目已缺失')} {project?.archivedAt && <small>· {t('已归档，只读')}</small>}{!project && <small>· {projectId}</small>}</strong>
-        {entries.sort((left, right) => (snapshot.byId[right.sessionId]?.updatedAt ?? 0) - (snapshot.byId[left.sessionId]?.updatedAt ?? 0)).map((binding) => {
-          const session = snapshot.byId[binding.sessionId]
-          return <div className={styles.sessionRow} key={binding.sessionId}>
-            <span>{session?.displayTitle ?? binding.sessionId} <small>· {t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])} · {t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])}{session && ` · ${new Date(session.updatedAt).toLocaleString()}`}</small></span>
-            <Button variant="outline" size="sm" disabled={!project || opening === binding.sessionId} onClick={() => void open(binding)}>{project?.archivedAt ? t('只读打开') : t('打开会话')}</Button>
+  return <section className={styles.sessionDisclosure} aria-label={t('项目会话')}>
+    <details>
+      <summary>{t('项目会话')}</summary>
+      <div className={styles.sessionGroups}>
+        {snapshot.phase === 'pending' || loading ? <p role="status">{t('正在读取会话…')}</p> : groups.size === 0 && <p>{t('当前没有项目会话。')}</p>}
+        {[...groups].map(([projectId, entries]) => {
+          const project = projects.find((item) => item.id === projectId)
+          return <div className={styles.sessionGroup} key={projectId}>
+            <strong>{project?.name ?? t('项目已缺失')} {project?.archivedAt && <small>· {t('已归档，只读')}</small>}{!project && <small>· {projectId}</small>}</strong>
+            {entries.sort((left, right) => (snapshot.byId[right.sessionId]?.updatedAt ?? 0) - (snapshot.byId[left.sessionId]?.updatedAt ?? 0)).map((binding) => {
+              const session = snapshot.byId[binding.sessionId]
+              const updatedAt = session ? new Date(session.updatedAt) : undefined
+              return <div className={styles.sessionRow} key={binding.sessionId}>
+                <span><span className={styles.sessionTitle} title={session?.displayTitle ?? binding.sessionId}>{session?.displayTitle ?? binding.sessionId}</span><small>{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])} · {t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])}{updatedAt && <> · <time dateTime={updatedAt.toISOString()} title={updatedAt.toLocaleString()}>{updatedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></>}</small></span>
+                <Button variant="outline" size="sm" disabled={!project || opening === binding.sessionId} onClick={() => void open(binding)}>{project?.archivedAt ? t('只读打开') : t('打开会话')}</Button>
+              </div>
+            })}
           </div>
         })}
       </div>
-    })}
+    </details>
+    <Button className={styles.sessionRefresh} variant="outline" size="sm" disabled={loading || snapshot.phase === 'pending'} onClick={() => { void sessions.refresh().then(() => setRefresh((value) => value + 1)).catch((cause: unknown) => setOpenError(String(cause))) }}>{t('刷新会话')}</Button>
+    {errors.length > 0 && <p role="alert" className={styles.warning}>{t('有 {count} 个会话绑定读取失败：', { count: errors.length })} {errors.slice(0, 3).join('；')}</p>}
+    {openError && <p role="alert" className={styles.warning}>{openError}</p>}
   </section>
 }

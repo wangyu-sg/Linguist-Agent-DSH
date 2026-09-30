@@ -1,41 +1,30 @@
 # 当前进度与接续（2026-09-30）
 
-## 已核实
+## 当前事实
 
-- 官方 `/Applications/DeepSeek Harness.app` 为 **0.2.0-rc.2**；固定包、签名和 Gatekeeper 已核验。
-- 本地只读源清单含 **68 项领域能力、137 项界面动作**，两份清单有交叉，不能相加作完成率。入口 `audit-2026-09-29/功能迁移总览.html`。
-- 整合 diff 经完整 Ponytail 审查 `Lean already. Ship.` 后，本地提交 **895ab8f**（完整41文件精确diff）；未推送。
-- **LA b9c16b6d1905 + BrowserSkill a61fd813** 已通过官方 DSH 插件管理器安装启用，两项均不再显示“异常”。`current.json` 已登记 `la-b9c16b6d1905-a61fd813`，`smoke-installed` 九项字节/身份检查全过。
-- 安装后实际视觉检查未通过：CSS Modules loader 丢失 `composes` 组合类和依赖 CSS，Workspace/select 等出现浏览器默认样式。已改用 Lightning CSS 原生 `bundleAsync`，新增真实 loader 回归 2/2；b9 包实际界面已确认组合样式生效。
-- 用户进一步指出 UI 整体不成熟。已实现项目页紧凑岗位/方式选择、两行项目元数据、统一主次按钮，以及 CAT 工具栏/句段次操作收敛。构建与233项Node、21项Bun、8项类型检查通过；b9c16b6d1905 包已通过官方原生插件管理器更新，字节 smoke 9/9 及官方 Host 实时状态身份核对通过。不能仅以构建通过替代视觉验收。
+- 目标：完整 LA 原生 DSH Host+Client 插件；源仓库只读。官方应用 `/Applications/DeepSeek Harness.app` 为固定 **0.2.0-rc.2**。
+- 最近本地提交 **331c117fb5d77fa7b52a8ff886c2acf7fd86a93a**，整份精确 diff 已通过 Ponytail。GitHub 私有仓库 `wangyu-sg/Linguist-Agent-DSH` 已建，尚未推送；用户授权完成工作后推送。
+- **实际安装已是 LA eb8b31ac99ff + BrowserSkill .3 a61fd813**。2026-09-30 从官方 desktop manifest、Host/Client 字节及 CUA 界面核实。安装登记 `current.json` 仍是 b9，不能继续拿该旧登记和 smoke 声称当前安装已验收。观察记录：`artifacts/evidence/ui-contract-native-observations.json`。此次安装由外部操作完成，代理未点击安装；已实际验证紧凑项目页、33/18字符与3/3底栏、三分隔条拖动/键盘/Enter复位和比例菜单移除。最终候选仍待更新。
+- 当前用户指出的界面问题是真实缺陷。统一方案见 `UI-DESIGN.md`：紧凑项目/会话布局、统一 primary/outline/ghost 分类、可见且可键盘操作的面板边界、底部统计、中性选中态、主题继承。
+- 已从源确认：旧 LA 底栏有 Unicode 字符数、草稿、真实阶段决策覆盖；导航与 dock 有边界拖动/键盘/复位。旧 LA 源文译文等分，没有比例菜单。参考检查器是目标布局重组，其可调宽度属于本轮用户要求。
+- 总览不是完成证明：68 项领域能力和137项 UI 动作有交叉，sourceInventory 的文件数不是功能完成率。已重新打开漏迁的界面项；代码补齐与真实安装验收分别记录。
 
-## 当前视觉候选
+## 当前代码与直接下一步
 
-- **LA 0bd7204f9e1c + BrowserSkill .4 7a6cfa1d**：项目工作台、CAT 与选区引用栏重排已落到实际源码；缩窄译文编辑区重新测高、辅助区可收缩、主题焦点环与对照语义色已修正。构建、254项Node、21项Bun、8项类型检查和实际包资源守卫通过。尚待完整diff审查、本地提交、原生安装及实际视觉/操作验收；本机仍是b9。
+1. 本轮代码已完成并整合：`ProjectsPage/ProjectSessions` 紧凑排布、统一各面板命令按钮；`CatWorkbench/Splitter/workbench-location` 三边界尺寸交互与保存，删除额外比例菜单；`CatStatusBar` 用现有完整 summary 与真实 stage coverage API 显示统计，不从可见行推算。
+2. 新候选 **0fde55ac885b + BrowserSkill .4 7a6cfa1d** 已构建并暂存；256 项 Node、21 项 Bun、8 组类型检查和6项实际 tarball 资源检查通过。日志 `artifacts/evidence/ui-contract-{build,required,pack}.log`。对**整个将提交 diff**运行 Ponytail，仅 `Lean already. Ship.` 可提交；不要拿旧 review 覆盖新变更。
+3. 已在官方插件管理器停在安装按钮；已发出整组更新确认，仍待回复。最终统一13处按钮尺寸后候选哈希已更新，安装时使用本页记录的最终包。确认后通过官方插件管理器更新 LA + BrowserSkill .4。真实安装后记录实际动作/字节再运行 `install:local` 完成自有登记；不直接改保留的 desktop profile，不伪造 receipt。
+4. 原生验收本轮界面：项目页/会话布局、所有命令按钮、长名、三边界拖动/键盘/复位/缩窗/重开、字符数/草稿/确认和决策口径、明暗/窄短窗口。用户已授权只截取 DSH 窗口，操作用 CUA，保存用 `screencapture`；先核对官方应用当前 PID 和窗口编号。
+5. 完成原待办：当前安装的全部 UI/领域路径、General/Translator/Reviewer/Proofreader 真实模型、BrowserSkill .4 原生工具经扩展操作 localhost、桌面 Finder 双击/停止/重开、逐能力真实证据。清单 `artifacts/evidence/installed-acceptance-checklist.json` 只是待执行项目。
+6. 更新 STATE/FEATURE_MAP/HTML。`verify:ready` 全必需门禁通过才能发送“完整迁移完成，可以直接使用”；不能把本轮修复或测试通过当成整个迁移完成。不要在验收中运行会重新打包的 `deliver-local`。
 
-## 下一步直接执行
+## 已接受的差异与真实外部前置
 
-1. 首先完成每日工作台视觉重做；沿用DSH公开主题tokens和native控件，改善信息层次、布局、操作密度与选区栏对齐，并以实际安装画面验收。已完成的真实源遗漏：项目拖拽、归档确认、报告复制、调度主动暂停/恢复与执行会话导航已实现；monthly 短月及 every 运行时段/星期薄适配已实现。最新整合构建、253 项 Node、21 项 Bun、8 项类型检查全过。保留后续控件修正。先构建，再顺序执行 required 检查，避免并发 build 清理 lib。
-2. 核对真实 tarball 的动态资源：PDF worker 缺资源与 OfficeParser nested file-type API 冲突已修正，六项实际资源解析通过；接入永久整包资源守卫。隔离 BrowserSkill 自动升级已恢复固定0.3.1；生产 runner 禁止自动升级的 .4 薄适配已通过383测试和两次可复现构建；项目名点击复用原生CAT会话的遗漏已修正并通过实际production callback回归。最终 LA **9b0275459a72**＋BrowserSkill **7a6cfa1d** 整包资源检查通过，完整21文件精确diff经Ponytail放行后已本地提交 **bfd2e2e**；未推送。9b安装对话框已取消，尚未点击安装：真实Cordis回归发现缺失/损坏CAT在绑定时阻断会话，已按旧LA补回惰性装配，缺失/损坏/原子恢复期间保留通用与工作副本工具，并在首次成功CAT解析冻结父范围；专业委派已补原生provider/model/reasoningEffort。整合构建、253项Node、21项Bun、8项类型检查全过，专项实际Host回归54/54。另已补普通会话打开保留原生右栏状态及Linguist菜单新General/继续新任务入口，23/23源码回归通过；完整整合构建和253项Node/21项Bun/8项类型检查已过，新包 **10d2851f0618**＋BrowserSkill **7a6cfa1d** 实际资源守卫通过；完整13文件diff经Ponytail放行并本地提交 **58d5882**；10d尚未点击安装，用户要求进一步重做实际视觉。当前正在重做项目工作台、CAT编辑界面和Composer选区栏；10d由这轮设计候选替代，须重新构建、检查、审查、打包，再通过官方管理器更新。用户确认过 e20，但该包因已发现资源缺陷而未安装。
-3. 当前安装完整 UI、四岗位、三路径、真实模型、BrowserSkill localhost、桌面双击/停止/重开及逐能力验收。G13 每个必需能力需要真实安装态观察，不能用源码存在代替。
-4. 更新证据和状态后 `verify:ready`；仅全部必需门禁通过才通知完整完成。`deliver-local` 会重新打包，不能在当前验收中间运行。
+- CAT 选区按用户要求改为显式“附带 CAT 选区”，发送时冻结；不自动注入每条消息，不改模型/岗位内容策略。
+- D059 / LA-UI-127：用户选择暂不配置飞书，真实投递仍 `BLOCKED_ENV`，继续其余工作。
+- LA-UI-136：固定 rc.2 没有公开 Workspace 行内徽标 Slot；项目页与 Session 顶部有身份提示，是否接受代替行内徽标的产品调整尚无用户决定。不能默认为通过。
+- 当前旧 `artifacts/READY.json` 为 FAILED 且过时；未发送完成通知。
 
-## 已纠正的接口判断
+## 不可破坏的边界
 
-- D005：DSH 公开 `workspaceRegistry.archiveSession(id,{stopActivity:true})` 可使失败副本退出活动流程并可恢复，无需私有 delete。已实现且回归通过，安装验收待完成；不能称物理删除，归档失败应显式报告残留 ID。
-- D046：现有显式“附带 CAT 选区”引用在发送时冻结快照，Host 能绑定真实 RPC 并在模型运行前准入。真正差异仅是普通无引用消息缺少公开自动 snapshot producer。参见 `artifacts/evidence/native-composer-rc2-public-api-reaudit.json`，旧审计保留原样。不添加会干扰 IME、光标和 slash 的常驻自动 chip，不冒称自动携带等价。用户已明确接受按需点击附带，发送时冻结的交互（2026-09-29）；需要验收显式引用在当前安装包的真实行为。
-
-## 其他约束与证据
-
-- 当前原生安装证据：`artifacts/evidence/native-install-b9c16b6d1905.json`，操作链 `native-install-b9c16b6d1905-trace.json`。旧 9e 原始记录不补写。
-- 桌面窗口一度出现 AX 状态与画面失步，经官方菜单退出、重新打开后恢复。Finder 已实际定位并双击官方应用，但这是中间候选过程，不能直接作为最终候选冷启动验收。
-- 截图可由 CUA 显示；其文档没有落盘接口。系统 Screenshot.app 原生访问超时，用户已明确授权仅对 DSH 窗口使用 macOS `screencapture`，已成功保存修改前实际窗口；动作仍用CUA，截图来源单独记录。
-- 用户接受 CAT 上下文开销，本轮不改内容策略；见 `docs/CONTEXT_COST.md`。
-- 用户新增授权建 GitHub 私有仓库 `https://github.com/wangyu-sg/Linguist-Agent-DSH`，已创建；本轮完成后再推送供网页 Pro 分析。不得公开发布。
-- 源仓库只读，不触碰真实 Phrase/客户数据库，不改 DSH 核心，不覆盖旧应用或用户数据。旧 READY 为 FAILED 且过时，当前没有完成证明。
-
-## 当前外部前置
-
-- D059 / LA-UI-127：实际安装的 ScheduleList 返回零通知目标。用户于2026-09-30决定先不配置飞书；真实投递保持 BLOCKED_ENV，完成其他不受阻工作，不降低门禁、不伪造通知成功。
-
-- LA-UI-136：固定rc.2没有公开Workspace行内徽标Slot；项目页关联和会话顶部已有真实身份提示。已请用户决定接受这两处提示还是保留原行内徽标要求；未默认豁免，见 `artifacts/evidence/native-workspace-badge-public-api.json`。
+保留完整领域逻辑、四岗位/三路径、原文/Tag/换行/锁/稳定 ID/CAS 和专业证据语义。不给真实 Phrase、客户数据库或 OSgame 写入。所有验证用合成数据；不提取认证信息，不改 Provider/模型/effort 凑通过。BrowserSkill 是唯一正式浏览器链；UI 使用官方 DSH 槽位与主题，不另建宿主。

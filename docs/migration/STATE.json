@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T11:06:25.005025+00:00",
+  "updatedAt": "2026-09-30T13:29:18.493100+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -26,7 +26,7 @@
       ".DS_Store"
     ]
   },
-  "currentWorkPackage": "W00–W12: daily-workbench visual redesign in progress; functional fixes committed as 58d5882, actual native installation still b9; comprehensive installed acceptance pending",
+  "currentWorkPackage": "W00–W12: unified UI corrections built and synthetically verified; native package update confirmation and complete installed acceptance pending",
   "workPackages": [
     {
       "id": "W00",
@@ -102,10 +102,10 @@
     "officialDesktopPath": "/Applications/DeepSeek Harness.app",
     "desktopEvidence": "artifacts/evidence/dsh-rc2-official-desktop.json",
     "sourceHead": "70d6b1feab08b2767189e3597a69d81d86adb2a8",
-    "lastInstalledPluginSha256": "b9c16b6d1905955cb38f9603f80fdfed6ac9d89fe05f1f79ebed7dc69dfddd9a",
+    "lastInstalledPluginSha256": "eb8b31ac99ffe838bea39472fd69ff1d9ecd3b41ce67df21aba0ed05b33a7964",
     "lastInstalledPluginRuntime": "0.2.0-rc.2",
-    "pluginStatus": "Both rc.2 plugins installed through the official native plugin manager; enabled and no error badge",
-    "installationRegistryStatus": "current.json records la-b9c16b6d1905-a61fd813; installed byte smoke 9/9 passed and live official Desktop /la/v1/status confirms that identity",
+    "pluginStatus": "Official desktop manifest and Host/Client bytes resolve LA eb8b31ac99ff and BrowserSkill .3. Installation was observed, not performed by this agent. Native project layout, footer and all three pointer/keyboard splitters were exercised.",
+    "installationRegistryStatus": "Desktop manifest and bytes resolve eb8+.3; current.json still records b9+.3. Do not treat old registry/smoke as acceptance.",
     "nativeInstallEvidence": "artifacts/evidence/native-install-b9c16b6d1905.json",
     "nativeRecheckEvidence": "artifacts/evidence/native-install-9e362081d5d9-recheck.json",
     "auditDirectory": "docs/migration/audit-2026-09-29",
@@ -115,7 +115,7 @@
       "LA-UI-136: official rc.2 exposes no Workspace row decoration Slot; project-page and Session-header identity surfaces await explicit product adjustment decision."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: b9 remains installed. The current project/CAT/composer visual redesign has not been installed or visually accepted.",
+    "installedAcceptanceStatus": "NOT_READY: native eb8 observations confirm compact project page, footer counts and three working separators. Final 0fde candidate includes remaining button-size corrections and awaits native update/full acceptance.",
     "implementedAwaitingInstalledAcceptance": [
       "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
@@ -138,15 +138,18 @@
       "Daily project-workbench hierarchy and narrow layout",
       "Compact CAT selection reference bar aligned with the native composer",
       "CAT editing surface, panel hierarchy and actual stage counts",
-      "Native theme focus/diff tokens and target autosizing on column resize"
+      "Native theme focus/diff tokens and target autosizing on column resize",
+      "Compact project/session rows with consistent command buttons",
+      "Three real pointer/keyboard/reset splitters with persisted dimensions; fixed equal source and target columns",
+      "Persistent CAT full-batch character counts, confirmation/draft counts and real professional decision coverage"
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 254,
+      "nodeTests": 256,
       "bunTests": 21,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/daily-workbench-design-build.log",
+      "buildLog": "artifacts/evidence/ui-contract-build.log",
       "privatePushBoundaryTests": 4,
       "freshForCurrentWorkingTree": true
     },
@@ -159,15 +162,15 @@
         "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge."
       }
     ],
-    "candidateStatus": "Daily-workbench redesign 0bd7204f9e1c with BrowserSkill .4 7a6cfa1d built and passed 254 Node/21 Bun/8 typechecks and actual package resource checks. Whole diff review, local commit, official native update and actual visual/functional acceptance pending. Superseded 10d and 9b were never installed; actual install remains b9.",
-    "candidatePluginSha256": "0bd7204f9e1cc3eec106340485ee4461805f4e49f4e19172b0258f93a6ea78ef",
+    "candidateStatus": "Unified UI candidate 0fde55ac885b built, 256 Node + 21 Bun + 8 typechecks and 6 actual-tarball resource checks passed. Thirteen remaining default/medium buttons now use the shared small size, enforced by the existing AST check. Native installation and actual visual acceptance pending.",
+    "candidatePluginSha256": "0fde55ac885b516286b817840ed65325f3dc58894cc460e072bbca5c03fb173d",
     "lastInstalledBrowserSkillSha256": "a61fd813bed53154f6555dbad046924f6820912ee469d7191bd25fa47aad350e",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "6dc4832c7069b4d384b38f2a0295da1c316cb53475fd922fdd30c0a7022e2cb0",
+      "sha256": "72604ff620aae0351fb97e6a2529f7f0f0ecfd4445a607bde5bebb4b1f0badf4",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "58d5882",
-      "receipt": "artifacts/evidence/ponytail-review-native-integrated.json"
+      "committedAs": "331c117fb5d77fa7b52a8ff886c2acf7fd86a93a",
+      "receipt": "artifacts/evidence/ponytail-review-daily-workbench.json"
     },
     "acceptedProductAdjustments": [
       {
@@ -184,7 +187,7 @@
       "receipt": "artifacts/evidence/browser-skill-localhost.json",
       "installedNativeToolAcceptance": "pending"
     },
-    "resourceCheckEvidence": "artifacts/evidence/daily-workbench-design-pack.log",
+    "resourceCheckEvidence": "artifacts/evidence/ui-contract-pack.log",
     "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
     "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
     "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
@@ -192,7 +195,10 @@
     "projectOpenRegressionEvidence": "artifacts/evidence/installed-domain-e20/project-open-regression.json",
     "hostAvailabilityRegressionEvidence": "artifacts/evidence/host-availability-regression.json",
     "navigationRegressionEvidence": "artifacts/evidence/installed-domain-e20/navigation-source-only-receipt.json",
-    "privacyPreflightEvidence": "artifacts/evidence/preinstall-boundary-recheck.json"
+    "privacyPreflightEvidence": "artifacts/evidence/preinstall-boundary-recheck.json",
+    "installedObservationEvidence": "artifacts/evidence/ui-contract-native-observations.json",
+    "uiDesign": "docs/migration/UI-DESIGN.md",
+    "nativeUpdateConfirmation": "pending for the integrated UI update and BrowserSkill .4; no native update action performed; final sizing corrections changed the candidate hash after the initial confirmation card"
   },
   "externalPrerequisites": [
     {

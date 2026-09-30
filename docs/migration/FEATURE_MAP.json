@@ -138,7 +138,7 @@
       "tests": [
         "apps/electron/src/renderer/features/linguist/projects/project-tab-navigation.test.ts"
       ],
-      "remainingVerification": "Target entry and synthetic checks exist; complete behavior still requires installed Host/Client interaction evidence and the feature-specific acceptance criteria."
+      "remainingVerification": "现有导航/网格及合成检查不代替安装验收。2026-09-30 复核补齐 CatStatusBar 的真实字符/阶段统计及 Splitter 的拖动/键盘/复位接线；代码已补，尚待本轮行为回归及当前安装产物的批次/句段定位、过滤/虚拟化、窄分栏、IME、尺寸持久化和关闭重开证据。Source/Target 在旧源固定等宽，无比例菜单或列拖动。比例菜单属于迁移时新增控件，本轮已移除，旧源等宽行为保留。"
     },
     {
       "id": "FEATURE-05",
@@ -634,7 +634,7 @@
       ],
       "targetEntry": "packages/dsh-linguist/src/client/index.ts",
       "tests": [],
-      "remainingVerification": "项目列表Workspace身份、能力区及原生入口已在43f143安装；DSH原生Workspace行内徽章仍无已核实公开Slot，不将项目列表标识冒充该Slot。安装smoke9/9通过不代表完整UI：43工作台、主题、窄窗、键盘/IME、浮动/全屏、工具跳转和首次使用仍待核对。"
+      "remainingVerification": "历史43f143安装及smoke9/9仅属旧产物证据。2026-09-30 源行为复核发现旧工作台底栏完整统计与面板 separator 交互此前未逐项承接；当前 CatStatusBar/Splitter 已接线，待本轮行为回归及当前候选整体原生安装验收。仍需核对主题、中英、280–420px分栏、矮窗、键盘/IME、浮动/全屏、工具跳转、首次使用与重开；DSH Workspace 行内徽章无已核实公开 Slot，项目页/Session header身份提示不能冒称该Slot。参考检查器独立调宽是用户新增体验要求，源能力原在底部辅助区。"
     }
   ],
   "tools": [
@@ -3228,10 +3228,10 @@
         "featureIds": [
           "FEATURE-20"
         ],
-        "status": "complete",
+        "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/CatWorkbench.tsx",
-        "auditNote": "Target Client source maps this renderer behavior; installed Desktop interaction remains separately pending in required feature surfaces and V19/V20.",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "2026-09-30 源行为复核重开：旧工作台已有源/译文 Unicode 字符数、当前阶段草稿、真实阶段决策覆盖及全边界拖动/键盘/复位。此前只定位 CatWorkbench 入口，未逐项确认这些行为。目标现已接线 CatStatusBar.tsx 与 Splitter.tsx；该源码映射保留 pending，待本轮行为回归及官方 Desktop 窄/矮分栏、IME、拖动/复位/重开验收。代码已补不代表安装验收通过；对应 LA-UI-016、LA-UI-020、LA-UI-063。",
+        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/LinguistWorkspaceBadge.tsx",
@@ -3634,10 +3634,10 @@
         "featureIds": [
           "FEATURE-04"
         ],
-        "status": "complete",
+        "status": "pending",
         "targetEntry": "packages/dsh-linguist/src/client/workbench-location.ts",
-        "auditNote": "Target Client source maps this renderer behavior; installed Desktop interaction remains separately pending in required feature surfaces and V19/V20.",
-        "auditEvidencePath": "docs/migration/RENDERER_AUDIT.md"
+        "auditNote": "2026-09-30 源行为复核重开：workbench-location.ts 已保存布局，但此前 CSS resize 未承接原有完整 separator、pointer capture/cancel、方向键16px、Home/End、Enter/双击复位。目标现已接线 Splitter.tsx，布局尺寸仍由 workbench-location.ts 保存；该源码映射保留 pending，待本轮行为回归及官方 Desktop 拖动、键盘、复位、窄窗与重开验收。参考检查器是目标重组源底部 TM/TB/Context 后的侧面布局，其独立调宽属于本轮用户要求；旧源并无 Source/Target 比例控件。",
+        "auditEvidencePath": "docs/migration/audit-2026-09-29/SOURCE-UI.json"
       },
       {
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/context-docs-refresh.ts",

@@ -52,7 +52,7 @@ export function BatchPreview({ projectId, asset, onClose }: { projectId: string;
     return missing.length ? [{ segment, missing }] : []
   }) ?? []
   return <section className={styles.preview} aria-label={t('批次语义预览')}>
-    <div className={styles.toolbar}><strong>{asset.filename}</strong><Button variant="ghost" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t('刷新')}</Button><Button variant="ghost" size="sm" onClick={onClose}>{t('关闭预览')}</Button></div>
+    <div className={styles.toolbar}><strong>{asset.filename}</strong><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t('刷新')}</Button><Button variant="ghost" size="sm" onClick={onClose}>{t('关闭预览')}</Button></div>
     <p>{t(describeLinguistFormat(currentAsset.formatId))} · {summary?.project.sourceLocale ?? '—'} → {summary?.project.targetLocale ?? '—'} · {currentAsset.segmentCount} {t('段')}</p>
     <p>{t('批次当前统计')}：{t('未翻译')} {currentAsset.segmentCounts.untranslated} · {t('草稿')} {currentAsset.segmentCounts.draft} · {t('已翻译')} {currentAsset.segmentCounts.translated} · {t('已审校')} {currentAsset.segmentCounts.reviewed} · QA {currentAsset.openQaCount}</p>
     <p>{t('当前阶段')}：{t(stageName(workflowStage))} · {stageFilterOptions(workflowStage).map((option) => `${t(option.label)} ${currentAsset.currentStageCounts[option.value]}`).join(' · ')}</p>

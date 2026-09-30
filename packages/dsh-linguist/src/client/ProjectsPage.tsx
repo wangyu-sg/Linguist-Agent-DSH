@@ -173,18 +173,17 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   }
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
-      <div className={styles.title}><span className={styles.eyebrow}>Linguist</span><h1>{t('本地化工作台')}</h1><p>{t("项目、岗位与工作方式")}</p></div>
+      <div className={styles.title}><h1>{t('本地化工作台')}</h1><p>{t("项目、岗位与工作方式")}</p></div>
       <div className={styles.toolbar}>
-        <Button variant="ghost" size="sm" onClick={() => { showMessage(''); setDialog('formats') }}>{t('格式资格')}</Button>
+        <Button variant="outline" size="sm" onClick={() => { showMessage(''); setDialog('formats') }}>{t('格式资格')}</Button>
         <Button variant="outline" size="sm" onClick={() => { showMessage(''); setDialog('import') }}>{t('导入项目')}</Button>
         <Button variant="primary" size="sm" onClick={() => { showMessage(''); setDialog('create') }}>{t('新建项目')}</Button>
       </div>
     </header>
     <div className={styles.content}>
       <section className={styles.section} aria-label={t("项目")}>
-        <div className={styles.projectToolbar}><h2>{t("项目")}{!loading && <span className={styles.projectCount}>{visibleProjects.length}</span>}</h2>{workspacePicker}<Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
+        <div className={styles.projectToolbar}><h2>{t("项目")}{!loading && <span className={styles.projectCount}>{visibleProjects.length}</span>}</h2>{workspacePicker}<Button variant="outline" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
         <section className={styles.sessionOptions} aria-label={t("岗位与工作方式")}>
-          <div className={styles.sessionHeading}><strong>{t('新会话')}</strong><p>{t('选择职责与工作方式，开始新的项目会话。')}</p></div>
           <label>{t('岗位')}<Tooltip portal label={t('岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。')}><select aria-label={t('岗位')} value={role} onChange={(event) => setRole(event.target.value as Role)}>{([['general',t('通用')],['translator',t('译者')],['reviewer',t('审校')],['proofreader',t('校对')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></Tooltip></label>
           <label>{t('工作方式')}<select aria-label={t('工作方式')} value={workMode} onChange={(event) => setWorkMode(event.target.value as WorkMode)}>{([['cat','CAT'],['working-copy',t('工作副本')],['browser',t('浏览器')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
           {workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t('新建无项目会话')}</Button>}
@@ -203,7 +202,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
           }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined) }} onDrop={(event) => { if (!project.archivedAt) dropProject(event, project.id) }}>
             <div className={styles.projectIdentity}>
               <div className={styles.projectTitleRow}>
-                <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</Button></Tooltip>
+                <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} title={project.name} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}><span className={styles.projectNameText}>{project.name}</span></Button></Tooltip>
                 <span className={styles.projectStage}>{t(stageName(project.workflowStage ?? 'translation'))}</span>
                 {project.archivedAt && <span className={styles.archived}>{t('已归档，只读')}</span>}
               </div>
@@ -222,12 +221,12 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
                 { id: 'down', label: t('下移 {name}', { name: project.name }), disabled: busy || activeVisible.at(-1)?.id === project.id },
               ]} onSelect={(id) => { setProjectMenuId(undefined); void reorder(project.id, id === 'up' ? -1 : 1) }} />}
               {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("工作区已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选工作区")}</Button>}
-              <Button variant="ghost" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
+              <Button variant="outline" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
               <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t("进入工作会话")}</Button>
             </div>
           </li>
         })}</ul>}
-        <details className={styles.sessionDisclosure}><summary>{t('项目会话')}</summary><ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} /></details>
+        <ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} />
 
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
@@ -243,7 +242,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
             <small className={styles.formHint}>{t('已有目标译文不会自动算作本轮完成；确认后会按此阶段写回双语文件状态。')}</small>
             <label>{t('QA 场景')}<select disabled={busy} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general' | 'subtitle')}><option value="general">{t('通用本地化')}</option><option value="subtitle">{t('字幕 / 对白')}</option></select></label>
             <small className={styles.formHint}>{t('字幕模式只降低省略号、强调标点和长度比例噪声；数字、标签与占位符硬门不变。')}</small>
-            <Button type="submit" variant="primary" disabled={busy || !workspaceId || !name.trim()}>{t("创建")}</Button>
+            <Button type="submit" variant="primary" size="sm" disabled={busy || !workspaceId || !name.trim()}>{t("创建")}</Button>
           </form>
         {message && <p role={messageIsError ? 'alert' : 'status'} className={messageIsError ? styles.warning : styles.message}>{message}</p>}
       </Modal>
@@ -255,8 +254,8 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
             {workspacePicker}
             <label>{t('工作区相对备份目录')}<Input required disabled={busy} placeholder="backup-YYYY-MM-DDTHH-MM-SS-mmmZ" value={backupPath} onChange={(event) => setBackupPath(event.target.value)} /></label>
             <div className={styles.toolbar}>
-              <Button variant="outline" type="button" disabled={busy || !workspaceId} onClick={() => { void onPickDirectory(workspaceId).then((path) => { if (path !== null) setBackupPath(path) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)) }}>{t('选择目录')}</Button>
-              <Button variant="outline" type="submit" disabled={busy || !workspaceId || !backupPath.trim()}>{t('导入备份')}</Button>
+              <Button variant="outline" type="button" size="sm" disabled={busy || !workspaceId} onClick={() => { void onPickDirectory(workspaceId).then((path) => { if (path !== null) setBackupPath(path) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)) }}>{t('选择目录')}</Button>
+              <Button variant="outline" type="submit" size="sm" disabled={busy || !workspaceId || !backupPath.trim()}>{t('导入备份')}</Button>
             </div>
           </form>
         </section>

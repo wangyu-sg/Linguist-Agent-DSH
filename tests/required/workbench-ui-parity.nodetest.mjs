@@ -68,6 +68,39 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
 const segment = { id: 'segment-synthetic', ordinal: 7, source: 'Synthetic source', target: 'Synthetic current target', revision: 3, locked: false, sourceLocale: 'en-US', targetLocale: 'ja-JP' }
 const context = { segment, tm: [], qaFindings: [], approvedExemplars: [], termMatches: [{ id: 'term-1', term: 'Synthetic', translation: '用語', status: 'required', matchType: 'contains', caseSensitive: true, conflict: true, module: 'UI', category: 'menu', note: 'Synthetic term note' }] }
 
+test('CAT status uses complete batch totals and actual decisions, clears stale scope and reports failed coverage', async () => {
+  const assets = [
+    { assetId: 'a', filename: 'synthetic-a.json', sourceCharacters: 12400, targetCharacters: 8500, segmentCount: 500, currentStageCounts: { confirmed: 10, draft: 2, untouched: 488 } },
+    { assetId: 'b', filename: 'synthetic-b.json', sourceCharacters: 100, targetCharacters: 80, segmentCount: 5, currentStageCounts: { confirmed: 2, draft: 1, untouched: 2 } },
+  ]
+  let fail = false
+  const requests = []
+  const component = mount('CatStatusBar.tsx', 'CatStatusBar', { projectId: 'p', assetId: 'a', summary: { project: { workflowStage: 'editing' }, assets, totalSegments: 505, currentStageCounts: { confirmed: 12, draft: 3, untouched: 490 } }, active: segment, selectedCount: 2, revision: '0' }, { required: async (operation, input) => {
+    requests.push({ operation, input })
+    if (fail) throw new Error('synthetic coverage failure')
+    return { total: 500, pending: 50, confirmed: 10, unchanged: 400, corrected: 45, blocked: 5 }
+  } })
+  component.render(); await tick()
+  let text = component.render()
+  assert.match(text, /源文 12,400 字符.*译文 8,500 字符/)
+  assert.match(text, /已审校 10 \/ 500.*审校草稿 2/)
+  assert.match(text, /审校决策 450 \/ 500.*未修改 400.*已修正 45.*阻塞 5/)
+  assert.match(text, /当前句段 #8.*已选 2 段/)
+  assert.equal(component.nodes().find(node => node.type === 'progress').props.max, 500)
+  assert(!component.render({ revision: '1' }).includes('450 / 500'))
+  await tick(); component.render()
+  text = component.render({ assetId: undefined })
+  assert.match(text, /源文 12,500 字符.*译文 8,580 字符/)
+  assert(!text.includes('审校决策'))
+  assert.equal(requests.length, 2)
+  fail = true
+  component.render({ assetId: 'b' }); await tick(); text = component.render()
+  assert.match(text, /决策覆盖读取失败：Error: synthetic coverage failure/)
+  assert(!text.includes('450 / 500'))
+  assert.equal(requests.at(-1).input.assetId, 'b')
+  component.dispose()
+})
+
 test('reference inspector exposes term details and inserts through the active protected editor capability', async () => {
   const inserted = []
   const props = { projectId: 'project-synthetic', segmentId: segment.id, archived: false, mutation: 0, onOpenTerms() {}, editorHandle: { insert(value) { inserted.push(value); return true }, focus() {} } }
@@ -347,7 +380,7 @@ test('native project drag/drop submits the full active order, excludes archives,
   } })
   component.render(); await tick(); component.render(); await tick(); component.render()
   const row = id => component.nodes().find(node => node.type === 'li' && node.key.endsWith(`$${id}`))
-  const title = id => component.nodes().find(node => node.type === 'button' && node.props.children === id)
+  const title = id => component.nodes().find(node => node.type === 'button' && node.props.title === id)
   const dataTransfer = { setData(type, value) { assert.equal(type, 'text/plain'); assert.equal(value, 'one') } }
   const event = clientY => ({ clientY, dataTransfer, preventDefault() {}, currentTarget: { getBoundingClientRect: () => ({ top: 100, height: 40 }), contains: () => false } })
   assert.equal(title('one').props.draggable, true)
