@@ -22,7 +22,7 @@ test('CAT 工作台位置按项目隔离，并收敛持久化的非法布局值'
     const bounded = readWorkbenchLocation('project-B').value
     assert.equal(bounded.dock, 'qa')
     assert.equal(bounded.sourceShare, 70)
-    assert.equal(bounded.dockHeight, 160)
+    assert.equal(bounded.dockHeight, 80)
     assert.equal(bounded.assetNavigatorWidth, 150)
     assert.equal(bounded.assetId, undefined)
     assert.equal(bounded.segmentId, undefined)

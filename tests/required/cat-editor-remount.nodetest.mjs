@@ -12,6 +12,8 @@ const { renderToStaticMarkup } = require('react-dom/server')
 const client = new URL('../../packages/dsh-linguist/src/client/', import.meta.url)
 const cache = new Map()
 let hooks
+const resizeObservers = [], frames = new Map()
+let frameId = 0
 const t = (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, name) => String(params[name]))
 
 function load(name) {
@@ -21,7 +23,10 @@ function load(name) {
   const code = ts.transpileModule(readFileSync(new URL(name, client), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
   }).outputText
-  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows;' : ''), { exports, window: { innerHeight: 800 }, require: name => {
+  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows;' : ''), { exports, window: { innerHeight: 800 },
+    ResizeObserver: class { constructor(callback) { this.callback = callback; resizeObservers.push(this) } observe(target) { this.target = target } disconnect() { this.disconnected = true } },
+    requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId }, cancelAnimationFrame: id => frames.delete(id),
+    require: name => {
     if (name === 'react') return { ...React, ...Object.fromEntries(['useState', 'useRef', 'useMemo', 'useCallback', 'useEffect', 'useImperativeHandle'].map(name => [name, (...args) => hooks ? hooks[name](...args) : React[name](...args)])) }
     if (name === 'jotai') return { ...jotai, useAtom: atom => { if (!hooks) return jotai.useAtom(atom); const store = hooks.store; return [store.get(atom), hooks.useCallback(value => store.set(atom, value), [store, atom])] } }
     if (name === './cat-editor-state') return load('cat-editor-state.ts')
@@ -61,7 +66,7 @@ test('closing and reopening the native CAT workbench keeps draft state and isola
   assert.equal(mountStore('session-A', 'project-B').get(draft).value, 'original')
 })
 
-function mountEditor(scope, props, render = props => load('TargetEditor.tsx').TargetEditor.render(props, null)) {
+function mountEditor(scope, props, render = props => load('TargetEditor.tsx').TargetEditor.render(props, null), textarea) {
   const slots = [], pending = []
   let cursor, tree
   const memo = (factory, deps) => {
@@ -83,7 +88,7 @@ function mountEditor(scope, props, render = props => load('TargetEditor.tsx').Ta
     render(next = {}) {
       Object.assign(props, next)
       hooks = runtime
-      try { for (let pass = 0; pass < 2; pass++) { cursor = 0; tree = render(props); pending.splice(0).forEach(run => run()) } }
+      try { for (let pass = 0; pass < 2; pass++) { cursor = 0; tree = render(props); if (textarea) nodes(tree).find(node => node.type === 'textarea').ref.current = textarea; pending.splice(0).forEach(run => run()) } }
       finally { hooks = undefined }
       return tree
     },
@@ -240,4 +245,33 @@ test('row secondary actions use the native menu while direct confirmation and ed
   rows.render()
   assert.equal(rows.editorProps().segment.id, segment.id)
   rows.unmount()
+})
+
+test('resizing a native CAT column remeasures the target without disturbing IME or reacting to height-only changes', () => {
+  const fixture = editorFixture('column-resize')
+  const textarea = { clientWidth: 400, scrollHeight: 80, style: {}, value: 'original', selectionStart: 0, selectionEnd: 0 }
+  const editor = mountEditor(fixture.state, fixture.props, undefined, textarea)
+  editor.render()
+  const observer = resizeObservers.at(-1)
+  assert.equal(observer.target, textarea)
+  assert.equal(textarea.style.height, '80px')
+  textarea.clientWidth = 160; textarea.scrollHeight = 220
+  observer.callback()
+  for (const callback of frames.values()) callback()
+  frames.clear()
+  assert.equal(textarea.style.height, '220px')
+  observer.callback()
+  assert.equal(frames.size, 0, 'a height change must not create a resize loop')
+  editor.textarea().onCompositionStart(); editor.render()
+  textarea.clientWidth = 100; textarea.scrollHeight = 320
+  observer.callback()
+  for (const callback of frames.values()) callback()
+  frames.clear()
+  assert.equal(textarea.style.height, '220px', 'composition must retain its DOM layout until commit')
+  editor.textarea().onCompositionEnd({ currentTarget: textarea }); editor.render()
+  for (const callback of frames.values()) callback()
+  frames.clear()
+  assert.equal(textarea.style.height, '320px')
+  editor.unmount()
+  assert.equal(observer.disconnected, true)
 })

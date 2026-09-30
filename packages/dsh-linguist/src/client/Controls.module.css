@@ -1,9 +1,7 @@
 .surface {
   min-width: 0;
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family);
-  font-size: 14px;
-  line-height: 1.5;
+  font: var(--dsw-font-s-14);
 }
 
 .surface select, .surface textarea {
@@ -19,7 +17,7 @@
 .surface select { height: 32px; max-width: 100%; padding: 0 8px; }
 .surface textarea { padding: 8px; resize: vertical; }
 .surface select:focus-visible, .surface textarea:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
 }
 .surface select:disabled, .surface textarea:disabled { opacity: .5; cursor: default; }

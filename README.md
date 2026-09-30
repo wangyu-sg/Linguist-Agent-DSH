@@ -29,6 +29,10 @@ DeepSeek Harness 原生 Host + Client 插件，迁移 Linguist Agent 的 CAT、�
 
 DSH 管理模型、权限、会话与 Agent 循环；BrowserSkill 承担正式浏览器控制。开发命令见根 `package.json`。本机实际安装通过官方 DSH 插件管理器完成。
 
+## 界面与主题
+
+项目工作台、CAT 和选区引用栏使用 DSH 原生控件与官方主题变量；遵循 DSH 主题接口的皮肤可统一颜色、字体与圆角。布局、间距和编辑密度由 Linguist 管理，原文件预览保留文档本身的视觉内容。界面质量须在官方桌面端检查，源码样式或构建结果不能替代视觉验收。
+
 ## 验收与数据
 
 `test:required` 检查类型和合成行为；`verify:ready` 核验当前包的实际安装、桌面重开、完整 UI、四岗位、模型与浏览器证据。缺失门禁时不能称为完整完成。

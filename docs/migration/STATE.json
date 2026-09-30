@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T06:38:53.963819+00:00",
+  "updatedAt": "2026-09-30T11:06:25.005025+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -26,7 +26,7 @@
       ".DS_Store"
     ]
   },
-  "currentWorkPackage": "W00–W12: source inventory gaps are being completed in one integrated candidate; current native b9 install verified, final installed acceptance pending",
+  "currentWorkPackage": "W00–W12: daily-workbench visual redesign in progress; functional fixes committed as 58d5882, actual native installation still b9; comprehensive installed acceptance pending",
   "workPackages": [
     {
       "id": "W00",
@@ -115,7 +115,7 @@
       "LA-UI-136: official rc.2 exposes no Workspace row decoration Slot; project-page and Session-header identity surfaces await explicit product adjustment decision."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: current b9 visual checks show CSS composition repaired; final source corrections and comprehensive installed acceptance remain",
+    "installedAcceptanceStatus": "NOT_READY: b9 remains installed. The current project/CAT/composer visual redesign has not been installed or visually accepted.",
     "implementedAwaitingInstalledAcceptance": [
       "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
@@ -134,15 +134,19 @@
       "Lazy CAT registration preserves general/working_copy tools during database loss or corruption; first successful CAT resolution freezes delegated parent scope and restored bytes refresh current Stage",
       "Professional child provider/model/reasoningEffort forwarded through native agentOptions; omitted fields retain native inheritance",
       "Ordinary bound Session opening preserves the native collapsed rightbar / Files / preview state; explicit project entry reveals its workbench",
-      "Existing native Linguist menu provides new General project Session and continue-new-task with the current role/mode; creation uses native defaults and revalidates current binding and project"
+      "Existing native Linguist menu provides new General project Session and continue-new-task with the current role/mode; creation uses native defaults and revalidates current binding and project",
+      "Daily project-workbench hierarchy and narrow layout",
+      "Compact CAT selection reference bar aligned with the native composer",
+      "CAT editing surface, panel hierarchy and actual stage counts",
+      "Native theme focus/diff tokens and target autosizing on column resize"
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 253,
+      "nodeTests": 254,
       "bunTests": 21,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/native-integrated-navigation-build.log",
+      "buildLog": "artifacts/evidence/daily-workbench-design-build.log",
       "privatePushBoundaryTests": 4,
       "freshForCurrentWorkingTree": true
     },
@@ -155,15 +159,15 @@
         "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge."
       }
     ],
-    "candidateStatus": "Final integrated candidate 10d2851f0618 with BrowserSkill .4 7a6cfa1d has built and passed 253 Node/21 Bun/8 typechecks plus actual tarball resource checks. Full whole diff review/local commit and official native update pending; 9b was not installed and actual install remains b9.",
-    "candidatePluginSha256": "10d2851f0618fa222bacada9142a119f07dda96c7d93abd13c2900937845f5f3",
+    "candidateStatus": "Daily-workbench redesign 0bd7204f9e1c with BrowserSkill .4 7a6cfa1d built and passed 254 Node/21 Bun/8 typechecks and actual package resource checks. Whole diff review, local commit, official native update and actual visual/functional acceptance pending. Superseded 10d and 9b were never installed; actual install remains b9.",
+    "candidatePluginSha256": "0bd7204f9e1cc3eec106340485ee4461805f4e49f4e19172b0258f93a6ea78ef",
     "lastInstalledBrowserSkillSha256": "a61fd813bed53154f6555dbad046924f6820912ee469d7191bd25fa47aad350e",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "d5b4479b37157f82bee3d8fd158341f4f33501f6d09d23d8d597e81265db0a31",
+      "sha256": "6dc4832c7069b4d384b38f2a0295da1c316cb53475fd922fdd30c0a7022e2cb0",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "bfd2e2e",
-      "receipt": "artifacts/evidence/ponytail-review-native-9b.json"
+      "committedAs": "58d5882",
+      "receipt": "artifacts/evidence/ponytail-review-native-integrated.json"
     },
     "acceptedProductAdjustments": [
       {
@@ -180,7 +184,7 @@
       "receipt": "artifacts/evidence/browser-skill-localhost.json",
       "installedNativeToolAcceptance": "pending"
     },
-    "resourceCheckEvidence": "artifacts/evidence/native-integrated-final-pack.log",
+    "resourceCheckEvidence": "artifacts/evidence/daily-workbench-design-pack.log",
     "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
     "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
     "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",

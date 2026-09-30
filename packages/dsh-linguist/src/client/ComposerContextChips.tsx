@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InputActions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { CatReferenceStatus, connectCatReference } from './composer-reference'
 import { getWorkbenchComposerContext, subscribeWorkbenchComposerContext } from './composer-context'
@@ -21,17 +21,22 @@ export function ComposerContextChips({ sessionId, connect, inputActions }: { ses
   }, [sessionId, connect])
   if (!context) return null
   return <div role="group" aria-label={t('当前 Linguist 工作台视图')} className={styles.contextChips}>
-    <span className={styles.contextChip} title={context.projectId}>{context.projectName}</span>
-    {context.assetId && <span className={styles.contextChip} title={context.assetId}>{context.assetName ?? t('当前批次')}</span>}
+    <div className={styles.contextIdentity}>
+      <span className={styles.contextLabel}>CAT</span>
+      <span className={styles.contextProject} title={context.projectName}>{context.projectName}</span>
+      {context.assetId && <span className={styles.contextAsset} title={context.assetName ?? t('当前批次')}>{context.assetName ?? t('当前批次')}</span>}
+    </div>
+    <div className={styles.contextActions}>
     {context.referenceSegmentId && <span className={styles.contextChip} title={context.referenceSegmentId}>{t('引用片段')}<Button variant="ghost" size="sm" type="button" onClick={context.clearReference} aria-label={t('清除引用片段')}>×</Button></span>}
     {context.selectedCount > 0 && <span className={styles.contextChip}>{t('已选 {count} 段', { count: context.selectedCount })}<Button variant="ghost" size="sm" type="button" onClick={context.clearSelection} aria-label={t('清除已选片段')}>×</Button></span>}
-    <small>{t(referenceStatus === 'attached' ? '发送时附带当前 CAT 选区。' : '本条未附带 CAT 选区。')}</small>
+    {referenceStatus === 'attached' && <span className={styles.contextAttached} role="status" title={t('发送时附带当前 CAT 选区。')}><IconCheckOutlineRegular size={14} />{t('已附带选区')}</span>}
     {referenceStatus === 'omitted' && <Button variant="outline" size="sm" onClick={() => {
       try {
         if (!reference.current?.attach(inputActions.captureInsertion())) throw new Error(t('输入正在提交，请稍后重新附带选区。'))
         setError('')
       } catch (cause) { setError(String(cause)) }
-    }}>{t('附带 CAT 选区')}</Button>}
-    {error && <span role="alert">{error}</span>}
+    }} title={t('本条未附带 CAT 选区。')}>{t('附带 CAT 选区')}</Button>}
+    </div>
+    {error && <span className={styles.contextError} role="alert">{error}</span>}
   </div>
 }

@@ -31,10 +31,10 @@
 .blocking { color: var(--dsw-alias-state-error-primary); }
 .check { color: var(--dsw-alias-label-primary); }
 .notice { composes: notice from './Controls.module.css'; }
-.removed { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent); text-decoration: line-through; }
-.added { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent); }
+.removed { background: var(--dsw-alias-code-diff-deleted); text-decoration: line-through; }
+.added { background: var(--dsw-alias-code-diff-added); }
 .preview { display: block; max-height: 120px; max-width: 180px; object-fit: contain; }
-.previewPane { composes: surface from './Controls.module.css'; display: flex; flex-direction: column; min-width: 0; gap: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
+.previewPane { background: var(--dsw-alias-bg-document-preview); color: var(--dsw-alias-label-document-preview); composes: surface from './Controls.module.css'; display: flex; flex-direction: column; min-width: 0; gap: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
 .previewPane pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--ds-font-family-code); }
 .previewPane iframe { box-sizing: border-box; width: 100%; height: 320px; min-height: 160px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); background: white; }
 .batchTargets { max-height: 360px; overflow: auto; display: grid; gap: 12px; }

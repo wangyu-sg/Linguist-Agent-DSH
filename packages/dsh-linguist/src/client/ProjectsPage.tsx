@@ -173,7 +173,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   }
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
-      <div><h1>Linguist</h1><p>{t("项目、岗位与工作方式")}</p></div>
+      <div className={styles.title}><span className={styles.eyebrow}>Linguist</span><h1>{t('本地化工作台')}</h1><p>{t("项目、岗位与工作方式")}</p></div>
       <div className={styles.toolbar}>
         <Button variant="ghost" size="sm" onClick={() => { showMessage(''); setDialog('formats') }}>{t('格式资格')}</Button>
         <Button variant="outline" size="sm" onClick={() => { showMessage(''); setDialog('import') }}>{t('导入项目')}</Button>
@@ -182,9 +182,9 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     </header>
     <div className={styles.content}>
       <section className={styles.section} aria-label={t("项目")}>
-        <div className={styles.projectToolbar}><h2>{t("项目")}</h2>{workspacePicker}<Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
+        <div className={styles.projectToolbar}><h2>{t("项目")}{!loading && <span className={styles.projectCount}>{visibleProjects.length}</span>}</h2>{workspacePicker}<Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
         <section className={styles.sessionOptions} aria-label={t("岗位与工作方式")}>
-          <span>{t('新会话')}</span>
+          <div className={styles.sessionHeading}><strong>{t('新会话')}</strong><p>{t('选择职责与工作方式，开始新的项目会话。')}</p></div>
           <label>{t('岗位')}<Tooltip portal label={t('岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。')}><select aria-label={t('岗位')} value={role} onChange={(event) => setRole(event.target.value as Role)}>{([['general',t('通用')],['translator',t('译者')],['reviewer',t('审校')],['proofreader',t('校对')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></Tooltip></label>
           <label>{t('工作方式')}<select aria-label={t('工作方式')} value={workMode} onChange={(event) => setWorkMode(event.target.value as WorkMode)}>{([['cat','CAT'],['working-copy',t('工作副本')],['browser',t('浏览器')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
           {workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t('新建无项目会话')}</Button>}
@@ -194,7 +194,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
           const detail = details[project.id]
           const workspace = workspaceSnapshot.items.find(item => item.workspaceId === project.workspaceId)
           const failedChecks = detail?.health?.checks.filter((check) => !check.ok).map((check) => describeHealthCheck(check, t))
-          return <li key={project.id} className={styles.project} data-drop-position={dropTarget?.projectId === project.id ? dropTarget.position : undefined} onDragOver={(event) => {
+          return <li key={project.id} className={styles.project} data-archived={Boolean(project.archivedAt)} data-drop-position={dropTarget?.projectId === project.id ? dropTarget.position : undefined} onDragOver={(event) => {
             if (busy || project.archivedAt || !draggingProjectId || draggingProjectId === project.id) return
             event.preventDefault()
             event.dataTransfer.dropEffect = 'move'
@@ -202,8 +202,16 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
             setDropTarget({ projectId: project.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' })
           }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined) }} onDrop={(event) => { if (!project.archivedAt) dropProject(event, project.id) }}>
             <div className={styles.projectIdentity}>
-              <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</Button></Tooltip>
-              <small>{project.sourceLocale} → {project.targetLocale} · {t(stageName(project.workflowStage ?? 'translation'))}{project.archivedAt ? t(" · 已归档") : ''} · {detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}{project.workspaceId && <> · <span title={workspace?.path}>{workspace ? `${t('工作区')} · ${workspace.title}` : t('工作区不可用')}</span></>}</small>
+              <div className={styles.projectTitleRow}>
+                <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</Button></Tooltip>
+                <span className={styles.projectStage}>{t(stageName(project.workflowStage ?? 'translation'))}</span>
+                {project.archivedAt && <span className={styles.archived}>{t('已归档，只读')}</span>}
+              </div>
+              <div className={styles.projectMeta}>
+                <span className={styles.languagePair}>{project.sourceLocale}<span>→</span>{project.targetLocale}</span>
+                <span>{detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}</span>
+                {project.workspaceId && <span className={styles.projectWorkspace} title={workspace?.path}>{workspace ? `${t('工作区')} · ${workspace.title}` : t('工作区不可用')}</span>}
+              </div>
               {failedChecks && failedChecks.length > 0 && <span className={styles.warning}>{t('需要修复')} · {failedChecks.join('；')}</span>}
               {detail?.healthError && <span className={styles.warning}>{t('健康检查不可用')} · {detail.healthError}</span>}
               {!project.workspaceId && <span className={styles.warning}>{t('需关联工作区')}</span>}
@@ -219,7 +227,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
             </div>
           </li>
         })}</ul>}
-        <ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} />
+        <details className={styles.sessionDisclosure}><summary>{t('项目会话')}</summary><ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} /></details>
 
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>

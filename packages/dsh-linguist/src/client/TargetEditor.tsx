@@ -424,6 +424,23 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
     }, [state.value])
 
     React.useEffect(() => {
+      const textarea = textareaRef.current
+      if (textarea === null) return
+      let width = textarea.clientWidth
+      let frame = 0
+      const observer = new ResizeObserver(() => {
+        if (textarea.clientWidth === width) return
+        width = textarea.clientWidth
+        cancelAnimationFrame(frame)
+        frame = requestAnimationFrame(() => {
+          if (!composingRef.current) autoSizeTargetTextarea(textarea, window.innerHeight)
+        })
+      })
+      observer.observe(textarea)
+      return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+    }, [])
+
+    React.useEffect(() => {
       const caret = pendingCaretRef.current
       if (caret === undefined) return
       pendingCaretRef.current = undefined

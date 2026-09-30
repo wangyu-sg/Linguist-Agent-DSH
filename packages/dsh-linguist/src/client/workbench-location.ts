@@ -35,7 +35,7 @@ export function readWorkbenchLocation(projectId: string): { value: WorkbenchLoca
       assetNavigatorWidth: width(value.assetNavigatorWidth, defaults.assetNavigatorWidth, 150, 280),
       dockOpen: typeof value.dockOpen === 'boolean' ? value.dockOpen : defaults.dockOpen,
       dock: docks.includes(value.dock as CatDock) ? value.dock as CatDock : defaults.dock,
-      dockHeight: width(value.dockHeight, defaults.dockHeight, 160, 480),
+      dockHeight: width(value.dockHeight, defaults.dockHeight, 80, 480),
       sourceShare: width(value.sourceShare, defaults.sourceShare, 30, 70),
     } }
   } catch (cause) { return { value: defaults, error: String(cause) } }

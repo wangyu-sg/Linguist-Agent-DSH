@@ -3,6 +3,13 @@
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .notice { composes: notice from './Controls.module.css'; padding: 16px; }
 .error { composes: error from './Controls.module.css'; padding: 8px; }
-.contextChips { composes: surface from './Controls.module.css'; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 8px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.contextChip { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); padding: 4px 8px; overflow-wrap: anywhere; }
-.contextChips small { width: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.contextChips { composes: surface from './Controls.module.css'; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: calc(100% - var(--dsh-composer-side-clearance) * 2); max-width: var(--dsh-composer-card-max-width); margin: 0 auto; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); padding: 6px 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.contextIdentity { display: flex; flex: 1 1 180px; min-width: 0; align-items: center; gap: 8px; }
+.contextLabel { flex: none; border-right: 1px solid var(--dsw-alias-border-l2); padding-right: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.contextProject, .contextAsset { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contextProject { color: var(--dsw-alias-label-primary); font-weight: 500; }
+.contextAsset { flex: 1; color: var(--dsw-alias-label-tertiary); }
+.contextActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.contextChip { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-base); padding-left: 8px; white-space: nowrap; }
+.contextAttached { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-state-business-primary); }
+.contextError { flex-basis: 100%; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }

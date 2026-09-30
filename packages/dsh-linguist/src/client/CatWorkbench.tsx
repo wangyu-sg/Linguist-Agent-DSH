@@ -113,6 +113,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const signature = `${projectId}\0${assetId ?? ''}\0${stageFilter}\0${search}`
   const active = selectedId === undefined ? undefined : [...(dataset?.rows.values() ?? [])].find((row) => row.id === selectedId)
   const workflowStage = project?.workflowStage ?? 'translation'
+  const currentBatch = summary?.assets.find((asset) => asset.assetId === assetId)
+  const stageCounts = assetId === undefined ? summary?.currentStageCounts : currentBatch?.currentStageCounts
+  const totalSegments = assetId === undefined ? summary?.totalSegments : currentBatch?.segmentCount
 
   React.useEffect(() => { if (storedLocation.error) setNotice(t('工作台位置读取失败，已使用默认布局：{error}', { error: storedLocation.error })) }, [storedLocation])
   React.useEffect(() => {
@@ -480,7 +483,11 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     else if (assetNavigatorOpen) { setAssetNavigatorOpen(false); navigationTrigger.current?.focus(); event.preventDefault() }
   }}>
     <header className={styles.header}>
-      <div className={styles.title}><strong title={project.name}>{project.name}</strong><small>{project.sourceLocale} → {project.targetLocale}</small><small title={t('当前阶段')}>{t(stageName(workflowStage))}</small></div>
+      <div className={styles.title}>
+        <div className={styles.projectIdentity}><span className={styles.workbenchLabel}>{t('CAT 工作台')}</span><strong title={project.name}>{project.name}</strong></div>
+        <span className={styles.languagePair}>{project.sourceLocale}<span aria-hidden="true">→</span>{project.targetLocale}</span>
+        <span className={styles.stageBadge} title={t('当前阶段')}>{t(stageName(workflowStage))}</span>
+      </div>
       <div className={styles.controls}>
         <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
         <select className={styles.batchSelect} aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
@@ -559,6 +566,11 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
+    <footer className={styles.statusBar}>
+      <span>{assetId === undefined ? t('全部批次') : currentBatch?.filename}</span>
+      {stageCounts && totalSegments !== undefined && <span>{t(stageCompletionLabel(workflowStage))} <strong>{stageCounts.confirmed}</strong> / {totalSegments}</span>}
+      {selectedIds.size > 0 && <span>{t('已选 {count} 段', { count: selectedIds.size })}</span>}
+    </footer>
     {notice && <div role="status" className={styles.notice}>{notice}<Button variant="ghost" size="sm" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</Button></div>}
   </section>
 }
@@ -613,7 +625,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
           props.drafts.set(draftKey, draft)
         }
         const signal = props.signals.get(id)
-        return <div key={id} ref={virtualizer.measureElement} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} tabIndex={id === props.selectedId || item.index === 0 ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
+        return <div key={id} ref={virtualizer.measureElement} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} aria-selected={id === props.selectedId} tabIndex={id === props.selectedId || item.index === 0 ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
           if (editingId === id || event.target !== event.currentTarget) return
           const action = gridRowKeyAction({ key: event.key, currentIndex: item.index, total: props.data.total, pageSize: 8, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey })
           if (action === null) return
