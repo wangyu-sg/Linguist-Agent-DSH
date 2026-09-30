@@ -2,6 +2,28 @@ import { describe, expect, test } from 'bun:test'
 import { buildProjectEvidenceInventory } from './project-evidence-inventory'
 
 describe('Project Evidence inventory', () => {
+  test('重复分类保留实际计数，同名但不同映射要求保留独立 Gap', () => {
+    const scan = {
+      found: 6, ready: 0, imported: 0, skippedDuplicate: 0, needsInput: 2,
+      unsupported: 2, failed: 2, truncated: false,
+      items: [
+        { filename: 'result.json', status: 'unsupported' as const },
+        { filename: 'result.json', status: 'unsupported' as const },
+        { filename: 'source.xlsx', status: 'needs-input' as const, message: '选择工作表 A' },
+        { filename: 'source.xlsx', status: 'needs-input' as const, message: '选择工作表 B' },
+        { filename: 'brief.pdf', status: 'failed' as const },
+        { filename: 'brief.pdf', status: 'failed' as const },
+      ],
+    }
+    const input = { discoveryScopeHash: 'duplicates', managedEvidenceCount: 1, unavailable: [], scan }
+    const result = buildProjectEvidenceInventory(input)
+    expect(result.gaps).toHaveLength(4)
+    expect(new Set(result.gaps.map(item => item.id)).size).toBe(4)
+    expect(new Set(buildProjectEvidenceInventory({ ...input, scan: { ...scan, items: [...scan.items].reverse() } }).gaps.map(item => item.id)))
+      .toEqual(new Set(result.gaps.map(item => item.id)))
+    expect(result.summary).toMatchObject({ status: 'blocked', discovered: 6, unsupported: 2, failed: 2, unmapped: 2 })
+  })
+
   test('单一可解析批次直接 Ready，不制造询问', () => {
     const result = buildProjectEvidenceInventory({
       discoveryScopeHash: 'scope-1',

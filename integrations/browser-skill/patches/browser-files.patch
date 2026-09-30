@@ -35,7 +35,7 @@ diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin
    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
    "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (browser_* tools) to the model",
 -  "version": "0.3.1",
-+  "version": "0.3.1-la-dsh.4",
++  "version": "0.3.1-la-dsh.5",
 +  "private": true,
    "license": "MIT",
    "publishConfig": {
@@ -491,7 +491,7 @@ index 0000000..ce839e3
 +      if (args.target.trim() === "") throw new Error("target must be non-empty");
 +      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
 +      const session = deps.registry.resolve(args.session, "browser_files(action=download)");
-+      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "download", JSON.stringify({ action: "download", ...args }));
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "download", JSON.stringify({ action: "download", target: args.target, out: args.out, tabId: args.tabId, timeoutMs: args.timeoutMs }));
 +      if (repeated) return refresh(key, stored);
 +      active.add(key);
 +      let dispatched = false;
@@ -556,7 +556,7 @@ index 0000000..ce839e3
 +      if (args.files.length < 1 || args.files.length > 20) throw new Error("upload requires 1..20 files");
 +      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
 +      const session = deps.registry.resolve(args.session, "browser_files(action=upload)");
-+      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "upload", JSON.stringify({ action: "upload", ...args }));
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "upload", JSON.stringify({ action: "upload", target: args.target, files: args.files, tabId: args.tabId, mode: args.mode, timeoutMs: args.timeoutMs }));
 +      if (repeated) return refresh(key, stored);
 +      active.add(key);
 +      let dispatched = false;
@@ -875,7 +875,7 @@ new file mode 100644
 index 0000000..9e638e6
 --- /dev/null
 +++ b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,107 @@
 +import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
@@ -941,7 +941,8 @@ index 0000000..9e638e6
 +  });
 +  const download = { action: "download", session: "s1", requestId: "download-1", target: "#export", out: "export.txt" };
 +  expect(await call(download)).toMatchObject({ status: "downloaded", out: join(realpathSync(workspace), "export.txt") });
-+  expect(await call(download)).toMatchObject({ status: "downloaded" });
++  expect(await call({ out: "export.txt", target: "#export", requestId: "download-1", session: "s1", action: "download" })).toMatchObject({ status: "downloaded" });
++  await expect(call({ ...download, target: "#different-export" })).rejects.toThrow("requestId already names a different file operation");
 +  expect(await call({ action: "status", session: "s1", requestId: "download-1" })).toMatchObject({ status: "downloaded" });
 +  expect(calls).toHaveLength(1);
 +  expect(await call({ ...download, requestId: "download-2" })).toMatchObject({ status: "failed", message: expect.stringMatching(/already exists/) });
@@ -950,6 +951,10 @@ index 0000000..9e638e6
 +  writeFileSync(join(staging, "upload.txt"), "synthetic input");
 +  expect(await call({ action: "upload", session: "s1", requestId: "upload-1", target: "#file", files: [join(staging, "upload.txt")] }))
 +    .toMatchObject({ status: "attached", fileNames: ["upload.txt"] });
++  expect(await call({ files: [join(staging, "upload.txt")], target: "#file", requestId: "upload-1", session: "s1", action: "upload" }))
++    .toMatchObject({ status: "attached", fileNames: ["upload.txt"] });
++  await expect(call({ action: "upload", session: "s1", requestId: "upload-1", target: "#different-file", files: [join(staging, "upload.txt")] }))
++    .rejects.toThrow("requestId already names a different file operation");
 +  expect(calls).toHaveLength(2);
 +});
 +

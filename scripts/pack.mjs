@@ -9,8 +9,8 @@ const source = join(root, 'packages/dsh-linguist')
 const stage = join(root, '.migration/pack-stage')
 const artifacts = join(root, 'artifacts')
 const tarball = join(artifacts, 'linguist-dsh-plugin-1.0.0.tgz')
-const browserSource = join(root, 'integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-0.3.1-la-dsh.4.tgz')
-const browserTarball = join(artifacts, 'browser-skill-dsh-plugin-0.3.1-la-dsh.4.tgz')
+const browserSource = join(root, 'integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz')
+const browserTarball = join(artifacts, 'browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz')
 if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/client.cjs')) || !existsSync(join(source, 'lib/cat-job-worker.js')) || !existsSync(join(source, 'lib/integrity-scrub-worker.js')) || !existsSync(join(source, 'lib/pdf.worker.mjs'))) throw new Error('Build the complete plugin before packing')
 if (!existsSync(browserSource)) throw new Error('Pinned BrowserSkill adapted tarball is missing')
 const browserBaseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
@@ -44,6 +44,6 @@ execFileSync(process.execPath, [join(root, 'scripts/check-package-resources.mjs'
 writeFileSync(join(artifacts, 'pack.json'), `${JSON.stringify({
   createdAt: new Date().toISOString(), dshVersion: '0.2.0-rc.2',
   linguist: { path: tarball, sha256: digest(tarball), version: manifest.version },
-  browserSkill: { path: browserTarball, sha256: digest(browserTarball), version: '0.3.1-la-dsh.4' },
+  browserSkill: { path: browserTarball, sha256: digest(browserTarball), version: '0.3.1-la-dsh.5' },
   entries,
 }, null, 2)}\n`)

@@ -35,7 +35,7 @@ function gap(
   suggestedAction: string,
 ): ProjectInventoryGapInput {
   return {
-    id: `inv_gap_${sha256Hex(encoder.encode(`${code}\u0000${summary}`)).slice(0, 24)}`,
+    id: `inv_gap_${sha256Hex(encoder.encode(`${code}\u0000${summary}\u0000${suggestedAction}`)).slice(0, 24)}`,
     code,
     severity,
     summary,
@@ -110,7 +110,7 @@ export function buildProjectEvidenceInventory(
       truncated: input.scan.truncated,
       items: input.scan.items,
     },
-    gaps,
+    gaps: [...new Map(gaps.map(item => [item.id, item])).values()],
   }
 }
 

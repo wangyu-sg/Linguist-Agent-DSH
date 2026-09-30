@@ -30,7 +30,7 @@ for (const key of ['linguist', 'browserSkill']) assert(sha256(pack[key].path) ==
 const installationId = `la-${pack.linguist.sha256.slice(0, 12)}-${pack.browserSkill.sha256.slice(0, 8)}`
 const staged = {
   linguist: join(dataRoot, 'runtime/packages', `linguist-dsh-plugin-${pack.linguist.sha256.slice(0, 12)}.tgz`),
-  browserSkill: join(dataRoot, 'runtime/packages/browser-skill-dsh-plugin-0.3.1-la-dsh.4.tgz'),
+  browserSkill: join(dataRoot, 'runtime/packages/browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz'),
 }
 for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'runtime/browser-skill/bin'), bskHome, join(dataRoot, 'browser-skill/session-state'), join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
 for (const key of ['linguist', 'browserSkill']) {
