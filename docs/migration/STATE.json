@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T14:12:43.231342+00:00",
+  "updatedAt": "2026-09-30T14:51:51.457471+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -102,20 +102,20 @@
     "officialDesktopPath": "/Applications/DeepSeek Harness.app",
     "desktopEvidence": "artifacts/evidence/dsh-rc2-official-desktop.json",
     "sourceHead": "70d6b1feab08b2767189e3597a69d81d86adb2a8",
-    "lastInstalledPluginSha256": "0fde55ac885b516286b817840ed65325f3dc58894cc460e072bbca5c03fb173d",
+    "lastInstalledPluginSha256": "06190cb843e078df7201d7767aaddca1cc378ba94b83486ef778fa09668f7329",
     "lastInstalledPluginRuntime": "0.2.0-rc.2",
-    "pluginStatus": "0fde and BrowserSkill .4 installed and enabled through the official manager; installed lib members match the tarballs. Integrated 4f2e update is staged, not installed.",
-    "installationRegistryStatus": "current.json, installed bytes and cold-start public Host status all resolve la-0fde55ac885b-7a6cfa1d.",
-    "nativeInstallEvidence": "artifacts/evidence/native-install-la-0fde55ac885b-7a6cfa1d.json",
-    "nativeRecheckEvidence": "artifacts/evidence/native-install-0fde55ac885b-bytes.json",
+    "pluginStatus": "0619 installed with explicit action-time approval via official manager, enabled, all installed lib files match fixed tarballs. Native arrow reproduction now passes including cold reopen.",
+    "installationRegistryStatus": "current.json, installed package bytes and real Host status resolve la-06190cb843e0-7a6cfa1d. Official application quit and Finder double-click reopen observed.",
+    "nativeInstallEvidence": "artifacts/evidence/native-install-la-06190cb843e0-7a6cfa1d.json",
+    "nativeRecheckEvidence": "artifacts/evidence/native-install-la-06190cb843e0-7a6cfa1d-trace.json",
     "auditDirectory": "docs/migration/audit-2026-09-29",
     "packagePolicy": "One integrated rc.2 native candidate after full diff review; installed acceptance remains mandatory",
     "knownEngineeringGaps": [
-      "Current 0fde domain acceptance: 22 passed, memoQ edited export failed. Root cause fixed in source with strict Store regression; current 4f2e candidate requires native install and repeat acceptance. Required per-capability and UI evidence remains incomplete.",
-      "LA-UI-136: official rc.2 exposes no Workspace row decoration Slot; project-page and Session-header identity surfaces await explicit product adjustment decision."
+      "Remaining full per-capability/model/UI evidence incomplete; no readiness claim.",
+      "Adjacent UI navigation: external QA/navigation and confirm advance only scroll; unloaded-page confirm advance requires source-equivalent continuation. Grid arrow repair does not claim these passed."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: 0fde smoke9/9 and cold start passed; domain22/23; native BrowserSkill localhost save/upload/download/stop observed with matching server effects; not transferable to an uninstalled candidate.",
+    "installedAcceptanceStatus": "NOT_READY: 0619 installed smoke9/9 and actual grid keyboard/cold reopen passed. Hot-enabled Host MQ export still failed; same request passed after actual cold restart. Full cold domain suite and remaining UI/model capabilities continue.",
     "implementedAwaitingInstalledAcceptance": [
       "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
@@ -147,11 +147,11 @@
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 257,
+      "nodeTests": 258,
       "bunTests": 21,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/ui-label-mqxliff-final-build.log",
+      "buildLog": "artifacts/evidence/cat-arrow-build.log",
       "privatePushBoundaryTests": 4,
       "freshForCurrentWorkingTree": true
     },
@@ -160,19 +160,21 @@
         "featureId": "LA-UI-136",
         "status": "PUBLIC_SDK_SEAM_UNAVAILABLE",
         "evidencePath": "artifacts/evidence/native-workspace-badge-public-api.json",
-        "userAdjustmentDecision": "pending",
-        "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge."
+        "userAdjustmentDecision": "accepted",
+        "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge.",
+        "acceptedBehavior": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。"
       }
     ],
-    "candidateStatus": "Integrated 4f2e memoQ and compact checkbox labels candidate passed257Node/21Bun/8type/6tarball checks; staged, not installed.",
-    "candidatePluginSha256": "4f2e16f1e65ad87deb4ee0168738806955afedb7c13371c8ee7d6a52020846e1",
+    "candidateStatus": "0619 is now installed and cold-reopened; focused grid keyboard acceptance passed. Full migration gates remain pending.",
+    "candidatePluginSha256": "06190cb843e078df7201d7767aaddca1cc378ba94b83486ef778fa09668f7329",
     "lastInstalledBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "a07b42e0e4ce821e282f758a2eced274c54dea2ea2898679ad1355ab6bd947c6",
+      "sha256": "3032b22c174f9d6798c92ddb129b2d918f134cd834c4d2b8579dd3a9a9a71985",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "72a1fe5c63a2843da4d00b605f5b346c8785e843",
-      "receipt": "artifacts/evidence/ponytail-review-ui-contract.json"
+      "committedAs": "9868c94",
+      "receipt": "artifacts/evidence/ponytail-review-mq-ui-label.json",
+      "scope": "MemoQ and selection-label source checkpoint, seven-file exact staged diff. Later user-accepted identity-placement documentation remains uncommitted."
     },
     "acceptedProductAdjustments": [
       {
@@ -182,6 +184,13 @@
           "LA-UI-109"
         ],
         "behavior": "CAT scope is attached explicitly through the native composer; its snapshot freezes during actual submission. The user accepted this DSH-native workflow."
+      },
+      {
+        "date": "2026-09-30",
+        "featureIds": [
+          "LA-UI-136"
+        ],
+        "behavior": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。"
       }
     ],
     "browserCliCheck": {
@@ -190,7 +199,7 @@
       "installedNativeToolAcceptance": "0fde actual tool chain and fixture effects observed; full edge/reload/peer acceptance still pending",
       "nativeEvidence": "artifacts/evidence/browser-native-0fde/observation.json"
     },
-    "resourceCheckEvidence": "artifacts/evidence/ui-label-mqxliff-final-pack.log",
+    "resourceCheckEvidence": "artifacts/evidence/cat-arrow-pack.log",
     "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
     "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
     "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
@@ -201,10 +210,24 @@
     "privacyPreflightEvidence": "artifacts/evidence/preinstall-boundary-recheck.json",
     "installedObservationEvidence": "artifacts/evidence/ui-0fde/observations.json",
     "uiDesign": "docs/migration/UI-DESIGN.md",
-    "nativeUpdateConfirmation": "4f2e staged at official Install button; explicit action-time confirmation requested, awaiting user reply.",
-    "installationId": "la-0fde55ac885b-7a6cfa1d",
-    "coldStartStatusEvidence": "artifacts/evidence/native-status-0fde55ac885b.json",
-    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0fde/domain-acceptance-summary.json"
+    "nativeUpdateConfirmation": "User explicitly approved 0619 update and native verification; actual Install and Enable now performed.",
+    "installationId": "la-06190cb843e0-7a6cfa1d",
+    "coldStartStatusEvidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
+    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0619/receipt.json",
+    "keyboardNavigationRegression": {
+      "reproduction": "artifacts/evidence/cat-arrow-reproduction-4f2e.json",
+      "red": "artifacts/evidence/cat-arrow-red.log",
+      "green": "artifacts/evidence/cat-arrow-green.log",
+      "build": "artifacts/evidence/cat-arrow-build.log",
+      "installedFixVerified": true,
+      "nativeEvidence": "artifacts/evidence/cat-arrow-native-0619.json"
+    },
+    "nativeHostReloadObservation": {
+      "hotEnabledDomain": "15 pass / 1 memoQ failure, original trace retained",
+      "coldSameRequest": "strict export succeeds with4/4 native status preserved",
+      "evidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
+      "conclusion": "Use official cold restart before Host regression acceptance; native manager hot enable did not demonstrate updated Host behavior."
+    }
   },
   "externalPrerequisites": [
     {

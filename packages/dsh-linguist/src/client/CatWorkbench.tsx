@@ -584,7 +584,10 @@ interface RowsProps {
 function SegmentRows(props: RowsProps): React.ReactElement {
   const t = useT()
   const scroller = React.useRef<HTMLDivElement>(null)
+  const pendingRowFocus = React.useRef<string>()
   const [editingId, setEditingId] = useAtom(props.editingIdAtom)
+  const currentEditingId = React.useRef(editingId)
+  currentEditingId.current = editingId
   const [menuId, setMenuId] = React.useState<string>()
   const handleCallbacks = React.useRef(new Map<string, (handle: TargetEditorHandle | undefined) => void>())
   const virtualizer = useVirtualizer({ count: props.data.total, getScrollElement: () => scroller.current, estimateSize: () => 64, overscan: 8, getItemKey: (index) => virtualRowKey(props.data.ids, index) })
@@ -613,12 +616,24 @@ function SegmentRows(props: RowsProps): React.ReactElement {
           props.drafts.set(draftKey, draft)
         }
         const signal = props.signals.get(id)
-        return <div key={id} ref={virtualizer.measureElement} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} aria-selected={id === props.selectedId} tabIndex={id === props.selectedId || item.index === 0 ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
-          if (editingId === id || event.target !== event.currentTarget) return
+        return <div key={id} ref={(node) => {
+          virtualizer.measureElement(node)
+          if (node && pendingRowFocus.current === id) {
+            pendingRowFocus.current = undefined
+            node.focus({ preventScroll: true })
+          }
+        }} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} aria-selected={id === props.selectedId} tabIndex={id === props.selectedId || (props.selectedId === undefined && item.index === 0) ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
+          if ((event.target as HTMLElement).closest('[data-target-editor]')) return
           const action = gridRowKeyAction({ key: event.key, currentIndex: item.index, total: props.data.total, pageSize: 8, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey })
           if (action === null) return
+          if (event.target !== event.currentTarget && action.type !== 'focus') return
           event.preventDefault()
-          if (action.type === 'focus') { virtualizer.scrollToIndex(action.index); props.onSelect(props.data.ids[action.index]!) }
+          if (action.type === 'focus') {
+            const nextId = props.data.ids[action.index]!
+            if (action.index !== item.index) pendingRowFocus.current = nextId
+            virtualizer.scrollToIndex(action.index)
+            props.onSelect(nextId)
+          }
           else if (action.type === 'toggle-selection') props.onToggleSelected(id)
           else if (segment && !segment.locked && !props.archived) setEditingId(id)
         }}>
@@ -626,7 +641,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
             <div className={styles.rowMeta} role="gridcell"><Checkbox label={`#${segment.ordinal + 1}`} title={t('选择句段 {number}', { number: segment.ordinal + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} />{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span>{signal?.qaCount && signal.highestSeverity ? <Button variant="ghost" size="sm" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</Button> : null}{signal?.proposal && <Button variant="ghost" size="sm" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</Button>}</div>
             <div className={styles.source} role="gridcell" data-label={t("源文")} lang={segment.sourceLocale} dir="auto">{splitProtectedText(segment.source, props.tagProfile).map((part, index) => <span key={index} className={part.kind === 'text' ? undefined : styles.inlineTag}>{part.value}</span>)}</div>
             <div className={styles.target} role="gridcell" data-label={t("译文")} lang={segment.targetLocale} dir="auto">
-              {editingId === id ? <TargetEditor draftAtom={draft!} index={segment.ordinal} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
+              {editingId === id ? <TargetEditor draftAtom={draft!} index={segment.ordinal} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { if (currentEditingId.current === id && !advance) pendingRowFocus.current = id; props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
                 : <button type="button" className={styles.targetButton} disabled={segment.locked || props.archived} onClick={() => {
                   props.onSelect(id)
                   setEditingId(id)

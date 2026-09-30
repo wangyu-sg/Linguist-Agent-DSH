@@ -215,7 +215,7 @@ test('row secondary actions use the native menu while direct confirmation and ed
   assert(!rows.nodes().some(node => node.type === 'button' && node.props.children === '为 Agent 引用'))
   const row = rows.nodes().find(node => node.props?.role === 'row' && node.props['aria-rowindex'] === 2)
   assert.equal(typeof row.ref, 'function', 'virtual rows retain actual DOM height measurement')
-  row.props.onKeyDown({ key: 'Enter', target: {}, currentTarget: {} })
+  row.props.onKeyDown({ key: 'Enter', target: { closest: () => null }, currentTarget: {} })
   assert.equal(fixture.state.store.get(fixture.state.editingId), undefined, 'native controls keep their own keyboard activation')
   rows.click('确认句段 1')
   const menu = () => rows.nodes().find(node => node.type === 'menu')
@@ -244,6 +244,63 @@ test('row secondary actions use the native menu while direct confirmation and ed
   rows.nodes().find(node => node.type === 'button' && node.props.children === segment.target).props.onClick()
   rows.render()
   assert.equal(rows.editorProps().segment.id, segment.id)
+  rows.unmount()
+})
+
+test('grid navigation moves DOM focus on every key, including a newly mounted row, and preserves editor keys', () => {
+  const fixture = editorFixture('row-keyboard-focus')
+  fixture.state.store.set(fixture.state.editingId, undefined)
+  const segments = Array.from({ length: 20 }, (_, index) => ({ ...fixture.props.segment, id: `row-${index}`, ordinal: index }))
+  const props = { data: { total: segments.length, ids: segments.map(row => row.id), rows: new Map(segments.map((row, i) => [i, row])) },
+    drafts: fixture.state.drafts, editingIdAtom: fixture.state.editingId,
+    signals: new Map(), selectedIds: new Set(), reviewingIds: new Set(), workflowStage: 'translation', selectedId: 'row-0',
+    onVisibleRange() {}, onEditorHandleChange() {}, onSelect(id) { props.selectedId = id },
+  }
+  const rows = mountEditor(fixture.state, props, props => load('CatWorkbench.tsx').testRows(props))
+  let focused = 0
+  const rowNodes = () => rows.nodes().filter(node => node.props?.role === 'row' && node.props['data-index'] !== undefined)
+  const commitRows = () => {
+    rows.render()
+    for (const row of rowNodes()) row.ref({ focus() { focused = row.props['data-index']; row.props.onFocus() } })
+  }
+  const key = value => {
+    const row = rowNodes().find(row => row.props['data-index'] === focused)
+    const element = { closest: () => null }
+    row.props.onKeyDown({ key: value, target: element, currentTarget: element, preventDefault() {} })
+    commitRows()
+  }
+  commitRows()
+  for (const [value, expected] of [['ArrowDown', 1], ['ArrowDown', 2], ['ArrowUp', 1], ['End', 19], ['ArrowUp', 18], ['PageUp', 10], ['Home', 0], ['ArrowUp', 0]]) {
+    key(value)
+    assert.equal(focused, expected, `${value} must move DOM focus, not only the selected state`)
+    assert.equal(props.selectedId, `row-${expected}`)
+    assert.equal(rowNodes().filter(row => row.props.tabIndex === 0).length, 1)
+  }
+  // A virtualized target may mount after the key's render; focus must wait for its ref.
+  const first = rowNodes()[0], element = { closest: () => null }
+  first.props.onKeyDown({ key: 'End', target: element, currentTarget: element, preventDefault() {} })
+  first.ref(null)
+  rows.render()
+  assert.equal(focused, 0)
+  rowNodes().at(-1).ref({ focus() { focused = 19 } })
+  assert.equal(focused, 19)
+  key('Enter')
+  assert.equal(fixture.state.store.get(fixture.state.editingId), 'row-19')
+  const editingRow = rowNodes().at(-1)
+  editingRow.props.onKeyDown({ key: 'ArrowUp', target: { closest: () => ({}) }, currentTarget: {}, preventDefault() { assert.fail('textarea arrow must stay native') } })
+  assert.equal(props.selectedId, 'row-19')
+  focused = undefined
+  rows.editorProps().onCancel(); commitRows()
+  assert.equal(focused, 19, 'canceling editing returns focus from the removed textarea')
+  key('ArrowUp')
+  assert.equal(focused, 18, 'canceling editing must return focus to grid navigation')
+  rowNodes()[18].props.onKeyDown({ key: 'ArrowUp', target: { closest: () => null }, currentTarget: {}, preventDefault() {} })
+  commitRows()
+  assert.equal(focused, 17, 'checkboxes and row buttons permit arrow navigation')
+  key('Enter')
+  focused = undefined
+  rows.editorProps().onSaved(false); commitRows()
+  assert.equal(focused, 17, 'saving returns focus to grid navigation')
   rows.unmount()
 })
 

@@ -5861,7 +5861,7 @@
       "implementationStatus": "host-native-adaptation-required",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "host-owned",
-      "auditNote": "",
+      "auditNote": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。",
       "sourceTests": [
         {
           "file": "apps/electron/src/renderer/features/linguist/projects/project-tab-navigation.test.ts",
@@ -5873,7 +5873,16 @@
           "relevance": "MRU, native preview/right rail, unsaved host form navigation",
           "executedInThisAudit": false
         }
-      ]
+      ],
+      "productAdjustment": {
+        "decision": "accepted",
+        "at": "2026-09-30T14:20:49.372828+00:00",
+        "surface": [
+          "Linguist project list",
+          "native Session header"
+        ],
+        "source": "direct user reply in current task"
+      }
     },
     {
       "id": "LA-UI-137",
