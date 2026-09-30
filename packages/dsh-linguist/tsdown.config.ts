@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, relative, resolve } from 'node:path'
-import { transform } from 'lightningcss'
+import { bundleAsync } from 'lightningcss'
 import { defineConfig, type UserConfig } from 'tsdown'
 import pkg from './package.json' with { type: 'json' }
 
@@ -29,9 +29,11 @@ const client: UserConfig = {
     async load(id: string) {
       if (!id.startsWith(cssPrefix)) return null
       const path = resolve(process.cwd(), id.slice(cssPrefix.length, -'?module'.length))
-      this.addWatchFile(path)
-      const { code, exports } = transform({ filename: path, code: await readFile(path), cssModules: { pattern: '[hash]_[local]' }, minify: true })
-      const names = Object.fromEntries(Object.entries(exports ?? {}).map(([name, value]) => [name, value.name]))
+      const { code, exports } = await bundleAsync({
+        filename: path, projectRoot: process.cwd(), cssModules: { pattern: '[hash]_[local]' }, minify: true,
+        resolver: { read: (file) => { this.addWatchFile(file); return readFile(file, 'utf8') } },
+      })
+      const names = Object.fromEntries(Object.entries(exports!).map(([name, value]) => [name, [value.name, ...value.composes.map(reference => reference.name)].join(' ')]))
       const tag = `${pkg.name}/${basename(path)}`
       return [
         `const css = ${JSON.stringify(code.toString())};`,

@@ -1,6 +1,6 @@
 import { PROJECT_NAME_MAX_LENGTH } from '../project-input'
 import * as React from 'react'
-import { Button, Checkbox, Input, Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, Menu, Modal, Tooltip, IconEllipsisOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -56,6 +56,9 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
   const [formats, setFormats] = React.useState<LinguistFormatQualification[]>([])
   const [formatError, setFormatError] = React.useState('')
   const [settingsProjectId, setSettingsProjectId] = React.useState<string>()
+  const [projectMenuId, setProjectMenuId] = React.useState<string>()
+  const [draggingProjectId, setDraggingProjectId] = React.useState<string>()
+  const [dropTarget, setDropTarget] = React.useState<{ projectId: string; position: 'before' | 'after' }>()
   const [dialog, setDialog] = React.useState<'create' | 'import' | 'formats'>()
 
   React.useEffect(() => {
@@ -104,7 +107,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
   }
   const enter = async (project?: Project) => {
     const targetWorkspace = project?.workspaceId ?? workspaceId
-    if (!targetWorkspace) { showMessage(t("请选择 DSH Workspace，或先为项目建立关联。")); return }
+    if (!targetWorkspace) { showMessage(t("请选择工作区，或先为项目建立关联。")); return }
     setBusy(true)
     showMessage('')
     try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project?.archivedAt ? 'cat' : workMode }); showMessage(t("会话已打开")) }
@@ -120,22 +123,16 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
       const result = await required<ImportedBackup>('linguistBackupsImportExternal', { workspaceId, backupPath: backupPath.trim() })
       setBackupPath('')
       setRefresh((value) => value + 1)
-      showMessage(t('已从 Workspace 备份目录导入 {name}', { name: result.project.name }))
+      showMessage(t('已从工作区备份目录导入 {name}', { name: result.project.name }))
     } catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
   const visibleProjects = projects.filter((project) => (!project.archivedAt || includeArchived) && (!workspaceId || project.workspaceId === workspaceId || project.workspaceId === undefined))
   const activeVisible = visibleProjects.filter((project) => !project.archivedAt)
   const settingsProject = projects.find((project) => project.id === settingsProjectId)
-  const workspacePicker = <label className={styles.label}>DSH Workspace<select aria-label="DSH Workspace" disabled={busy} value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value as WorkspaceId)}><option value="">{t("选择 Workspace")}</option>{workspaceSnapshot.items.map((workspace) => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title} · {workspace.path}</option>)}</select></label>
-  const reorder = async (projectId: string, step: -1 | 1) => {
-    const position = activeVisible.findIndex((project) => project.id === projectId)
-    const neighbor = activeVisible[position + step]
-    if (!neighbor) return
-    const orderedProjectIds = projects.filter((project) => !project.archivedAt).map((project) => project.id)
-    const from = orderedProjectIds.indexOf(projectId)
-    const to = orderedProjectIds.indexOf(neighbor.id)
-    ;[orderedProjectIds[from], orderedProjectIds[to]] = [orderedProjectIds[to]!, orderedProjectIds[from]!]
+  const selectedWorkspace = workspaceSnapshot.items.find((workspace) => workspace.workspaceId === workspaceId)
+  const workspacePicker = <label className={styles.workspacePicker}>{t('工作区')}<Tooltip portal label={selectedWorkspace?.path ?? t('选择工作区')}><select aria-label={t('工作区')} disabled={busy} value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value as WorkspaceId)}><option value="">{t('选择工作区')}</option>{workspaceSnapshot.items.map((workspace) => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspaceSnapshot.items.some((other) => other.workspaceId !== workspace.workspaceId && other.title === workspace.title) ? `${workspace.title} · ${workspace.path}` : workspace.title}</option>)}</select></Tooltip></label>
+  const saveOrder = async (orderedProjectIds: string[]) => {
     setBusy(true)
     showMessage('')
     try {
@@ -144,6 +141,27 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
       showMessage(t('项目顺序已保存'))
     } catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
+  }
+  const reorder = async (projectId: string, step: -1 | 1) => {
+    const position = activeVisible.findIndex((project) => project.id === projectId)
+    const neighbor = activeVisible[position + step]
+    if (!neighbor) return
+    const orderedProjectIds = projects.filter((project) => !project.archivedAt).map((project) => project.id)
+    const from = orderedProjectIds.indexOf(projectId)
+    const to = orderedProjectIds.indexOf(neighbor.id)
+    ;[orderedProjectIds[from], orderedProjectIds[to]] = [orderedProjectIds[to]!, orderedProjectIds[from]!]
+    await saveOrder(orderedProjectIds)
+  }
+  const dropProject = (event: React.DragEvent<HTMLLIElement>, projectId: string) => {
+    event.preventDefault()
+    setDraggingProjectId(undefined)
+    setDropTarget(undefined)
+    if (busy || !draggingProjectId || draggingProjectId === projectId) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    const orderedProjectIds = projects.filter((project) => !project.archivedAt && project.id !== draggingProjectId).map((project) => project.id)
+    orderedProjectIds.splice(orderedProjectIds.indexOf(projectId) + (position === 'after' ? 1 : 0), 0, draggingProjectId)
+    void saveOrder(orderedProjectIds)
   }
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
@@ -156,30 +174,40 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
     </header>
     <div className={styles.content}>
       <section className={styles.section} aria-label={t("项目")}>
-        <div className={styles.toolbar}><h2>{t("项目")}</h2><Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
-        {workspacePicker}
-        <section className={styles.sessionOptions} aria-label={t("岗位与工作方式")}><h2>{t("进入会话")}</h2><p>{t("岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。")}</p><div className={styles.roles} role="radiogroup" aria-label={t("岗位")}>{([['general',t("通用")],['translator',t("译者")],['reviewer',t("审校")],['proofreader',t("校对")]] as const).map(([id,label]) => <label key={id}><input type="radio" name="linguist-role" value={id} checked={role === id} onChange={() => setRole(id)} />{label}</label>)}</div><div className={styles.modes} role="radiogroup" aria-label={t("工作方式")}>{([['cat','CAT'],['working-copy',t("工作副本")],['browser',t("浏览器")]] as const).map(([id,label]) => <label key={id}><input type="radio" name="linguist-mode" value={id} checked={workMode === id} onChange={() => setWorkMode(id)} />{label}</label>)}</div>{workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t("新建无项目会话")}</Button>}</section>
-        {workspaceSnapshot.items.length === 0 && <p role="status">{t("DSH 尚无 Workspace。请先在原生侧栏创建 Workspace。")}</p>}
-        {loading ? <p role="status">{t("正在读取项目…")}</p> : visibleProjects.length === 0 ? <div className={styles.empty}><strong>{t("开始一个本地化项目")}</strong><p>{t("当前没有项目。新建项目或导入已有项目后开始工作。")}</p><Button variant="primary" onClick={() => { showMessage(''); setDialog('create') }}>{t("新建项目")}</Button></div> : <ul className={styles.list}>{visibleProjects.map((project) => {
+        <div className={styles.projectToolbar}><h2>{t("项目")}</h2>{workspacePicker}<Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
+        <section className={styles.sessionOptions} aria-label={t("岗位与工作方式")}>
+          <span>{t('新会话')}</span>
+          <label>{t('岗位')}<Tooltip portal label={t('岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。')}><select aria-label={t('岗位')} value={role} onChange={(event) => setRole(event.target.value as Role)}>{([['general',t('通用')],['translator',t('译者')],['reviewer',t('审校')],['proofreader',t('校对')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></Tooltip></label>
+          <label>{t('工作方式')}<select aria-label={t('工作方式')} value={workMode} onChange={(event) => setWorkMode(event.target.value as WorkMode)}>{([['cat','CAT'],['working-copy',t('工作副本')],['browser',t('浏览器')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+          {workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t('新建无项目会话')}</Button>}
+        </section>
+        {workspaceSnapshot.items.length === 0 && <p role="status">{t("尚无工作区。请先在 DSH 原生侧栏创建工作区。")}</p>}
+        {loading ? <p role="status">{t("正在读取项目…")}</p> : visibleProjects.length === 0 ? <div className={styles.empty}><strong>{t("开始一个本地化项目")}</strong><p>{t("当前没有项目。新建项目或导入已有项目后开始工作。")}</p></div> : <ul className={styles.list}>{visibleProjects.map((project) => {
           const detail = details[project.id]
           const workspace = workspaceSnapshot.items.find(item => item.workspaceId === project.workspaceId)
           const failedChecks = detail?.health?.checks.filter((check) => !check.ok).map((check) => describeHealthCheck(check, t))
-          return <li key={project.id} className={styles.project}>
+          return <li key={project.id} className={styles.project} data-drop-position={dropTarget?.projectId === project.id ? dropTarget.position : undefined} onDragOver={(event) => {
+            if (busy || project.archivedAt || !draggingProjectId || draggingProjectId === project.id) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+            const rect = event.currentTarget.getBoundingClientRect()
+            setDropTarget({ projectId: project.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' })
+          }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined) }} onDrop={(event) => { if (!project.archivedAt) dropProject(event, project.id) }}>
             <div className={styles.projectIdentity}>
-              <strong>{project.name}</strong>
-              <small>{project.sourceLocale} → {project.targetLocale} · {t(stageName(project.workflowStage ?? 'translation'))}{project.archivedAt ? t(" · 已归档") : ''}</small>
-              <small>{detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}</small>
-              <small>{t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · {t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })}{project.archivedAt && <> · {t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() })}</>}</small>
+              <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><strong tabIndex={0} draggable={!project.archivedAt && !busy} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</strong></Tooltip>
+              <small>{project.sourceLocale} → {project.targetLocale} · {t(stageName(project.workflowStage ?? 'translation'))}{project.archivedAt ? t(" · 已归档") : ''} · {detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}{project.workspaceId && <> · <span title={workspace?.path}>{workspace ? `${t('工作区')} · ${workspace.title}` : t('工作区不可用')}</span></>}</small>
               {failedChecks && failedChecks.length > 0 && <span className={styles.warning}>{t('需要修复')} · {failedChecks.join('；')}</span>}
               {detail?.healthError && <span className={styles.warning}>{t('健康检查不可用')} · {detail.healthError}</span>}
-              {project.workspaceId && <small title={workspace?.path}>{workspace ? `Workspace · ${workspace.title}` : t('Workspace 不可用')}</small>}
-              {!project.workspaceId && <span className={styles.warning}>{t("需关联 Workspace")}</span>}
+              {!project.workspaceId && <span className={styles.warning}>{t('需关联工作区')}</span>}
             </div>
             <div className={styles.projectActions}>
-              {!project.archivedAt && <><Tooltip portal side="top" label={t('上移 {name}', { name: project.name })}><Button variant="ghost" size="sm" aria-label={t('上移 {name}', { name: project.name })} disabled={busy || activeVisible[0]?.id === project.id} onClick={() => void reorder(project.id, -1)}>↑</Button></Tooltip><Tooltip portal side="top" label={t('下移 {name}', { name: project.name })}><Button variant="ghost" size="sm" aria-label={t('下移 {name}', { name: project.name })} disabled={busy || activeVisible.at(-1)?.id === project.id} onClick={() => void reorder(project.id, 1)}>↓</Button></Tooltip></>}
-              {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("Workspace 已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选 Workspace")}</Button>}
+              {!project.archivedAt && <Menu portal open={projectMenuId === project.id} onClose={() => setProjectMenuId(undefined)} anchor={<Button variant="ghost" size="sm" aria-label={t('项目 {name} 的更多操作', { name: project.name })} aria-haspopup="menu" aria-expanded={projectMenuId === project.id} onClick={() => setProjectMenuId((current) => current === project.id ? undefined : project.id)}><IconEllipsisOutlineRegular size={16} /></Button>} items={[
+                { id: 'up', label: t('上移 {name}', { name: project.name }), disabled: busy || activeVisible[0]?.id === project.id },
+                { id: 'down', label: t('下移 {name}', { name: project.name }), disabled: busy || activeVisible.at(-1)?.id === project.id },
+              ]} onSelect={(id) => { setProjectMenuId(undefined); void reorder(project.id, id === 'up' ? -1 : 1) }} />}
+              {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("工作区已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选工作区")}</Button>}
               <Button variant="ghost" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
-              <Button variant="primary" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t("进入工作会话")}</Button>
+              <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t("进入工作会话")}</Button>
             </div>
           </li>
         })}</ul>}
@@ -187,7 +215,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
 
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
-          <p className={styles.formHint}>{t('先选择 Workspace，再设置项目语言和工作阶段。')}</p>
+          <p className={styles.formHint}>{t('先选择工作区，再设置项目语言和工作阶段。')}</p>
           <form className={styles.form} onSubmit={(event) => void create(event)}>
             {workspacePicker}
             <label>{t("名称")}<Input required disabled={busy} maxLength={PROJECT_NAME_MAX_LENGTH} data-modal-autofocus placeholder={t('例如：官网本地化')} value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -206,10 +234,10 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
       <Modal open={dialog === 'import'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('导入项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
         <section className={styles.section} aria-label={t('导入备份目录')}>
           <h2>{t('导入备份目录')}</h2>
-          <p>{t('选择所选 DSH Workspace 内的备份目录。导入后会自动关联该 Workspace；原备份不会改动。')}</p>
+          <p>{t('选择当前工作区内的备份目录。导入后会自动关联该工作区；原备份不会改动。')}</p>
           <form className={styles.form} onSubmit={(event) => void importBackup(event)}>
             {workspacePicker}
-            <label>{t('Workspace 相对备份目录')}<Input required disabled={busy} placeholder="backup-YYYY-MM-DDTHH-MM-SS-mmmZ" value={backupPath} onChange={(event) => setBackupPath(event.target.value)} /></label>
+            <label>{t('工作区相对备份目录')}<Input required disabled={busy} placeholder="backup-YYYY-MM-DDTHH-MM-SS-mmmZ" value={backupPath} onChange={(event) => setBackupPath(event.target.value)} /></label>
             <div className={styles.toolbar}>
               <Button variant="outline" type="button" disabled={busy || !workspaceId} onClick={() => { void onPickDirectory(workspaceId).then((path) => { if (path !== null) setBackupPath(path) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)) }}>{t('选择目录')}</Button>
               <Button variant="outline" type="submit" disabled={busy || !workspaceId || !backupPath.trim()}>{t('导入备份')}</Button>

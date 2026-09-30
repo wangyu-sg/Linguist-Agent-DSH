@@ -31,7 +31,7 @@ function load(name) {
     if (name === './tag-atomic-utils') return load('tag-atomic-utils.ts')
     if (name === './workflow-ui') return { stageActionLabel: () => '确认', stageProgressLabel: () => '翻译', segmentStatusBadgeTitle: () => '翻译' }
     if (name === '@tanstack/react-virtual') return { useVirtualizer: ({ count }) => ({ getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 94 })), getTotalSize: () => count * 94, scrollToIndex() {}, measureElement() {} }) }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Checkbox: 'checkbox' }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Checkbox: 'checkbox', Menu: 'menu', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
     if (name === './ui-locale') return { useT: () => t }
     if (name.endsWith('.module.css')) return { default: {} }
     // The lifecycle fixture has no protected tokens; tag rules have their own copied tests.
@@ -78,7 +78,7 @@ function mountEditor(scope, props, render = props => load('TargetEditor.tsx').Ta
     useEffect(run, deps) { const index = cursor++; if (!slots[index] || deps.some((value, i) => !Object.is(value, slots[index].deps[i]))) pending.push(() => { slots[index]?.cleanup?.(); slots[index] = { deps, cleanup: run() } }) },
     useImperativeHandle() {},
   }
-  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)]
+  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
   return {
     render(next = {}) {
       Object.assign(props, next)
@@ -87,6 +87,7 @@ function mountEditor(scope, props, render = props => load('TargetEditor.tsx').Ta
       finally { hooks = undefined }
       return tree
     },
+    nodes: () => nodes(tree),
     input(value) { nodes(tree).find(node => node.type === 'textarea').props.onChange({ target: { value } }) },
     textarea() { return nodes(tree).find(node => node.type === 'textarea').props },
     editorProps() { return nodes(tree).find(node => node.type === load('TargetEditor.tsx').TargetEditor).props },
@@ -189,4 +190,54 @@ test('disposing the plugin clears in-memory drafts', () => {
   const old = mountStore('dispose-session', 'dispose-project')
   load('cat-editor-state.ts').clearCatEditorStates()
   assert.notEqual(mountStore('dispose-session', 'dispose-project'), old)
+})
+
+
+test('row secondary actions use the native menu while direct confirmation and editing remain reachable', () => {
+  const fixture = editorFixture('row-action-menu')
+  fixture.state.store.set(fixture.state.editingId, undefined)
+  const segment = { ...fixture.props.segment, ordinal: 0, currentStageState: 'untouched' }
+  const calls = []
+  const props = { data: { total: 1, ids: [segment.id], rows: new Map([[0, segment]]) },
+    drafts: fixture.state.drafts, editingIdAtom: fixture.state.editingId,
+    signals: new Map(), selectedIds: new Set(), reviewingIds: new Set(), workflowStage: 'translation',
+    onVisibleRange() {}, onEditorHandleChange() {}, onSelect() {},
+    onConfirm(value) { calls.push(['confirm', value.id]) }, onUnconfirm(value) { calls.push(['unconfirm', value.id]) },
+    onReferenceAgent(value) { calls.push(['reference', value.id]) }, onReviewProposal(_segment, proposal, action) { calls.push([action, proposal.id]) },
+  }
+  const rows = mountEditor(fixture.state, props, props => load('CatWorkbench.tsx').testRows(props))
+  rows.render()
+  assert(!rows.nodes().some(node => node.type === 'button' && node.props.children === '为 Agent 引用'))
+  const row = rows.nodes().find(node => node.props?.role === 'row' && node.props['aria-rowindex'] === 2)
+  assert.equal(typeof row.ref, 'function', 'virtual rows retain actual DOM height measurement')
+  row.props.onKeyDown({ key: 'Enter', target: {}, currentTarget: {} })
+  assert.equal(fixture.state.store.get(fixture.state.editingId), undefined, 'native controls keep their own keyboard activation')
+  rows.click('确认句段 1')
+  const menu = () => rows.nodes().find(node => node.type === 'menu')
+  rows.click('句段 1 的更多操作'); rows.render()
+  assert.equal(menu().props.open, true)
+  menu().props.onSelect('reference'); rows.render()
+  assert.equal(menu().props.open, false)
+  assert.deepEqual(calls, [['confirm', segment.id], ['reference', segment.id]])
+  rows.click('句段 1 的更多操作'); rows.render()
+  assert.equal(menu().props.open, true)
+  rows.nodes().find(node => node.props?.role === 'grid').props.onScroll()
+  rows.render()
+  assert.equal(menu().props.open, false, 'scrolling closes the row menu before virtual rows are recycled')
+  const proposal = { id: 'proposal-one', baseRevision: 1 }
+  props.signals.set(segment.id, { proposal })
+  rows.render({ data: { ...props.data, rows: new Map([[0, { ...segment, locked: true, currentStageState: 'confirmed' }]]) } })
+  assert(!rows.nodes().some(node => node.type === 'button' && node.props['aria-label'] === '确认句段 1'))
+  assert.equal(menu().props.items.find(item => item.id === 'accept').disabled, true)
+  assert.equal(menu().props.items.find(item => item.id === 'reject').disabled, false)
+  menu().props.onSelect('unconfirm')
+  assert.deepEqual(calls.at(-1), ['unconfirm', segment.id])
+  rows.render({ archived: true })
+  assert.equal(menu().props.items.find(item => item.id === 'unconfirm').disabled, true)
+  assert.equal(menu().props.items.find(item => item.id === 'reject').disabled, true)
+  rows.render({ archived: false, data: { ...props.data, rows: new Map([[0, segment]]) } })
+  rows.nodes().find(node => node.type === 'button' && node.props.children === segment.target).props.onClick()
+  rows.render()
+  assert.equal(rows.editorProps().segment.id, segment.id)
+  rows.unmount()
 })

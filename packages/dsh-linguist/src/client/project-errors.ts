@@ -67,8 +67,8 @@ export function describeProjectError(cause: unknown, t: Translate): string {
   const base = t(messages[error.code])
   if (error.code === 'SESSION_COPY_FAILED' && error.sessionCopyDetails) {
     const { sessionId, cleanup } = error.sessionCopyDetails
-    const detail = { 'not-started': '历史复制失败，尚未建立 Linguist 绑定。', completed: 'Linguist 绑定已清理，原生会话仍保留。', failed: 'Linguist 绑定清理失败，请勿继续使用此副本。' }[cleanup]
-    return `${base}：${t(detail)} ${t('残留会话')} ${sessionId} (${error.code})`
+    const detail = { 'not-started': '历史复制失败，尚未建立可用副本。', completed: 'Linguist 绑定已清理，副本已归档，可从原生归档恢复。', failed: '副本清理或归档失败，请检查此会话后再重试。' }[cleanup]
+    return `${base}：${t(detail)} ${t('复制会话 ID')} ${sessionId} (${error.code})`
   }
   if (error.code === 'IMPORT_UNDO_BLOCKED' && error.details) {
     const references = Object.entries(referenceLabels)

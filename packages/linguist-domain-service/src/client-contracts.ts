@@ -1242,7 +1242,9 @@ export interface LinguistTurnContextPrepareResult {
 }
 
 export type LinguistScheduleTiming =
-  | { kind: 'after' | 'every'; seconds: number }
+  | { kind: 'after'; seconds: number }
+  | { kind: 'every'; seconds: number; activeWindowStart?: string; activeWindowEnd?: string; activeWeekdays?: number[] }
+  | { kind: 'monthly'; time: string; dayOfMonth: number }
   | { kind: 'at'; at: string }
   | { kind: 'daily'; time: string; timeZone: string }
   | { kind: 'weekly'; time: string; timeZone: string; weekdays: number[] }
@@ -1288,6 +1290,7 @@ export interface LinguistScheduleInfo extends LinguistScheduleCreateResult {
   limitReached: boolean
   consecutiveFailures: number
   pausedAfterFailures: boolean
+  pausedByUser: boolean
   timing: LinguistScheduleTiming
   scopeSnapshot: { assetId?: string; selectedSegmentIds: string[] }
   status: 'active' | 'inactive'
@@ -1303,6 +1306,7 @@ export interface LinguistScheduleUpdateRequest extends LinguistScheduleCreateReq
 }
 
 export interface LinguistScheduleCancelResult { scheduleId: string; cancelled: boolean }
+export interface LinguistSchedulePauseResult { scheduleId: string; paused: true }
 
 export interface LinguistScheduleHistoryResult {
   scheduleId: string

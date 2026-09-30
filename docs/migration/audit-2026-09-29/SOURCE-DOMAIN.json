@@ -312,13 +312,19 @@
     {
       "id": "D005",
       "title": "复制会话到其他项目或 Workspace",
-      "sourceContract": "源会话必须安全完成；复制保留历史与设置、切换目标项目及工作区，源不变；失败应清理半成品。",
+      "sourceContract": "源会话必须安全完成；复制保留历史与设置、切换目标项目及工作区，源不变；取得副本身份后失败会尝试移除索引、消息与会话目录，文件清理失败可遗留，不是原子删除事务。",
       "sourceEntries": [
         {
           "path": "apps/electron/src/main/lib/linguist/session-copy.ts",
-          "symbol": "copyLinguistSessionToProject",
           "line": 205,
-          "sha256": "101e1b34db0b6fa76aec0798f79c128d2532f9426920bc9f13c2331733f4331d"
+          "sha256": "101e1b34db0b6fa76aec0798f79c128d2532f9426920bc9f13c2331733f4331d",
+          "symbol": "export async function copyLinguistSessionToProject"
+        },
+        {
+          "path": "apps/electron/src/main/lib/agent-session-manager.ts",
+          "line": 856,
+          "sha256": "7634b41a6e9e5a3d51d184166583af1ad9a53d6828d609d096e0f270a87a2e53",
+          "symbol": "export function deleteAgentSession"
         }
       ],
       "targetEntries": [
@@ -329,30 +335,37 @@
         },
         {
           "path": "packages/dsh-linguist/src/host/session-copy.ts",
-          "line": 85,
-          "sha256": "1e789aa775910ec42ca292780eca274c14d6446c324d584df2f29adf9570944c",
-          "symbol": "copyLinguistSessionToProject"
+          "line": 102,
+          "sha256": "afaf707b799145bd5f4191c88e8dd4ed6353b399eccf6bd251feebf0506490c8",
+          "symbol": "export async function copyLinguistSessionToProject"
         },
         {
           "path": "packages/dsh-linguist/src/host/http.ts",
-          "line": 92,
-          "symbol": "invokeError",
-          "sha256": "7936dfaa1a945fada9c33ad64df9a87beadfec1e05a4768a8b0827aa484265ba"
+          "line": 186,
+          "sha256": "7936dfaa1a945fada9c33ad64df9a87beadfec1e05a4768a8b0827aa484265ba",
+          "symbol": "export function invokeError"
         },
         {
           "path": "packages/linguist-domain-service/src/client-contracts.ts",
           "line": 54,
-          "symbol": "SESSION_COPY_FAILED",
-          "sha256": "f6106e40602c8e757b982624f061cb6ba8aab0df2717182d4036534d29ba6c55"
+          "sha256": "f6106e40602c8e757b982624f061cb6ba8aab0df2717182d4036534d29ba6c55",
+          "symbol": "SESSION_COPY_FAILED"
+        },
+        {
+          "path": "packages/dsh-linguist/src/client/project-errors.ts",
+          "line": 42,
+          "sha256": "05c321a75d3eb203323567d12d278a5a63156217b829eac8c23fbf688d7b185d",
+          "symbol": "export function describeProjectError"
         }
       ],
-      "implementation": "partial_behavior",
-      "implementedBehavior": "原生create/fork/跨Workspace seed保留设置与历史；LA绑定与工具注册已后置到命名及最终源/目标复核后。注册失败恢复LA绑定并解除LA工具；类型化HTTP失败结果明确残留Session身份及清理状态，底层异常仅保留为内部cause，原Session不变。",
+      "implementation": "implemented_static_with_current_checks",
+      "implementedBehavior": "原生create/fork/跨Workspace seed保留设置与历史；命名及最终源/目标复核后才建立LA绑定。失败时清除本次副本的LA绑定/工具并await官方workspaceRegistry.archiveSession(id,{stopActivity:true})，退出默认活动列表且可从原生归档恢复。已覆盖持久化但未激活seed，以及原生create/fork的workspace-attach-failed副本身份；拒绝源Session、错误Workspace及无官方标记的错误身份。绑定回滚失败仍尝试归档，任一清理失败都明确报告副本ID和失败状态。",
       "missingOrChanged": [
-        "rc.2公开SessionController/SessionPersistence没有删除已创建Session的事务API；失败后原生Session仍可能留在历史中，不能宣称与源deleteAgentSession等价。"
+        "目标采用DSH可恢复归档清理失败副本，保留原生历史字节；不声称物理删除。stopActivity发出停止请求，持久归档阻止后续模型step，不冒称所有活动已终结。"
       ],
       "hostTakeover": [
-        "DSH create/fork/buildForkSeed/sessionPersistence"
+        "DSH create/fork/buildForkSeed/sessionPersistence",
+        "DSH WorkspaceRegistry.archiveSession/unarchiveSession 与原生归档可见性"
       ],
       "tests": [
         {
@@ -363,17 +376,18 @@
       ],
       "evidenceRefs": [
         "E-REQUIRED",
-        "E-RC2-HOST"
+        "E-RC2-HOST",
+        "E-COPY-RC2"
       ],
-      "installedVerification": "待按升级后官方 DSH 与实际插件包重新逐功能验收；本行静态存在不代表真实工作流通过",
+      "installedVerification": "本轮工作树定向3项回归通过；尚未在当前官方Desktop安装产物验证同/跨Workspace复制、失败归档及恢复，不授予安装验收通过。",
       "tools": [],
       "needsVerification": [
-        "新包实际同/跨Workspace复制与失败恢复；明确展示残留原生Session身份和LA绑定恢复结果；宿主删除事务缺口尚未闭合。"
+        "当前安装包验证同/跨Workspace复制及命名/绑定/归档失败；检查副本退出活动列表、归档重开后可恢复，源会话不变，并确认界面准确区分归档成功与清理失败。"
       ],
       "auditPriority": [
         {
-          "priority": "P1",
-          "kind": "native_session_transaction_boundary"
+          "priority": "VERIFY",
+          "kind": "implemented_requires_current_install"
         }
       ]
     },
@@ -2882,9 +2896,9 @@
       "targetEntries": [
         {
           "path": "packages/dsh-linguist/src/host/turn-context.ts",
-          "symbol": "addPreparedTurnContext",
           "line": 76,
-          "sha256": "269aae0c225bc0f6352cc4c18002122a73f28094597edfc0a9304acbcaab5b59"
+          "sha256": "269aae0c225bc0f6352cc4c18002122a73f28094597edfc0a9304acbcaab5b59",
+          "symbol": "addPreparedTurnContext"
         },
         {
           "path": "packages/dsh-linguist/src/client/composer-reference.ts",
@@ -2894,16 +2908,18 @@
         {
           "path": "packages/dsh-linguist/src/client/ComposerContextChips.tsx",
           "line": 1,
-          "sha256": "b0a6a6e85e4f0aeb459a67af696b8baac8b6cd3a40dbffbd4566cc1719df0020"
+          "sha256": "7a504d72c8d0e1391f6ec4f0d9b62f100568713d9f208a9d57bcafc866d317e0"
         }
       ],
-      "implementation": "partial_behavior",
-      "implementedBehavior": "目标维护相同显式段引用/选区快照；用户点击附带CAT选区后通过原生reference codec同步冻结，Host按同条真实user/rpcId与项目/Workspace准入；普通无引用发送尚无自动捕获扩展。",
+      "implementation": "implemented_static",
+      "implementedBehavior": "用户按需点击“附带 CAT 选区”；原生 Reference codec 在实际发送时同步冻结项目、批次、显式句段引用与选区 ID，快照随该条原生 prompt 携带。Host 在 agent/pre-step 等待项目/Workspace 准入，并按实际 user/message source.rpcId 记录。附件、queue/steer 沿官方发送链。该交互已获用户于2026-09-29明确接受。",
       "missingOrChanged": [
-        "官方rc.2没有普通Composer每次发送均经过的公开capture-and-await准入hook；显式reference不是源普通发送自动冻结路径的完整等价。",
-        "已安装43历史观察中user消息显示完整LA-TURN-CONTEXT JSON；当前新包用户可见呈现仍需实际安装核验，历史证据不重标。"
+        "目标采用用户已接受的按需显式附带方式；源 LA 每条普通发送默认自动携带改为本条消息选择附带。发送时冻结范围与同消息真实请求身份的要求保留。",
+        "当前安装产物仍需核验引用呈现、发送时冻结、queue/steer及真实请求绑定；43历史观察中user消息显示完整LA-TURN-CONTEXT JSON，仍只作为历史证据。"
       ],
-      "hostTakeover": [],
+      "hostTakeover": [
+        "DSH ReferenceCodec、原生prompt/requestId、附件及queue/steer；Host agent/pre-step准入"
+      ],
       "tests": [
         {
           "path": "tests/copied-renderer/native-composer-reference.nodetest.mjs",
@@ -2919,20 +2935,28 @@
       "evidenceRefs": [
         "E-REQUIRED",
         "E-PROVIDER-43",
-        "E-COMPOSER-RC2"
+        "E-COMPOSER-RC2",
+        "E-COMPOSER-RC2-REAUDIT"
       ],
       "installedVerification": "待按升级后官方 DSH 与实际插件包重新逐功能验收；本行静态存在不代表真实工作流通过",
       "tools": [],
       "needsVerification": [
-        "普通发送扩展缺口按rc.2公开API审计保留；显式路径需新安装核验slash/附件/IME/undo/删除引用、同步冻结及actual rpcId同消息绑定。"
+        "在当前安装产物核验按需附带、删除引用、slash/附件/IME/undo、queue/steer时的同步冻结与同消息actual rpcId绑定，并观察模型前准入及模型可见内容。"
       ],
       "auditPriority": [
         {
-          "priority": "P1",
-          "kind": "native_host_integration_decision"
+          "priority": "VERIFY",
+          "kind": "implemented_requires_current_install"
         }
       ],
-      "correction": "初版标题/契约误把QA/Proposal焦点当成源实际发送捕获；已据源capture seam与rc.2公开API审计更正，未扩张迁移范围。"
+      "correction": "源实际capture不含QA/Proposal焦点。rc.2显式Reference可携带快照并在Host按真实rpcId准入。2026-09-29用户已明确接受按需附带CAT选区；这关闭产品交互决定，安装与真实模型验收仍待完成。",
+      "productDecision": {
+        "decisionDate": "2026-09-29",
+        "status": "user-accepted",
+        "behavior": "CAT上下文按需点击“附带 CAT 选区”；实际发送时冻结项目、批次、显式句段引用与选区，并随该条原生消息携带。",
+        "authorization": "用户确认：接受，按需点击附带 CAT 选区（推荐）。",
+        "acceptanceBoundary": "产品交互决定已确认；当前安装产物的逐项交互、真实请求与模型证据仍需验收。"
+      }
     },
     {
       "id": "D047",
@@ -4507,6 +4531,26 @@
       "observedAt": "2026-09-29T12:53:12.110Z",
       "installationId": null,
       "limit": "固定rc.2公开API只读审计；源实际capture无QA/Proposal焦点，不据此授予自动发送能力。"
+    },
+    {
+      "id": "E-COPY-RC2",
+      "path": "artifacts/evidence/d005-native-archive-regression.log",
+      "sha256": "2c15105032aab17707ea9a725a4f7a2615eb67a43bb83f1c41ca243e69b8f8fa",
+      "status": "PASS",
+      "observedAt": "2026-09-29T13:57:30.761534+00:00",
+      "installationId": null,
+      "passed": 3,
+      "skipped": 0,
+      "limit": "当前工作树D005定向回归；包含真实官方rc.2 Registry+JSON/JSONL归档、重载、恢复与源不变断言，非当前安装验收。"
+    },
+    {
+      "id": "E-COMPOSER-RC2-REAUDIT",
+      "path": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
+      "sha256": "bf79b7b7a248a034145adae7f0383cfa2c83643a0292fd9cb4e3738bec01ef41",
+      "status": "EXPLICIT_NATIVE_REFERENCE_SUPPORTED_AUTOMATIC_CLICK_SNAPSHOT_PRODUCER_MISSING",
+      "observedAt": "2026-09-29T13:47:00.496Z",
+      "installationId": null,
+      "limit": "固定rc.2公开API复审，保留旧审计原始记录；显式引用身份/准入可用，仅自动snapshot producer缺失，不授予新包安装通过。"
     }
   ],
   "coverage": {
@@ -9016,18 +9060,18 @@
     {
       "featureId": "D005",
       "title": "复制会话到其他项目或 Workspace",
-      "status": "partial_behavior",
+      "status": "implemented_static_with_current_checks",
       "gaps": [
-        "rc.2公开SessionController/SessionPersistence没有删除已创建Session的事务API；失败后原生Session仍可能留在历史中，不能宣称与源deleteAgentSession等价。"
+        "目标采用DSH可恢复归档清理失败副本，保留原生历史字节；不声称物理删除。stopActivity发出停止请求，持久归档阻止后续模型step，不冒称所有活动已终结。"
       ]
     },
     {
       "featureId": "D046",
       "title": "发送时冻结项目、批次、显式段引用与选区",
-      "status": "partial_behavior",
+      "status": "implemented_static",
       "gaps": [
-        "官方rc.2没有普通Composer每次发送均经过的公开capture-and-await准入hook；显式reference不是源普通发送自动冻结路径的完整等价。",
-        "已安装43历史观察中user消息显示完整LA-TURN-CONTEXT JSON；当前新包用户可见呈现仍需实际安装核验，历史证据不重标。"
+        "目标采用用户已接受的按需显式附带方式；源 LA 每条普通发送默认自动携带改为本条消息选择附带。发送时冻结范围与同消息真实请求身份的要求保留。",
+        "当前安装产物仍需核验引用呈现、发送时冻结、queue/steer及真实请求绑定；43历史观察中user消息显示完整LA-TURN-CONTEXT JSON，仍只作为历史证据。"
       ]
     },
     {
@@ -9055,24 +9099,24 @@
       ]
     }
   ],
-  "overallVerdict": "不能认定完整迁移完成。本轮领域Host缺口已集中补实现并合成验证；D005宿主删除事务边界与D046普通发送公开扩展缺口仍未闭合，rc.2新包安装态及UI/真实模型验收尚需完成。",
-  "updatedAt": "2026-09-29T13:06:35.380916+00:00",
+  "overallVerdict": "不能认定完整迁移完成。D005失败副本已改为官方可恢复归档，源码回归通过；D046按需附带CAT选区已获用户接受，显式引用具备真实请求身份与Host模型前准入。当前安装产物的UI、冻结范围与真实模型验收仍需完成。",
+  "updatedAt": "2026-09-30T03:54:29.642201+00:00",
   "priorityQueue": [
     {
-      "priority": "P1",
-      "kind": "native_session_transaction_boundary",
+      "priority": "VERIFY",
+      "kind": "implemented_requires_current_install",
       "featureIds": [
         "D005"
       ],
-      "reason": "LA绑定/工具回滚及安全HTTP残留状态呈现已完成；原生Session删除事务仍无公开API。"
+      "reason": "原生失败副本归档、错误身份限定与源不变回归通过；待当前安装包验证活动列表退出、归档重开恢复和失败反馈。"
     },
     {
-      "priority": "P1",
-      "kind": "native_host_integration_decision",
+      "priority": "VERIFY",
+      "kind": "implemented_requires_current_install",
       "featureIds": [
         "D046"
       ],
-      "reason": "以原LA实际显式段引用/选区契约为准；rc.2仍缺普通发送capture-and-await hook，现显式reference路径不可伪称自动等价。"
+      "reason": "用户已接受按需点击附带CAT选区；发送时冻结、实际rpcId与Host模型前准入有对应实现，待当前安装产物及真实模型逐项验收。"
     },
     {
       "priority": "VERIFY",
@@ -9118,6 +9162,17 @@
     }
   ],
   "resolvedCurrentChanges": [
+    {
+      "implementation": "implemented_static_with_current_checks",
+      "implementedBehavior": "原生create/fork/跨Workspace seed保留设置与历史；命名及最终源/目标复核后才建立LA绑定。失败时清除本次副本的LA绑定/工具并await官方workspaceRegistry.archiveSession(id,{stopActivity:true})，退出默认活动列表且可从原生归档恢复。已覆盖持久化但未激活seed，以及原生create/fork的workspace-attach-failed副本身份；拒绝源Session、错误Workspace及无官方标记的错误身份。绑定回滚失败仍尝试归档，任一清理失败都明确报告副本ID和失败状态。",
+      "evidenceRefs": [
+        "E-REQUIRED",
+        "E-RC2-HOST",
+        "E-COPY-RC2"
+      ],
+      "installedVerification": "本轮工作树定向3项回归通过；尚未在当前官方Desktop安装产物验证同/跨Workspace复制、失败归档及恢复，不授予安装验收通过。",
+      "featureId": "D005"
+    },
     {
       "featureId": "D033",
       "implementation": "implemented_static_with_current_checks",

@@ -10,7 +10,7 @@ const React = require('react')
 const { renderToStaticMarkup } = require('react-dom/server')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-function harness(required) {
+function harness(required, overrides = {}) {
   const state = [], effects = [], pending = []
   let cursor, effectCursor, tree
   const exports = {}
@@ -27,7 +27,7 @@ function harness(required) {
     if (name.endsWith('.module.css')) return { default: {} }
     throw new Error(`Unexpected schedule manager import: ${name}`)
   } })
-  const props = { sessionId: 'source-session', refresh: 0, editable: true, onEdit() {}, onDestinations() {} }
+  const props = { sessionId: 'source-session', refresh: 0, editable: true, onEdit() {}, onDestinations() {}, onOpenSession: async () => {}, ...overrides }
   const nodes = node => typeof node !== 'object' || node === null ? [] : node.props?.open === false ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes)]
   const button = label => nodes(tree).find(node => node.props?.onClick && React.Children.toArray(node.props.children).join('') === label)
   return {
@@ -99,5 +99,91 @@ test('source-owned legacy schedules require recreation while history and explici
   component.render()
   assert(requests.some(({ operation, input }) => operation === 'linguistScheduleHistory' && input.sessionId === 'source-session' && input.scheduleId === legacy.scheduleId))
   assert(requests.some(({ operation, input }) => operation === 'linguistScheduleCancel' && input.sessionId === 'source-session' && input.scheduleId === legacy.scheduleId))
+  component.dispose()
+})
+
+test('manual pause preserves displayed history and resumes through revalidation of the same task', async () => {
+  let current = { ...schedule, pausedByUser: false }
+  const requests = [], edits = []
+  const component = harness(async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistScheduleList') return { items: [current], notificationDestinations: [] }
+    if (operation === 'linguistScheduleHistory') return {
+      scheduleId: current.scheduleId, executions: [{ turn: 1, messageId: 'completed-run', sessionId: 'actual-run-session', admittedAt: '2026-09-29T09:00:00.000Z', outcome: 'completed', phase: 'execution' }], records: [],
+    }
+    assert.equal(operation, 'linguistSchedulePause')
+    current = { ...current, status: 'inactive', pausedByUser: true, version: 'paused-v2' }
+    return { scheduleId: current.scheduleId, paused: true }
+  }, { onEdit: value => edits.push(value) })
+  component.render()
+  await tick()
+  component.render()
+  component.click('执行与投递历史')
+  await tick()
+  component.render()
+  component.click('暂停任务')
+  await tick()
+  component.render()
+  await tick()
+  const html = component.render()
+  assert(html.includes('已手动暂停'))
+  assert(html.includes('actual-run-session'), 'pause must retain the loaded execution history')
+  assert(!html.includes('下次到期'), 'paused tasks must not show a live due time')
+  assert.equal(component.button('立即运行').disabled, true)
+  component.click('重新核验并恢复')
+  assert.deepEqual(JSON.parse(JSON.stringify(edits[0])), current)
+  const pause = requests.find(item => item.operation === 'linguistSchedulePause')
+  assert.deepEqual(JSON.parse(JSON.stringify(pause.input)), { sessionId: 'source-session', scheduleId: current.scheduleId, expectedVersion: 'v1' })
+  assert(!requests.some(item => item.operation === 'linguistScheduleCancel'), 'pause must not use destructive cancellation')
+  component.dispose()
+})
+
+test('pause rejects another task receipt without claiming successful suspension', async () => {
+  const component = harness(async operation => {
+    if (operation === 'linguistScheduleList') return { items: [schedule], notificationDestinations: [] }
+    assert.equal(operation, 'linguistSchedulePause')
+    return { scheduleId: 'other-task', paused: true }
+  })
+  component.render()
+  await tick()
+  component.render()
+  component.click('暂停任务')
+  await tick()
+  const html = component.render()
+  assert(html.includes('Host 暂停回执与当前任务不一致。'))
+  assert(!html.includes('已手动暂停'))
+  component.dispose()
+})
+
+test('history opens the actual execution Session and reports deleted Sessions without substituting its owner', async () => {
+  let executionSessionId = 'actual-run-session', unavailable = false
+  const opened = []
+  const component = harness(async operation => {
+    if (operation === 'linguistScheduleList') return { items: [schedule], notificationDestinations: [] }
+    assert.equal(operation, 'linguistScheduleHistory')
+    return { scheduleId: schedule.scheduleId, records: [], executions: [
+      { turn: 1, messageId: 'execution-message', sessionId: executionSessionId, admittedAt: '2026-09-29T09:00:00.000Z', outcome: 'completed', phase: 'execution' },
+    ] }
+  }, { onOpenSession: async id => { opened.push(id); if (unavailable) throw new Error('执行会话已不存在') } })
+  component.render()
+  await tick()
+  component.render()
+  component.click('执行与投递历史')
+  await tick()
+  component.render()
+  component.click('打开执行会话')
+  await tick()
+  component.render()
+  assert.deepEqual(opened, ['actual-run-session'])
+  unavailable = true
+  component.click('打开执行会话')
+  await tick()
+  assert(component.render().includes('执行会话已不存在'))
+  assert.deepEqual(opened, ['actual-run-session', 'actual-run-session'])
+  executionSessionId = undefined
+  component.click('执行与投递历史')
+  await tick()
+  component.render()
+  assert.equal(component.button('打开执行会话').disabled, true)
   component.dispose()
 })

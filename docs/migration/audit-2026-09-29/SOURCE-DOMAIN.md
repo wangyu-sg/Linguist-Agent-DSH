@@ -10,8 +10,8 @@
 
 当前已落实与剩余边界：
 
-- **D005 复制会话到其他项目或 Workspace**：rc.2公开SessionController/SessionPersistence没有删除已创建Session的事务API；失败后原生Session仍可能留在历史中，不能宣称与源deleteAgentSession等价。
-- **D046 发送时冻结项目、批次、显式段引用与选区**：官方rc.2没有普通Composer每次发送均经过的公开capture-and-await准入hook；显式reference不是源普通发送自动冻结路径的完整等价。 已安装43历史观察中user消息显示完整LA-TURN-CONTEXT JSON；当前新包用户可见呈现仍需实际安装核验，历史证据不重标。
+- **D005 复制会话到其他项目或 Workspace**：原生create/fork/跨Workspace seed保留设置与历史；命名及最终源/目标复核后才建立LA绑定。失败时清除本次副本的LA绑定/工具并await官方workspaceRegistry.archiveSession(id,{stopActivity:true})，退出默认活动列表且可从原生归档恢复。已覆盖持久化但未激活seed，以及原生create/fork的workspace-attach-failed副本身份；拒绝源Session、错误Workspace及无官方标记的错误身份。绑定回滚失败仍尝试归档，任一清理失败都明确报告副本ID和失败状态。 工作树3项定向回归通过；当前安装验收待办。
+- **D046 发送时冻结项目、批次、显式段引用与选区**：用户按需点击“附带 CAT 选区”；原生 Reference codec 在实际发送时同步冻结项目、批次、显式句段引用与选区 ID，快照随该条原生 prompt 携带。Host 在 agent/pre-step 等待项目/Workspace 准入，并按实际 user/message source.rpcId 记录。附件、queue/steer 沿官方发送链。该交互已获用户于2026-09-29明确接受。 当前安装产物仍待逐项核验。
 - **D033 QA/一致性后台任务、取消与进度**：原领域工具第4个onUpdate已接入适配器，真实Job的running/completed/cancelled通过已有job-updated SSE发布；现有运行页可重读摘要，新增linguistCatGetJob按project/session/job精确授权读取。取消仍沿DSH回合AbortSignal终止worker，不改写假状态。
 - **D047 建议/运行的生成来源可追溯性**：每次公开llm/stream观察实际provider/model/工具schemas，校验所装配LA prompt确在该请求system内容中，记录prompt版本/hash及toolsetHash；真实tool/call与PTC root关联此快照，未观察身份拒绝生成来源。后续请求/auxiliary调用不会改写已有call来源。
 - **D056 子任务专业完成度回传**：linguist_delegations_list的模型可见结果包含professionalOutcome；从完整冻结delegatedScope计算当前revision、真实子Session actor和Stage决策边界覆盖，另报必要证据/阻塞；部分Stage完成不等于完整委派完成。
@@ -20,12 +20,14 @@
 
 本轮检查日志：[rc2-host-domain-checks.log](/Users/wangyu/Desktop/Linguist-Agent-DSH/artifacts/evidence/rc2-host-domain-checks.log)；Host类型检查与42项合成回归通过，0跳过。该结果仅覆盖工作树。
 
+D005补充检查：[d005-native-archive-regression.log](/Users/wangyu/Desktop/Linguist-Agent-DSH/artifacts/evidence/d005-native-archive-regression.log)，3项定向回归通过、0跳过；包含真实官方归档持久化及重开恢复。D046精准复审：[native-composer-rc2-public-api-reaudit.json](/Users/wangyu/Desktop/Linguist-Agent-DSH/artifacts/evidence/native-composer-rc2-public-api-reaudit.json)。两者均不代表新包安装验收。
+
 ## 集中处理顺序
 
 | 顺序 | 功能 | 类别 | 处理依据 |
 |---|---|---|---|
-| P1 | D005 | native_session_transaction_boundary | LA绑定/工具回滚及安全HTTP残留状态呈现已完成；原生Session删除事务仍无公开API。 |
-| P1 | D046 | native_host_integration_decision | 以原LA实际显式段引用/选区契约为准；rc.2仍缺普通发送capture-and-await hook，现显式reference路径不可伪称自动等价。 |
+| VERIFY | D005 | implemented_requires_current_install | 原生失败副本归档、错误身份限定与源不变回归通过；待当前安装包验证活动列表退出、归档重开恢复和失败反馈。 |
+| VERIFY | D046 | implemented_requires_current_install | 用户已接受按需点击附带CAT选区；发送时冻结、实际rpcId与Host模型前准入有对应实现，待当前安装产物及真实模型逐项验收。 |
 | VERIFY | D033、D047、D056、D060、D061、D062、D063、D064、D065 | implemented_requires_current_install | 本轮实现及Host合成检查通过；集中构建新包后验证实际progress/provenance/delegation/Skill catalog，不复用旧安装身份。 |
 | VERIFY | D036、D059 | external_runtime_dependency | SDLTB工具运行环境与飞书真实发送分别有外部依赖，未验证不等于核心领域缺失。 |
 | RECONCILE | D004、D010、D011、D054、D055、D057、D058、D066、D067、D068 | host_takeover_not_missing_by_default | Session/Workspace/Agent/BrowserSkill等接管有实际入口；升级后核对能力等价与真实流程，不重建宿主。 |
@@ -42,7 +44,7 @@
 | D002 | 项目语言对与已有内容保护 | 实现存在，待安装验收 | 通过实际 DSH 插件入口完成该用户流程，核对持久化结果、失败状态及重开恢复。 |
 | D003 | 归档、移入回收区、健康与只读状态 | 实现存在，待安装验收 | 通过实际 DSH 插件入口完成该用户流程，核对持久化结果、失败状态及重开恢复。 |
 | D004 | 项目对话创建、岗位绑定与历史会话列表 | 实现存在，待安装验收 | 升级后确认项目会话列表、空会话岗位选择、已执行会话锁定与归档项目历史打开。 |
-| D005 | 复制会话到其他项目或 Workspace | 部分实现：具体行为缺口 | rc.2公开SessionController/SessionPersistence没有删除已创建Session的事务API；失败后原生Session仍可能留在历史中，不能宣称与源deleteAgentSession等价。 |
+| D005 | 复制会话到其他项目或 Workspace | 实现及本轮合成检查通过，待安装验收 | 目标采用DSH可恢复归档清理失败副本，保留原生历史字节；不声称物理删除。stopActivity发出停止请求，持久归档阻止后续模型step，不冒称所有活动已终结。 |
 | D006 | General 项目负责人岗位 | 实现存在，待安装验收 | 真实 General 任务使用原生通用工具及 LA 工具，合理选择直做/委派并准确汇报专业覆盖。 |
 | D007 | Translator 译者岗位 | 实现存在，待安装验收 | 真实 Translator 合成批次完成读取、写回、当前版本决定与证据，而不只回复岗位名称。 |
 | D008 | Reviewer 完整双语审校岗位 | 实现存在，待安装验收 | 真实 Reviewer 无Proposal情况下覆盖完整批次；保留项与修改项都绑定本次actor和当前revision，必要Context模型可见。 |
@@ -83,7 +85,7 @@
 | D043 | 项目资料盘点、有效简报与范围路由 | 实现存在，待安装验收 | 通过实际 DSH 插件入口完成该用户流程，核对持久化结果、失败状态及重开恢复。 |
 | D044 | T/E/P 阶段、人工确认和专业决定覆盖 | 实现存在，待安装验收 | 通过实际 DSH 插件入口完成该用户流程，核对持久化结果、失败状态及重开恢复。 |
 | D045 | 资料真正进入模型请求的 Stage 证据 | 实现存在，待安装验收 | 升级后实际provider请求/响应、toolCallId/必要全文和图片同链验收；本地观察ID不得冒充远端Provider request ID。 |
-| D046 | 发送时冻结项目、批次、显式段引用与选区 | 部分实现：具体行为缺口 | 官方rc.2没有普通Composer每次发送均经过的公开capture-and-await准入hook；显式reference不是源普通发送自动冻结路径的完整等价。 已安装43历史观察中user消息显示完整LA-TURN-CONTEXT JSON；当前新包用户可见呈现仍需实际安装核验，历史证据不重标。 |
+| D046 | 发送时冻结项目、批次、显式段引用与选区 | 实现存在，已确认按需附带交互，待安装验收 | 目标采用用户已接受的按需显式附带方式；源 LA 每条普通发送默认自动携带改为本条消息选择附带。发送时冻结范围与同消息真实请求身份的要求保留。 当前安装产物仍需核验引用呈现、发送时冻结、queue/steer及真实请求绑定；43历史观察中user消息显示完整LA-TURN-CONTEXT JSON，仍只作为历史证据。 |
 | D047 | 建议/运行的生成来源可追溯性 | 本轮实现/合成检查通过，待rc.2安装验收 | 新安装有限真实模型生成proposal/写回，检查落库issuance的实际provider/model/prompt版本/hash/toolsetHash及toolCallId关联。 |
 | D048 | 交付预检、verified/as-is导出及审计清单 | 实现存在，待安装验收 | 通过实际 DSH 插件入口完成该用户流程，核对持久化结果、失败状态及重开恢复。 |
 | D049 | 格式资格和真实平台交付边界 | 实现存在，待安装验收 | 仅合成内部round-trip可在本次授权验证；真实客户平台资格不能伪造也不在本次授权中。 |
@@ -148,14 +150,14 @@
 
 ### D005 复制会话到其他项目或 Workspace
 
-- 原行为：源会话必须安全完成；复制保留历史与设置、切换目标项目及工作区，源不变；失败应清理半成品。
-- 源入口：[apps/electron/src/main/lib/linguist/session-copy.ts · copyLinguistSessionToProject](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/main/lib/linguist/session-copy.ts:205)
-- 目标入口：[packages/dsh-linguist/src/client/SessionCopyPage.tsx](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/client/SessionCopyPage.tsx:1)；[packages/dsh-linguist/src/host/session-copy.ts · copyLinguistSessionToProject](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/host/session-copy.ts:85)；[packages/dsh-linguist/src/host/http.ts · invokeError](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/host/http.ts:92)；[packages/linguist-domain-service/src/client-contracts.ts · SESSION_COPY_FAILED](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/linguist-domain-service/src/client-contracts.ts:54)
-- 状态：部分实现：具体行为缺口。宿主负责：DSH create/fork/buildForkSeed/sessionPersistence。
-- 当前实现：原生create/fork/跨Workspace seed保留设置与历史；LA绑定与工具注册已后置到命名及最终源/目标复核后。注册失败恢复LA绑定并解除LA工具；类型化HTTP失败结果明确残留Session身份及清理状态，底层异常仅保留为内部cause，原Session不变。
-- 回归定义：`tests/required/acceptance.nodetest.mjs`；证据：E-REQUIRED、E-RC2-HOST。
-- 具体差异：rc.2公开SessionController/SessionPersistence没有删除已创建Session的事务API；失败后原生Session仍可能留在历史中，不能宣称与源deleteAgentSession等价。
-- 待验：新包实际同/跨Workspace复制与失败恢复；明确展示残留原生Session身份和LA绑定恢复结果；宿主删除事务缺口尚未闭合。
+- 原行为：源会话必须安全完成；复制保留历史与设置、切换目标项目及工作区，源不变；取得副本身份后失败会尝试移除索引、消息与会话目录，文件清理失败可遗留，不是原子删除事务。
+- 源入口：[apps/electron/src/main/lib/linguist/session-copy.ts · export async function copyLinguistSessionToProject](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/main/lib/linguist/session-copy.ts:205)；[apps/electron/src/main/lib/agent-session-manager.ts · export function deleteAgentSession](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/main/lib/agent-session-manager.ts:856)
+- 目标入口：[packages/dsh-linguist/src/client/SessionCopyPage.tsx](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/client/SessionCopyPage.tsx:1)；[packages/dsh-linguist/src/host/session-copy.ts · export async function copyLinguistSessionToProject](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/host/session-copy.ts:102)；[packages/dsh-linguist/src/host/http.ts · export function invokeError](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/host/http.ts:186)；[packages/linguist-domain-service/src/client-contracts.ts · SESSION_COPY_FAILED](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/linguist-domain-service/src/client-contracts.ts:54)；[packages/dsh-linguist/src/client/project-errors.ts · export function describeProjectError](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/client/project-errors.ts:42)
+- 状态：实现及本轮合成检查通过，待安装验收。宿主负责：DSH create/fork/buildForkSeed/sessionPersistence；DSH WorkspaceRegistry.archiveSession/unarchiveSession 与原生归档可见性。
+- 当前实现：原生create/fork/跨Workspace seed保留设置与历史；命名及最终源/目标复核后才建立LA绑定。失败时清除本次副本的LA绑定/工具并await官方workspaceRegistry.archiveSession(id,{stopActivity:true})，退出默认活动列表且可从原生归档恢复。已覆盖持久化但未激活seed，以及原生create/fork的workspace-attach-failed副本身份；拒绝源Session、错误Workspace及无官方标记的错误身份。绑定回滚失败仍尝试归档，任一清理失败都明确报告副本ID和失败状态。
+- 回归定义：`tests/required/acceptance.nodetest.mjs`；证据：E-REQUIRED、E-RC2-HOST、E-COPY-RC2。
+- 具体差异：目标采用DSH可恢复归档清理失败副本，保留原生历史字节；不声称物理删除。stopActivity发出停止请求，持久归档阻止后续模型step，不冒称所有活动已终结。
+- 待验：当前安装包验证同/跨Workspace复制及命名/绑定/归档失败；检查副本退出活动列表、归档重开后可恢复，源会话不变，并确认界面准确区分归档成功与清理失败。
 
 ### D006 General 项目负责人岗位
 
@@ -541,12 +543,12 @@
 - 原行为：原LA实际发送快照捕获projectId/assetId、用户显式为Agent引用的段、selectedSegmentIds、uiRevision及capturedAt；不偷渡普通编辑焦点。V1虽声明可选activeQaFindingId，实际capture未传；没有activeProposalId字段。快照绑定本次真实发送并在异步后保持原范围。
 - 源入口：[apps/electron/src/main/lib/linguist/turn-context-validator.ts](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/main/lib/linguist/turn-context-validator.ts:1)；[apps/electron/src/main/lib/linguist/agent-host-extension.ts · turnContextBlock](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/main/lib/linguist/agent-host-extension.ts:45)；[packages/shared/src/types/linguist-turn-context.ts](/Users/wangyu/Desktop/linguist-agent-next/packages/shared/src/types/linguist-turn-context.ts:1)；[apps/electron/src/renderer/features/linguist/projects/cat-workspace-atoms.ts · export function captureLinguistTurnContextSnapshot](/Users/wangyu/Desktop/linguist-agent-next/apps/electron/src/renderer/features/linguist/projects/cat-workspace-atoms.ts:508)
 - 目标入口：[packages/dsh-linguist/src/host/turn-context.ts · addPreparedTurnContext](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/host/turn-context.ts:76)；[packages/dsh-linguist/src/client/composer-reference.ts](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/client/composer-reference.ts:1)；[packages/dsh-linguist/src/client/ComposerContextChips.tsx](/Users/wangyu/Desktop/Linguist-Agent-DSH/packages/dsh-linguist/src/client/ComposerContextChips.tsx:1)
-- 状态：部分实现：具体行为缺口。
-- 当前实现：目标维护相同显式段引用/选区快照；用户点击附带CAT选区后通过原生reference codec同步冻结，Host按同条真实user/rpcId与项目/Workspace准入；普通无引用发送尚无自动捕获扩展。
-- 回归定义：`tests/copied-renderer/native-composer-reference.nodetest.mjs`、`tests/required/turn-reference.nodetest.mjs`；证据：E-REQUIRED、E-PROVIDER-43、E-COMPOSER-RC2。
-- 具体差异：官方rc.2没有普通Composer每次发送均经过的公开capture-and-await准入hook；显式reference不是源普通发送自动冻结路径的完整等价。 已安装43历史观察中user消息显示完整LA-TURN-CONTEXT JSON；当前新包用户可见呈现仍需实际安装核验，历史证据不重标。
-- 口径更正：初版标题/契约误把QA/Proposal焦点当成源实际发送捕获；已据源capture seam与rc.2公开API审计更正，未扩张迁移范围。
-- 待验：普通发送扩展缺口按rc.2公开API审计保留；显式路径需新安装核验slash/附件/IME/undo/删除引用、同步冻结及actual rpcId同消息绑定。
+- 状态：实现存在，用户已接受按需附带，待安装验收。宿主负责：DSH ReferenceCodec、原生prompt/requestId、附件及queue/steer；Host agent/pre-step准入。
+- 当前实现：用户按需点击“附带 CAT 选区”；原生 Reference codec 在实际发送时同步冻结项目、批次、显式句段引用与选区 ID，快照随该条原生 prompt 携带。Host 在 agent/pre-step 等待项目/Workspace 准入，并按实际 user/message source.rpcId 记录。附件、queue/steer 沿官方发送链。该交互已获用户于2026-09-29明确接受。
+- 回归定义：`tests/copied-renderer/native-composer-reference.nodetest.mjs`、`tests/required/turn-reference.nodetest.mjs`；证据：E-REQUIRED、E-PROVIDER-43、E-COMPOSER-RC2、E-COMPOSER-RC2-REAUDIT。
+- 产品决定与验收边界：目标采用用户已接受的按需显式附带方式；源 LA 每条普通发送默认自动携带改为本条消息选择附带。发送时冻结范围与同消息真实请求身份的要求保留。 当前安装产物仍需核验引用呈现、发送时冻结、queue/steer及真实请求绑定；43历史观察中user消息显示完整LA-TURN-CONTEXT JSON，仍只作为历史证据。
+- 口径更正：源实际capture不含QA/Proposal焦点。rc.2显式Reference可携带快照并在Host按真实rpcId准入。2026-09-29用户已明确接受按需附带CAT选区；这关闭产品交互决定，安装与真实模型验收仍待完成。
+- 待验：在当前安装产物核验按需附带、删除引用、slash/附件/IME/undo、queue/steer时的同步冻结与同消息actual rpcId绑定，并观察模型前准入及模型可见内容。
 
 ### D047 建议/运行的生成来源可追溯性
 

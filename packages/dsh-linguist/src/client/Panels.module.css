@@ -14,8 +14,8 @@
 .localeForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 640px; align-items: start; }
 .localeForm > button { grid-column: 1 / -1; justify-self: start; }
 .formFields { border: 0; padding: 0; margin: 0; min-width: 0; }
-.form label { display: flex; flex-direction: column; align-items: start; min-width: 0; gap: 4px; font-size: 13px; color: var(--dsw-alias-label-secondary); }
-.toolbar label { display: inline-flex; align-items: center; gap: 4px; }
+.form label:not(:has(input[type="checkbox"])) { display: flex; flex-direction: column; align-items: start; min-width: 0; gap: 4px; font-size: 13px; color: var(--dsw-alias-label-secondary); }
+.toolbar label:not(:has(input[type="checkbox"])) { display: inline-flex; align-items: center; gap: 4px; }
 .toolbar select, .form select { max-width: 100%; }
 .toolbar input[type="file"] { max-width: 280px; }
 .item, .selected, .callout { display: flex; flex-direction: column; min-width: 0; gap: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
@@ -54,7 +54,7 @@
 .proposalRun { display: grid; gap: 12px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 16px; }
 .jobProgress { width: 100%; height: 8px; accent-color: var(--dsw-alias-brand-primary); }
 @container panel (max-width: 720px) { .compare { grid-template-columns: 1fr; } .compare > div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0 0; } }
-@container panel (max-width: 440px) { .localeForm, .bilingual { grid-template-columns: 1fr; } .bilingual > div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0 0; } .form > label { width: 100%; } }
+@container panel (max-width: 440px) { .localeForm, .bilingual { grid-template-columns: 1fr; } .bilingual > div + div { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 0 0; } .form > label:not(:has(input[type="checkbox"])) { width: 100%; } }
 
 .settingsSection { border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
 .settingsSection > summary { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary); }

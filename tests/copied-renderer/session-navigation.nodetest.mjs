@@ -18,6 +18,9 @@ test('native navigation cancels pending LA opens and late session creation', asy
   let selectedPanel
   let disposeDrafts
   let draftsCleared = false
+  let catPane
+  let sessionIds = ['execution-session']
+  const openedSessions = []
   const skills = { skills: [{ name: 'synthetic-skill', description: 'Synthetic', modelInvocable: true }] }
   let skillResult = { ok: true, value: skills }
   const ctx = {
@@ -25,19 +28,19 @@ test('native navigation cancels pending LA opens and late session creation', asy
     locale: { bind: () => text => text },
     slots: {
       inject: (_name, register) => register(),
-      register: (key, render) => { registrations.set(key.name, render) },
+      register: (key, render) => { registrations.set(key.name, render); if (key.key === '@linguist/dsh-client-cat') catPane = render },
     },
     layout: {
       selectPanel: panel => { selectedPanel = panel; navigation.abort() },
       beginNavigation: () => { navigation.abort(); navigation = new AbortController(); return navigation.signal },
     },
-    uiWorkspace: { openSession: () => navigation.abort(), pickDirectory: async () => pickedDirectory },
+    uiWorkspace: { openSession: id => { openedSessions.push(id); navigation.abort() }, pickDirectory: async () => pickedDirectory },
     workspaces: { list: { getSnapshot: () => ({ items: [{ workspaceId: 'workspace-A', path: '/synthetic/workspace' }] }) } },
     sidebarRight: {
       mounted: { getSnapshot: () => mounted, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } },
       openResourceIn: (...args) => opened.push(args),
     },
-    sessions: { create: () => new Promise(resolve => { completeCreate = resolve }) },
+    sessions: { create: () => new Promise(resolve => { completeCreate = resolve }), refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds }) } },
     remote: { skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
   }
   const components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
@@ -46,7 +49,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   runInNewContext(code, { exports, setTimeout, clearTimeout, require: name => {
     if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }
-    if (name === './api') return { bindSession: async value => value }
+    if (name === './api') return { bindSession: async value => value, getBinding: async () => undefined }
     if (name === './ui-locale') return {}
     if (name === './composer-reference') return {}
     if (name === './cat-editor-state') return { clearCatEditorStates: () => { draftsCleared = true } }
@@ -91,6 +94,13 @@ test('native navigation cancels pending LA opens and late session creation', asy
   await entering
   assert.equal(opened.length, 1)
   assert.equal(listeners.size, 0)
+  const executionNavigation = catPane({ sessionId: 'synthetic-A' }).child.props.onOpenSession
+  await executionNavigation('execution-session')
+  assert.equal(openedSessions.at(-1), 'execution-session')
+  sessionIds = []
+  const openCount = openedSessions.length
+  await assert.rejects(executionNavigation('execution-session'), /执行会话已不存在或已归档/)
+  assert.equal(openedSessions.length, openCount, 'missing execution must leave the current Session in place')
   assert.equal(draftsCleared, false)
   disposeDrafts()
   assert.equal(draftsCleared, true)

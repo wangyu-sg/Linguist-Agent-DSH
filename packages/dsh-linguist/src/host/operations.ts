@@ -199,9 +199,22 @@ function scheduleRequest(payload: Data, service: LinguistProjectService): Lingui
   if (payload.executeAtDue !== true) throw new TypeError('executeAtDue must be true')
   const scope = oneOf(payload.scope, 'scope', ['project', 'asset', 'segments'] as const)
   const selector = object(payload.timing, 'timing')
-  const kind = oneOf(selector.kind, 'timing.kind', ['after', 'at', 'every', 'daily', 'weekly', 'cron'] as const)
+  const kind = oneOf(selector.kind, 'timing.kind', ['after', 'at', 'every', 'daily', 'weekly', 'monthly', 'cron'] as const)
   let timing: LinguistScheduleTiming
-  if (kind === 'after' || kind === 'every') timing = { kind, seconds: integer(selector.seconds, 'timing.seconds', 60, Number.MAX_SAFE_INTEGER) }
+  if (kind === 'after') timing = { kind, seconds: integer(selector.seconds, 'timing.seconds', 60, Number.MAX_SAFE_INTEGER) }
+  else if (kind === 'every') {
+    const activeWindowStart = selector.activeWindowStart === undefined ? undefined : string(selector.activeWindowStart, 'timing.activeWindowStart', 5, /^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    const activeWindowEnd = selector.activeWindowEnd === undefined ? undefined : string(selector.activeWindowEnd, 'timing.activeWindowEnd', 5, /^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    if ((activeWindowStart === undefined) !== (activeWindowEnd === undefined) || (activeWindowStart !== undefined && activeWindowStart >= activeWindowEnd!)) throw new TypeError('timing active window must have start < end')
+    let activeWeekdays: number[] | undefined
+    if (selector.activeWeekdays !== undefined) {
+      if (!Array.isArray(selector.activeWeekdays) || selector.activeWeekdays.length > 7) throw new TypeError('timing.activeWeekdays must be a bounded array')
+      activeWeekdays = selector.activeWeekdays.map(day => integer(day, 'timing.activeWeekdays', 0, 6))
+      if (new Set(activeWeekdays).size !== activeWeekdays.length) throw new TypeError('timing.activeWeekdays contains duplicates')
+    }
+    timing = { kind, seconds: integer(selector.seconds, 'timing.seconds', 60, Number.MAX_SAFE_INTEGER),
+      ...(activeWindowStart === undefined ? {} : { activeWindowStart, activeWindowEnd }), ...(activeWeekdays?.length ? { activeWeekdays } : {}) }
+  } else if (kind === 'monthly') timing = { kind, time: string(selector.time, 'timing.time', 5, /^(?:[01]\d|2[0-3]):[0-5]\d$/), dayOfMonth: integer(selector.dayOfMonth, 'timing.dayOfMonth', 1, 31) }
   else if (kind === 'at') {
     const at = string(selector.at, 'timing.at', 40, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/)
     if (!Number.isFinite(Date.parse(at)) || Date.parse(at) - Date.now() < 60_000) throw new TypeError('timing.at must be at least 60 seconds in the future')
@@ -264,6 +277,11 @@ export async function dispatchOperation(input: DispatchOperationInput): Promise<
       if (!input.scheduleContext) throw new Error('Native DSH Schedule is unavailable')
       return input.scheduleContext.update({ ...scheduleRequest(payload, service),
         scheduleId: string(payload.scheduleId, 'scheduleId', 200), expectedVersion: string(payload.expectedVersion, 'expectedVersion', 64, /^[0-9a-f]{64}$/) })
+    }
+    case 'linguistSchedulePause': {
+      if (!input.scheduleContext) throw new Error('Native DSH Schedule is unavailable')
+      return input.scheduleContext.pause(string(payload.sessionId, 'sessionId', 200), string(payload.scheduleId, 'scheduleId', 200),
+        string(payload.expectedVersion, 'expectedVersion', 64, /^[0-9a-f]{64}$/))
     }
     case 'linguistScheduleCancel': {
       if (!input.scheduleContext) throw new Error('Native DSH Schedule is unavailable')

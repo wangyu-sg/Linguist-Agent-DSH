@@ -1,8 +1,13 @@
 import type {
   LinguistCurrentStageState,
   LinguistSegmentStatus,
+  LinguistTermInfo,
   LinguistWorkflowStage,
 } from '@linguist/domain-service/contracts'
+
+export const TERM_STATUS_LABELS: Record<LinguistTermInfo['status'], string> = {
+  required: '必须', preferred: '推荐', forbidden: '禁用', allowed: '允许', deprecated: '弃用',
+}
 
 const progressLabels: Record<LinguistWorkflowStage, Record<LinguistCurrentStageState, string>> = {
   translation: { untouched: '未翻译', draft: '翻译草稿', confirmed: '已确认' },

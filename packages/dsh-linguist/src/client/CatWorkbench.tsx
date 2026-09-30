@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { atom, Provider, useAtom, type PrimitiveAtom } from 'jotai'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Button, Checkbox, Input, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, Menu, Tooltip, IconPanelLeftOutlineRegular, IconEllipsisOutlineRegular, IconChevronDownOutlineRegular, IconCheckOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   LinguistAssetInfo,
   LinguistCatConfirmStageBulkResult,
@@ -30,7 +30,7 @@ import { RunPanel } from './RunPanel'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { UnknownTagNotice } from './UnknownTagNotice'
 import { useCatNavigation, type CatDock } from './cat-navigation'
-import { nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
+import { TERM_STATUS_LABELS, nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
 import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
 import { getCatEditorState, type CatEditorState } from './cat-editor-state'
@@ -51,12 +51,12 @@ const dockItems: readonly { id: Dock; label: string }[] = [
 interface Dataset { signature: string; total: number; ids: string[]; rows: ReadonlyMap<number, LinguistSegmentInfo> }
 interface RowSignal { proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingInfo['severity'] }
 
-export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
+export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
   const editorState = getCatEditorState(sessionId, projectId)
-  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onCancelRun={onCancelRun} capabilities={capabilities} editorState={editorState} /></Provider>
+  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onCancelRun={onCancelRun} onOpenSession={onOpenSession} capabilities={capabilities} editorState={editorState} /></Provider>
 }
 
-function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
+function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
   const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
@@ -480,33 +480,37 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     else if (assetNavigatorOpen) { setAssetNavigatorOpen(false); navigationTrigger.current?.focus(); event.preventDefault() }
   }}>
     <header className={styles.header}>
-      <div className={styles.title}><strong>{project.name}</strong><small>{project.sourceLocale} → {project.targetLocale}</small><small>{t('当前阶段')}：{t(stageName(workflowStage))}</small></div>
+      <div className={styles.title}><strong title={project.name}>{project.name}</strong><small>{project.sourceLocale} → {project.targetLocale}</small><small title={t('当前阶段')}>{t(stageName(workflowStage))}</small></div>
       <div className={styles.controls}>
-        <Button ref={navigationTrigger} variant="ghost" size="sm" aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}>{t('批次导航')}</Button>
-        <select aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
+        <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
+        <select className={styles.batchSelect} aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
           <option value="">{t("全部批次")}</option>
           {summary?.assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
         </select>
-        <Input aria-label={t("搜索源文或译文")} placeholder={t("搜索句段")} value={search} onChange={(event) => setSearch(event.target.value)} />
-        <select aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
+        <Input className={styles.search} aria-label={t("搜索源文或译文")} placeholder={t("搜索句段")} value={search} onChange={(event) => setSearch(event.target.value)} />
+        <select className={styles.statusSelect} aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
           <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
         </select>
-        <Button variant="ghost" size="sm" onClick={() => setReload((value) => value + 1)}>{t("刷新")}</Button>
-        <Button variant="outline" size="sm" disabled={jumpBusy} onClick={() => void nextUntouched()}>{t(nextStageItemLabel(workflowStage))}</Button>
-        <Button variant="outline" size="sm" disabled={jumpBusy} onClick={() => void nextQa()}>{t('下一个 QA 问题')}</Button>
-        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Button ref={displayTrigger} variant="ghost" size="sm" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}>{t('显示选项')}</Button>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : []), `ratio-${sourceShare}`]} items={[
+        <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t(nextStageItemLabel(workflowStage))} disabled={jumpBusy} onClick={() => void nextUntouched()}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip>
+        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} ref={displayTrigger} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : []), `ratio-${sourceShare}`]} items={[
+          { id: 'refresh', label: t('刷新') },
+          { id: 'next-qa', label: t('下一个 QA 问题'), disabled: jumpBusy },
           { id: 'inspector', label: t('参考检查器') },
           { id: 'dock', label: t('辅助区') },
           { id: 'ratio', label: t('Source / Target 比例'), submenu: [30, 35, 40, 45, 50, 55, 60, 65, 70].map((value) => ({ id: `ratio-${value}`, label: `${value} / ${100 - value}` })) },
         ]} onSelect={(id) => {
-          if (id === 'inspector') { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }
+          if (id === 'refresh') setReload((value) => value + 1)
+          else if (id === 'next-qa') void nextQa()
+          else if (id === 'inspector') { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }
           else if (id === 'dock') setDockOpen((value) => !value)
           else setSourceShare(Number(id.slice(6)))
           setDisplayOpen(false)
         }} />
-        <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size === 0 || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>
-        {(selectedIds.size > 0 || agentReference) && <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>}
       </div>
+      {(selectedIds.size > 0 || agentReference) && <div className={styles.selectionActions}>
+        {selectedIds.size > 0 && <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>}
+        <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>
+      </div>}
     </header>
     {agentReference && <div className={styles.agentReference} role="status">{t('已为 Agent 引用句段')} {agentReference.segmentId}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
@@ -551,7 +555,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         {dock === 'references' && <ReferencePanel projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
         {dock === 'assets' && <AssetsPanel projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
         {dock === 'delivery' && <DeliveryPanel projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
-        {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} onOpenSession={onOpenSession} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'settings' && <ProjectSettingsPanel project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
@@ -581,8 +585,9 @@ function SegmentRows(props: RowsProps): React.ReactElement {
   const t = useT()
   const scroller = React.useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useAtom(props.editingIdAtom)
+  const [menuId, setMenuId] = React.useState<string>()
   const handleCallbacks = React.useRef(new Map<string, (handle: TargetEditorHandle | undefined) => void>())
-  const virtualizer = useVirtualizer({ count: props.data.total, getScrollElement: () => scroller.current, estimateSize: () => 94, overscan: 8, getItemKey: (index) => virtualRowKey(props.data.ids, index) })
+  const virtualizer = useVirtualizer({ count: props.data.total, getScrollElement: () => scroller.current, estimateSize: () => 64, overscan: 8, getItemKey: (index) => virtualRowKey(props.data.ids, index) })
   const items = virtualizer.getVirtualItems()
   React.useEffect(() => {
     if (items.length > 0) props.onVisibleRange(items[0]!.index, items.at(-1)!.index)
@@ -590,7 +595,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
   React.useEffect(() => {
     if (props.focusIndex !== undefined) { virtualizer.scrollToIndex(props.focusIndex); props.onFocusSettled() }
   }, [props.focusIndex, virtualizer, props.onFocusSettled])
-  return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total + 1} ref={scroller}>
+  return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total + 1} ref={scroller} onScroll={() => setMenuId(undefined)}>
     <div className={styles.gridHeading} role="row" aria-rowindex={1}><span role="columnheader">#</span><span role="columnheader">{t('源文')}</span><span role="columnheader">{t('译文')}</span><span role="columnheader">{t('操作')}</span></div>
     <div className={styles.gridInner} style={{ height: virtualizer.getTotalSize() }}>
       {items.map((item) => {
@@ -628,10 +633,22 @@ function SegmentRows(props: RowsProps): React.ReactElement {
                 }} onFocus={() => props.onSelect(id)}>{segment.target || t("编辑译文…")}</button>}
             </div>
             <div className={styles.rowActions} role="gridcell">
-              <Button variant="ghost" size="sm" onClick={() => props.onReferenceAgent(segment)}>{t('为 Agent 引用')}</Button>
-              {signal?.proposal && <><Button variant="outline" size="sm" disabled={props.archived || props.reviewingIds.has(signal.proposal.id) || segment.locked || signal.proposal.baseRevision !== segment.revision} onClick={() => void props.onReviewProposal(segment, signal.proposal!, 'accept')}>{t('接受')}</Button><Button variant="outline" size="sm" disabled={props.archived || props.reviewingIds.has(signal.proposal.id)} onClick={() => void props.onReviewProposal(segment, signal.proposal!, 'reject')}>{t('拒绝建议')}</Button></>}
-              {segment.currentStageState === 'confirmed' ? <Button variant="ghost" size="sm" onClick={() => void props.onUnconfirm(segment)} disabled={props.archived}>{t("撤销确认")}</Button>
-                : <Button variant="outline" size="sm" onClick={() => void props.onConfirm(segment)} disabled={props.archived || segment.locked}>{t(stageActionLabel(props.workflowStage))}</Button>}
+              {segment.currentStageState !== 'confirmed' && <Tooltip portal label={t(stageActionLabel(props.workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t('{action}句段 {number}', { action: t(stageActionLabel(props.workflowStage)), number: segment.ordinal + 1 })} onClick={() => void props.onConfirm(segment)} disabled={props.archived || segment.locked}><IconCheckOutlineRegular size={16} /></Button></Tooltip>}
+              <Menu portal open={menuId === id} onClose={() => setMenuId(undefined)} anchor={<Tooltip portal label={t('句段 {number} 的更多操作', { number: segment.ordinal + 1 })}><Button className={styles.iconButton} variant="ghost" size="sm" aria-label={t('句段 {number} 的更多操作', { number: segment.ordinal + 1 })} aria-haspopup="menu" aria-expanded={menuId === id} onClick={() => setMenuId((current) => current === id ? undefined : id)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} items={[
+                { id: 'reference', label: t('为 Agent 引用') },
+                ...(signal?.proposal ? [
+                  { id: 'open-proposal', label: t('待审建议') },
+                  { id: 'accept', label: t('接受'), disabled: props.archived || props.reviewingIds.has(signal.proposal.id) || segment.locked || signal.proposal.baseRevision !== segment.revision },
+                  { id: 'reject', label: t('拒绝建议'), disabled: props.archived || props.reviewingIds.has(signal.proposal.id) },
+                ] : []),
+                ...(segment.currentStageState === 'confirmed' ? [{ id: 'unconfirm', label: t('撤销确认'), disabled: props.archived }] : []),
+              ]} onSelect={(action) => {
+                setMenuId(undefined)
+                if (action === 'reference') props.onReferenceAgent(segment)
+                else if (action === 'open-proposal') props.onOpenProposal(signal!.proposal!)
+                else if (action === 'accept' || action === 'reject') void props.onReviewProposal(segment, signal!.proposal!, action)
+                else if (action === 'unconfirm') void props.onUnconfirm(segment)
+              }} />
             </div>
           </>}
         </div>
@@ -701,7 +718,7 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
     <section><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
     <section><h3>{t("术语")}</h3>{data.termMatches.length === 0 ? <p>{t("没有匹配")}</p> : data.termMatches.map((item) => <article key={item.id}>
       <strong>{item.term} → {item.translation}</strong>
-      <small>{t({ allowed: '允许', preferred: '首选', required: '必需', forbidden: '禁用', deprecated: '废弃' }[item.status])} · {t(item.matchType === 'exact' ? '精确匹配' : '包含匹配')} · {t(item.caseSensitive ? '区分大小写' : '不区分大小写')}{item.conflict ? ` · ${t('译文冲突')}` : ''}</small>
+      <small>{t(TERM_STATUS_LABELS[item.status])} · {t(item.matchType === 'exact' ? '精确匹配' : '包含匹配')} · {t(item.caseSensitive ? '区分大小写' : '不区分大小写')}{item.conflict ? ` · ${t('译文冲突')}` : ''}</small>
       {(item.module || item.category) && <small>{[item.module, item.category].filter(Boolean).join(' · ')}</small>}{item.note && <p>{item.note}</p>}
       <Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.translation, 'insert')}>{t('插入草稿')}</Button>
     </article>)}</section>

@@ -51,9 +51,14 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
     const date = new Date(editing.timing.at)
     return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
   })
-  const [time, setTime] = React.useState(editing?.timing.kind === 'daily' || editing?.timing.kind === 'weekly' ? editing.timing.time.slice(0, 8) : '09:00:00')
+  const [time, setTime] = React.useState(editing?.timing.kind === 'daily' || editing?.timing.kind === 'weekly' || editing?.timing.kind === 'monthly' ? editing.timing.time : '09:00')
   const [timeZone, setTimeZone] = React.useState(editing?.timing.kind === 'daily' || editing?.timing.kind === 'weekly' || editing?.timing.kind === 'cron' ? editing.timing.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone)
-  const [weekdays, setWeekdays] = React.useState<number[]>(editing?.timing.kind === 'weekly' ? editing.timing.weekdays : [1, 2, 3, 4, 5])
+  const [weekdays, setWeekdays] = React.useState<number[]>(editing?.timing.kind === 'weekly' ? editing.timing.weekdays : editing?.timing.kind === 'every' && editing.timing.activeWeekdays ? editing.timing.activeWeekdays.map(day => day === 0 ? 7 : day) : [1, 2, 3, 4, 5])
+  const [dayOfMonth, setDayOfMonth] = React.useState(editing?.timing.kind === 'monthly' ? String(editing.timing.dayOfMonth) : '1')
+  const [windowEnabled, setWindowEnabled] = React.useState(editing?.timing.kind === 'every' && editing.timing.activeWindowStart !== undefined)
+  const [windowStart, setWindowStart] = React.useState(editing?.timing.kind === 'every' ? editing.timing.activeWindowStart ?? '09:00' : '09:00')
+  const [windowEnd, setWindowEnd] = React.useState(editing?.timing.kind === 'every' ? editing.timing.activeWindowEnd ?? '18:00' : '18:00')
+  const [weekdaysEnabled, setWeekdaysEnabled] = React.useState(editing?.timing.kind === 'every' && editing.timing.activeWeekdays !== undefined)
   const [expression, setExpression] = React.useState(editing?.timing.kind === 'cron' ? editing.timing.expression : '0 9 * * 1-5')
   const [created, setCreated] = React.useState<LinguistScheduleCreateResult>()
   const [error, setError] = React.useState('')
@@ -72,7 +77,11 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       if (kind === 'after' || kind === 'every') {
         const value = Number(seconds)
         if (!Number.isSafeInteger(value) || value < 60) throw new Error(t('延迟或间隔须至少 60 秒。'))
-        timing = { kind, seconds: value }
+        if (kind === 'every') {
+          if (windowEnabled && (!windowStart || !windowEnd || windowStart >= windowEnd)) throw new Error(t('运行时段的开始时间须早于结束时间。'))
+          if (weekdaysEnabled && weekdays.length === 0) throw new Error(t('至少选择一个星期。'))
+          timing = { kind, seconds: value, ...(windowEnabled ? { activeWindowStart: windowStart, activeWindowEnd: windowEnd } : {}), ...(weekdaysEnabled ? { activeWeekdays: weekdays.map(day => day === 7 ? 0 : day) } : {}) }
+        } else timing = { kind, seconds: value }
       } else if (kind === 'at') {
         const value = new Date(at)
         if (!at || !Number.isFinite(value.getTime()) || value.getTime() - Date.now() < 60_000) throw new Error(t('选择至少一分钟后的时间。'))
@@ -81,6 +90,10 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       else if (kind === 'weekly') {
         if (weekdays.length === 0) throw new Error(t('至少选择一个星期。'))
         timing = { kind, time: time.length === 5 ? `${time}:00` : time, timeZone: timeZone.trim(), weekdays }
+      } else if (kind === 'monthly') {
+        const day = Number(dayOfMonth)
+        if (!Number.isInteger(day) || day < 1 || day > 31 || !time) throw new Error(t('选择 1–31 日和执行时间。'))
+        timing = { kind, dayOfMonth: day, time: time.slice(0, 5) }
       } else timing = { kind, expression: expression.trim(), timeZone: timeZone.trim() }
       const turnContext: LinguistTurnContextV1 | undefined = scope === 'project' ? undefined : {
         schemaVersion: 1,
@@ -105,7 +118,7 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
   }
 
   return <form className={styles.scheduleForm} onSubmit={(event) => void create(event)}>
-    <h3>{t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
+    <h3>{t(editing?.pausedAfterFailures || editing?.pausedByUser ? '重新核验并恢复' : editing ? '编辑专业定时任务' : '创建专业定时任务')}</h3>
     <p>{t('到期在任务专用的 DSH 会话执行，创建时继承来源模型和权限；需要登录或授权时会停在原生交互。')}</p>
     {editing && <p>{t('编辑沿用当前任务的原生调度规则与冻结范围；保存时按当前项目和岗位重新核验授权。')}{kind === 'after' && ` ${t('若修改延迟秒数，会从保存时重新计时并转换为绝对时间。')}`}</p>}
     <fieldset><legend>{t('飞书通知')}</legend>
@@ -141,22 +154,24 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
       <label>{t('调度方式')}<select value={kind} onChange={(event) => setKind(event.target.value as LinguistScheduleTiming['kind'])}>
         <option value="after">{t('延迟一次')}</option><option value="at">{t('指定时间一次')}</option>
         <option value="every">{t('按间隔重复')}</option><option value="daily">{t('每天')}</option>
-        <option value="weekly">{t('每周')}</option><option value="cron">Cron</option>
+        <option value="weekly">{t('每周')}</option><option value="monthly">{t('每月')}</option><option value="cron">Cron</option>
       </select></label>
       {(kind === 'after' || kind === 'every') && <label>{t('秒数')}<Input type="number" min="60" step="1" value={seconds} onChange={(event) => setSeconds(event.target.value)} /></label>}
       {kind === 'at' && <label>{t('执行时间')}<Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} /></label>}
-      {(kind === 'daily' || kind === 'weekly') && <label>{t('每天时间')}<Input type="time" step="1" value={time} onChange={(event) => setTime(event.target.value)} /></label>}
-      {kind === 'weekly' && <fieldset className={styles.formFields}><legend>{t('星期')}</legend>{[1, 2, 3, 4, 5, 6, 7].map((day) => <Checkbox key={day} label={t(['一', '二', '三', '四', '五', '六', '日'][day - 1]!)} checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />)}</fieldset>}
+      {(kind === 'daily' || kind === 'weekly' || kind === 'monthly') && <label>{t('执行时间')}<Input type="time" step={kind === 'monthly' ? '60' : '1'} value={time} onChange={(event) => setTime(event.target.value)} /></label>}
+      {kind === 'monthly' && <><label>{t('每月日期')}<Input type="number" min="1" max="31" step="1" value={dayOfMonth} onChange={event => setDayOfMonth(event.target.value)} /></label><p>{t('按本机时区执行；短月自动采用该月最后一天。')}</p></>}
+      {kind === 'every' && <><Checkbox label={t('限制运行时段')} checked={windowEnabled} onChange={setWindowEnabled} />{windowEnabled && <><label>{t('开始时间')}<Input type="time" value={windowStart} onChange={event => setWindowStart(event.target.value)} /></label><label>{t('结束时间')}<Input type="time" value={windowEnd} onChange={event => setWindowEnd(event.target.value)} /></label></>}<Checkbox label={t('限制运行星期')} checked={weekdaysEnabled} onChange={setWeekdaysEnabled} />{(windowEnabled || weekdaysEnabled) && <p>{t('运行时段和星期按本机时区计算。')}</p>}</>}
+      {(kind === 'weekly' || kind === 'every' && weekdaysEnabled) && <fieldset className={styles.formFields}><legend>{t('星期')}</legend>{[1, 2, 3, 4, 5, 6, 7].map((day) => <Checkbox key={day} label={t(['一', '二', '三', '四', '五', '六', '日'][day - 1]!)} checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />)}</fieldset>}
       {kind === 'cron' && <label>Cron<Input value={expression} onChange={(event) => setExpression(event.target.value)} /></label>}
       {(kind === 'daily' || kind === 'weekly' || kind === 'cron') && <label>{t('时区')}<Input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></label>}
     </div>
-    <div className={styles.toolbar}><Button variant="primary" type="submit" size="md" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
-    {created && <p role="status">{t(editing?.pausedAfterFailures ? '已恢复 DSH 调度' : editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
+    <div className={styles.toolbar}><Button variant="primary" type="submit" size="md" disabled={busy}>{busy ? t('正在保存…') : t(editing?.pausedAfterFailures || editing?.pausedByUser ? '重新核验并恢复' : editing ? '保存并重新核验' : '创建到期执行任务')}</Button>{editing && <Button variant="outline" type="button" size="sm" onClick={onCancelEdit}>{t('取消编辑')}</Button>}</div>
+    {created && <p role="status">{t(editing?.pausedAfterFailures || editing?.pausedByUser ? '已恢复 DSH 调度' : editing ? '已更新 DSH 调度' : '已创建 DSH 调度')} {created.scheduleId} · {created.role} · {created.scope} · {created.scheduledAt}</p>}
     {error && <p role="alert">{error}</p>}
   </form>
 }
 
-export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, jobUpdates, onCancelRun, onChanged }: {
+export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, jobUpdates, onCancelRun, onOpenSession, onChanged }: {
   projectId: string
   sessionId: string
   assetId?: string
@@ -167,6 +182,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   mutation: number
   jobUpdates: ReadonlyMap<string, LinguistProjectMutationEvent>
   onCancelRun: () => Promise<void>
+  onOpenSession: (sessionId: string) => Promise<void>
   onChanged: () => void
 }): React.ReactElement {
   const t = useT()
@@ -257,7 +273,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
       </div>}
     {undo?.refused.map((entry) => <p role="alert" key={`${entry.entityType}:${entry.entityId}`}>{entry.entityType} {entry.entityId}：{entry.reason}</p>)}
     {!archived && <div ref={scheduleFormRef}><ScheduledAgentTaskForm key={`${editingSchedule?.scheduleId ?? 'new'}:${editingSchedule?.version ?? ''}`} projectId={projectId} sessionId={sessionId} assetId={assetId} selectedSegmentIds={selectedSegmentIds} uiRevision={uiRevision} editing={editingSchedule} destinations={notificationDestinations} onSaved={(result) => { setMessage(t(editingSchedule ? '专用定时任务已更新并重新核验。' : '专用定时任务已创建。')); setEditingSchedule(undefined); setScheduleRefresh((value) => value + 1) }} onCancelEdit={() => setEditingSchedule(undefined)} /></div>}
-    <ScheduleManager onDestinations={setNotificationDestinations} sessionId={sessionId} refresh={scheduleRefresh} editable={!archived} onEdit={(schedule) => setEditingSchedule(schedule)} />
+    <ScheduleManager onDestinations={setNotificationDestinations} sessionId={sessionId} refresh={scheduleRefresh} editable={!archived} onOpenSession={onOpenSession} onEdit={(schedule) => setEditingSchedule(schedule)} />
     {message && <p role="status">{message}</p>}
   </section>
 }

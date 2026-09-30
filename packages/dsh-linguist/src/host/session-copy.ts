@@ -4,16 +4,17 @@ import type { LinguistProjectService } from '@linguist/domain-service'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { buildForkSeed, SESSION_FORMAT_VERSION, SessionId as asSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import { WorkspaceId, type WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
 import type { BindingStore } from './bindings'
 
 export class LinguistSessionCopyError extends Error {
   constructor(readonly sessionId: string, readonly cleanup: 'not-started' | 'completed' | 'failed', options: ErrorOptions) {
     const state = cleanup === 'not-started'
-      ? 'history copy failed before Linguist binding; this Session may remain in native history. Inspect it before retrying.'
+      ? 'history copy failed before a usable copy was established; no Linguist binding was created.'
       : cleanup === 'completed'
-        ? 'copy failed; no Linguist binding remains. DSH has no Session deletion API; this unbound Session remains in native history.'
-        : 'copy failed and Linguist binding rollback failed; this Session remains in native history and requires inspection before retrying.'
+        ? 'copy failed; no Linguist binding remains. The copy is archived; restore it from native archives if needed. Its stored history was not deleted.'
+        : 'copy failed and cleanup failed; binding rollback or native archival requires inspection before retrying.'
     super(`Native DSH Session ${sessionId} ${state}`, options)
   }
 }
@@ -32,10 +33,26 @@ export interface SessionCopyHost {
     rename(input: { sessionId: SessionId; title: string }): Promise<unknown>
   }
   sessionPersistence: Pick<SessionPersistence, 'create'>
-  workspaceRegistry: { get(id: WorkspaceId): { id: WorkspaceId; path: string } | undefined }
+  workspaceRegistry: { get(id: WorkspaceId): { id: WorkspaceId; path: string } | undefined } & Pick<WorkspaceRegistry, 'archiveSession'>
   sessionExists: (id: string) => Promise<boolean>
   agentStatus: (id: string) => 'idle' | 'running' | undefined
   rebindAgent: (id: string) => void
+}
+
+/** Only called after this copy has acquired its own native Session identity. */
+async function failOwnedSessionCopy(host: SessionCopyHost, sessionId: SessionId, error: unknown): Promise<never> {
+  const failures = [error]
+  if (host.bindings.session(sessionId)) {
+    try {
+      host.bindings.restoreSession(sessionId, undefined)
+      host.rebindAgent(sessionId)
+    } catch (rollbackError) { failures.push(rollbackError) }
+  }
+  try { await host.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }) }
+  catch (archiveError) { failures.push(archiveError) }
+  throw new LinguistSessionCopyError(sessionId, failures.length === 1 ? 'completed' : 'failed', {
+    cause: failures.length === 1 ? error : new AggregateError(failures),
+  })
 }
 
 function completedAssistant(events: readonly SessionEvent[]): boolean {
@@ -93,33 +110,45 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
   const second = await sessionCopyEligibility(host, sourceSessionId, targetProjectId)
   if (!second.eligible || second.mode !== first.mode) throw new Error('Source Session changed during copy eligibility check')
   let copied: { sessionId: SessionId }
-  if (first.mode === 'blank' || targetWorkspaceId !== source.workspaceId) {
-    const snapshot = await host.sessionController.inspect(asSessionId(sourceSessionId))
-    if (host.agentStatus(sourceSessionId) === 'running' || (first.mode === 'fork' ? !completedAssistant(snapshot.events)
-      : snapshot.events.some(event => event.type === 'user/message' || event.type === 'assistant/message'))) throw new Error('Source Session changed before history capture')
-    if (snapshot.events.length === 0) {
-      copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), agentPreset: snapshot.meta.agentPreset })
-    } else {
-      const id = asSessionId(`session-${randomUUID()}`)
-      const boundary = snapshot.events.at(-1)!.seq
-      try {
-        const handle = await host.sessionPersistence.create({
-          version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
-          cwd: host.workspaceRegistry.get(WorkspaceId(targetWorkspaceId))!.path,
-          parentSession: asSessionId(sourceSessionId), isSeeded: true,
-          ...(snapshot.meta.agentPreset === undefined ? {} : { agentPreset: snapshot.meta.agentPreset }),
-        }, { inheritedEventCount: SessionLogOffset(boundary + 1) })
+  try {
+    if (first.mode === 'blank' || targetWorkspaceId !== source.workspaceId) {
+      const snapshot = await host.sessionController.inspect(asSessionId(sourceSessionId))
+      if (host.agentStatus(sourceSessionId) === 'running' || (first.mode === 'fork' ? !completedAssistant(snapshot.events)
+        : snapshot.events.some(event => event.type === 'user/message' || event.type === 'assistant/message'))) throw new Error('Source Session changed before history capture')
+      if (snapshot.events.length === 0) {
+        copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), agentPreset: snapshot.meta.agentPreset })
+      } else {
+        const id = asSessionId(`session-${randomUUID()}`)
+        const boundary = snapshot.events.at(-1)!.seq
+        let seedCreated = false
         try {
-          await handle.append(buildForkSeed(snapshot.events, boundary))
-          await handle.flush()
-        } finally { await handle.close() }
-        copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset: snapshot.meta.agentPreset })
-      } catch (error) {
-        throw new LinguistSessionCopyError(id, 'not-started', { cause: error })
+          const handle = await host.sessionPersistence.create({
+            version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
+            cwd: host.workspaceRegistry.get(WorkspaceId(targetWorkspaceId))!.path,
+            parentSession: asSessionId(sourceSessionId), isSeeded: true,
+            ...(snapshot.meta.agentPreset === undefined ? {} : { agentPreset: snapshot.meta.agentPreset }),
+          }, { inheritedEventCount: SessionLogOffset(boundary + 1) })
+          seedCreated = true
+          try {
+            await handle.append(buildForkSeed(snapshot.events, boundary))
+            await handle.flush()
+          } finally { await handle.close() }
+          copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset: snapshot.meta.agentPreset })
+        } catch (error) {
+          if (seedCreated) return failOwnedSessionCopy(host, id, error)
+          throw new LinguistSessionCopyError(id, 'not-started', { cause: error })
+        }
       }
+    } else {
+      copied = await host.sessionController.fork({ sessionId: asSessionId(sourceSessionId) })
     }
-  } else {
-    copied = await host.sessionController.fork({ sessionId: asSessionId(sourceSessionId) })
+  } catch (error) {
+    const failure = remoteErrorOf(error)
+    if (failure?.code === 'session/workspace-attach-failed'
+      && failure.details.sessionId !== sourceSessionId && failure.details.workspaceId === targetWorkspaceId) {
+      return failOwnedSessionCopy(host, failure.details.sessionId, error)
+    }
+    throw error
   }
   const sessionId = String(copied.sessionId)
   const binding = { workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode }
@@ -134,15 +163,7 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
     host.bindings.bindSession(sessionId, binding)
     host.rebindAgent(sessionId)
   } catch (error) {
-    if (host.bindings.session(sessionId)) {
-      try {
-        host.bindings.restoreSession(sessionId, undefined)
-        host.rebindAgent(sessionId)
-      } catch (rollbackError) {
-        throw new LinguistSessionCopyError(sessionId, 'failed', { cause: new AggregateError([error, rollbackError]) })
-      }
-    }
-    throw new LinguistSessionCopyError(sessionId, 'completed', { cause: error })
+    return failOwnedSessionCopy(host, copied.sessionId, error)
   }
   return { sessionId, workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode, mode: first.mode }
 }

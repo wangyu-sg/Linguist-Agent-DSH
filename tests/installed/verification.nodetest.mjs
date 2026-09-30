@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { classifyReceipt } from '../../scripts/notify.mjs'
 import { runInstalledSmoke } from '../../scripts/smoke-installed.mjs'
 import { privatePushProof } from '../../scripts/verify-ready.mjs'
+import { validateUiEvidence } from '../../scripts/test-ui.mjs'
 
 const now = Date.parse('2026-09-28T15:00:00.000Z')
 const pack = { dshVersion: '0.2.0-rc.1', linguist: { sha256: 'a'.repeat(64) }, browserSkill: { sha256: 'b'.repeat(64) } }
@@ -105,4 +106,57 @@ test('installed smoke rejects missing or Web carrier installations without fabri
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('UI evidence keeps CUA actions separate from authorized macOS screenshot capture', () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-ui-evidence-test-'))
+  const evidence = join(root, 'artifacts/evidence')
+  mkdirSync(evidence, { recursive: true })
+  const currentPath = join(root, 'synthetic-current.json')
+  const current = { installationId: 'synthetic-ui', profile: 'desktop', dshVersion: 'synthetic-rc2', desktopArtifact: { sha256: 'd'.repeat(64) }, plugins: { linguist: { sha256: 'a'.repeat(64) }, browserSkill: { sha256: 'b'.repeat(64) } } }
+  const pack = { dshVersion: current.dshVersion, createdAt: '2026-01-01T00:00:00Z', ...current.plugins }
+  const fileSha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
+  writeFileSync(currentPath, JSON.stringify(current))
+  writeFileSync(join(root, 'artifacts/pack.json'), JSON.stringify(pack))
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGekAAAAASUVORK5CYII=', 'base64')
+  const views = ['projects', 'cat', 'qa', 'proposal', 'references', 'conflict', 'browser', 'settings']
+  const ids = ['ime', 'emoji-combining', 'tag-atomic', 'locked-segment', 'line-break', 'undo-redo', 'shortcut', 'virtual-scroll', 'side-by-side', 'fullscreen', 'floating', 'two-projects', 'light-theme', 'dark-theme', 'narrow-window', 'keyboard-navigation', 'no-zombie-slot']
+  const raw = {
+    schemaVersion: 1, generatedBy: 'mcp__cua_repl', installationId: current.installationId,
+    currentSha256: fileSha(currentPath), desktopArtifactSha256: current.desktopArtifact.sha256,
+    pluginHashes: { linguist: pack.linguist.sha256, browserSkill: pack.browserSkill.sha256 },
+    url: 'dsh-app://app/', capturedAt: new Date().toISOString(), actionTracePath: 'artifacts/evidence/trace.json',
+    screenshots: views.map((view, i) => {
+      const path = `artifacts/evidence/${view}.png`
+      writeFileSync(join(root, path), png)
+      return { path, sha256: fileSha(join(root, path)), view, theme: i ? 'light' : 'dark', widthMode: i ? 'normal' : 'narrow', ...(i === 0 ? { capturedBy: 'macos-screencapture' } : {}) }
+    }),
+    actions: ids.map(id => ({ id, result: 'observed', detail: 'Synthetic validator fixture; not installed UI evidence', at: new Date().toISOString() })),
+  }
+  const trace = { source: 'mcp__cua_repl', installationId: raw.installationId, url: raw.url, screenshots: raw.screenshots, actions: raw.actions }
+  const check = (index = raw, actions = trace) => {
+    writeFileSync(join(root, raw.actionTracePath), JSON.stringify(actions))
+    writeFileSync(join(evidence, 'ui-cua.json'), JSON.stringify({ ...index, actionTraceSha256: fileSha(join(root, raw.actionTracePath)) }))
+    return validateUiEvidence({ root, currentPath })
+  }
+  try {
+    const report = check()
+    assert.equal(report.status, 'PASS')
+    assert.equal(report.ui.actionsPerformedBy, 'mcp__cua_repl')
+    assert.equal(report.ui.screenshots[0].capturedBy, 'macos-screencapture')
+    assert.equal(report.ui.screenshots[1].capturedBy, 'mcp__cua_repl')
+    assert.match(readFileSync(join(evidence, 'ui-validation.log'), 'utf8'), /screenshot source=macos-screencapture/)
+    assert.throws(() => check({ ...raw, generatedBy: 'macos-screencapture' }), /UI actions must identify/)
+    assert.throws(() => check({ ...raw, actions: raw.actions.map((action, i) => i ? action : { ...action, performedBy: 'macos-screencapture' }) }), /must be performed by mcp__cua_repl/)
+    assert.throws(() => check({ ...raw, screenshots: raw.screenshots.map((item, i) => i ? item : { ...item, capturedBy: 'html-render' }) }), /source is unsupported/)
+    assert.throws(() => check(raw, { ...trace, screenshots: [] }), /omits screenshot source or path/)
+    assert.throws(() => check({ ...raw, installationId: 'another-install' }), /another installation/)
+    assert.throws(() => check({ ...raw, pluginHashes: { ...raw.pluginHashes, linguist: '0'.repeat(64) } }), /differs from installed package/)
+    assert.throws(() => check({ ...raw, screenshots: raw.screenshots.map((item, i) => i ? item : { ...item, sha256: '0'.repeat(64) }) }), /hash or freshness/)
+    assert.throws(() => check({ ...raw, actions: raw.actions.slice(1) }), /was not observed/)
+    assert.throws(() => check(raw, { ...trace, actions: [] }), /action trace omits ime/)
+    const firstPng = join(root, raw.screenshots[0].path)
+    utimesSync(firstPng, 1, 1)
+    assert.throws(() => check(), /hash or freshness/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

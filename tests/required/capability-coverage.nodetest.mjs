@@ -11,3 +11,13 @@ test('installed coverage cannot omit a source capability or a reachable UI actio
   assert.throws(() => requireCapabilityCoverage(domain, ui, [{ ...result, featureIds: ['D001', 'UI001', 'UNWIRED'] }]), /excluded capability/)
   requireCapabilityCoverage(domain, ui, [{ ...result, featureIds: ['D001', 'UI001'] }])
 })
+
+test('an evidenced external prerequisite blocks completion without masking missing or invalid capabilities', () => {
+  const domain = { features: [{ id: 'D059' }, { id: 'D001' }] }
+  const ui = { actions: [] }
+  const blocked = { result: 'BLOCKED_ENV', featureIds: ['D059'], prerequisite: 'No authorized notification destination configured', detail: 'Installed ScheduleList returned no destinations; user deferred configuration.' }
+  const passed = { result: 'passed', featureIds: ['D001'], detail: 'Observed on current synthetic installation' }
+  assert.throws(() => requireCapabilityCoverage(domain, ui, [blocked]), /without installed acceptance: D001/)
+  assert.throws(() => requireCapabilityCoverage(domain, ui, [passed, { ...blocked, prerequisite: '' }]), /explicit external prerequisite/)
+  assert.throws(() => requireCapabilityCoverage(domain, ui, [passed, blocked]), error => error.constructor.name === 'ExternalPrerequisiteError' && error.message.includes('D059'))
+})

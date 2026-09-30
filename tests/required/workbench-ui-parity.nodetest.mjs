@@ -9,31 +9,37 @@ const require = createRequire(new URL('../../packages/dsh-linguist/package.json'
 const React = require('react')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const t = (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, name) => String(params[name]))
-const primitives = { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Modal: 'modal' }
+const primitives = { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Modal: 'modal', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
 const client = new URL('../../packages/dsh-linguist/src/client/', import.meta.url)
+const workflow = {}
+runInNewContext(ts.transpileModule(readFileSync(new URL('workflow-ui.ts', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: workflow })
 
 // Execute each production component and its hooks; only external I/O and native primitives are substituted.
-function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch } = {}) {
+function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard } = {}) {
   const state = [], memo = [], effects = [], pending = []
   let cursor, memoCursor, effectCursor, tree
   const exports = {}
   const code = ts.transpileModule(readFileSync(new URL(file, client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText
-  runInNewContext(`${code}\nexports.testComponent = ${symbol};`, { exports, fetch, Intl, crypto: { randomUUID: () => 'synthetic-key' }, require: name => {
+  runInNewContext(`${code}\nexports.testComponent = ${symbol};`, { exports, fetch, Intl, EventSource: class { addEventListener() {} close() {} }, crypto: { randomUUID: () => 'synthetic-key' }, require: name => {
     if (name === 'react') return { ...React,
+      useSyncExternalStore(_subscribe, getSnapshot) { return getSnapshot() },
       useState(initial) { const i = cursor++; if (!(i in state)) state[i] = typeof initial === 'function' ? initial() : initial; return [state[i], value => { state[i] = typeof value === 'function' ? value(state[i]) : value }] },
       useMemo(factory, deps) { const i = memoCursor++; if (!memo[i] || deps.some((value, j) => value !== memo[i].deps[j])) memo[i] = { deps, value: factory() }; return memo[i].value },
       useCallback(callback, deps) { const i = memoCursor++; if (!memo[i] || deps.some((value, j) => value !== memo[i].deps[j])) memo[i] = { deps, value: callback }; return memo[i].value },
       useRef(value) { const i = memoCursor++; if (!memo[i]) memo[i] = { value: { current: value } }; return memo[i].value },
       useEffect(run, deps) { const i = effectCursor++; if (!effects[i] || deps.some((value, j) => value !== effects[i].deps[j])) pending.push(() => { effects[i]?.cleanup?.(); effects[i] = { deps, cleanup: run() } }) },
     }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return primitives
-    if (name === './api') return { required, fileUrl: token => `/la/v1/files/${token}` }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { ...primitives, writeClipboard }
+    if (name === './api') return { required, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './project-errors') return { describeProjectError: String }
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
     if (name === './proposal-view') return { groupProposalRuns: () => [], textDiffParts: () => [] }
-    if (name === './workflow-ui') return { stageName: value => value, stageFilterOptions: () => [], stageProgressLabel: value => value, stageCompletionLabel: value => value }
+    if (name === './workflow-ui') return workflow
     if (name === './format-labels') return { describeLinguistFormat: value => value }
+    if (name === './ProjectSessions') return { ProjectSessions: 'project-sessions' }
+    if (name === './ProjectLocaleSelect') return { ProjectLocaleSelect: 'locale-select' }
+    if (name === './LegacyMigrationPanel') return { LegacyMigrationPanel: 'legacy-migration' }
     if (name === './ScheduleManager') return { ScheduleManager: 'schedule-manager' }
     if (name === './TargetEditor') return { splitProtectedText: value => [{ kind: 'text', value }] }
     if (name.endsWith('.module.css')) return { default: {} }
@@ -42,7 +48,7 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
   function nodes(node) {
     if (typeof node !== 'object' || node === null) return []
     if (node.type === 'modal' && !node.props.open) return []
-    return [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes)]
+    return [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
   }
   function text(node) {
     if (node === null || node === undefined || typeof node === 'boolean') return ''
@@ -68,7 +74,7 @@ test('reference inspector exposes term details and inserts through the active pr
   const component = mount('CatWorkbench.tsx', 'ContextPanel', props, { required: async operation => operation === 'linguistCatGetContext' ? context : { items: [] } })
   component.render(); await tick()
   let text = component.render()
-  assert.match(text, /必需 · 包含匹配 · 区分大小写 · 译文冲突/)
+  assert.match(text, /必须 · 包含匹配 · 区分大小写 · 译文冲突/)
   assert.match(text, /Synthetic term note/)
   component.click('插入草稿')
   assert.deepEqual(inserted, ['用語'])
@@ -77,6 +83,47 @@ test('reference inspector exposes term details and inserts through the active pr
   assert.match(text, /先打开当前句段的译文编辑器/)
   component.render({ editorHandle: props.editorHandle, archived: true })
   assert(component.button('插入草稿').disabled)
+  component.dispose()
+})
+
+test('term labels cover filters, edits, lists, conflicts and import candidates without changing submitted values', async () => {
+  const labels = { required: '必须', preferred: '推荐', forbidden: '禁用', allowed: '允许', deprecated: '弃用' }
+  const terms = Object.keys(labels).map((status, i) => ({ id: `term-${i}`, term: `Synthetic ${i}`, translation: `译法 ${i}`, status, caseSensitive: false }))
+  const requests = []
+  const component = mount('Panels.tsx', 'ReferencePanel', { projectId: 'p', segmentIds: [], archived: false, onChanged() {}, onNavigate() {}, onSendAgentTask() {} }, { required: async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistReferencesQueryTerms') return { items: terms, total: terms.length, hasMore: false }
+    if (operation === 'linguistReferencesListTermConflicts') return { count: 1, conflicts: [{ normalizedTerm: 'synthetic', entries: terms.slice(0, 2) }] }
+    if (operation === 'linguistReferencesImport') return { cancelled: false, requiresConfirmation: true, candidateId: 'candidate-synthetic', filename: 'synthetic.csv', sourceSha256: 'a'.repeat(64), summary: { entryCount: terms.length, warnings: [], samples: terms.map(term => ({ ...term, kind: 'terms' })) } }
+    if (operation === 'linguistReferencesUpsertTerm') return {}
+    throw new Error(operation)
+  } })
+  component.render(); await tick()
+  let text = component.render()
+  const select = label => component.nodes().find(node => node.type === 'select' && node.props['aria-label'] === label)
+  for (const label of ['术语状态筛选', '术语约束']) {
+    const options = React.Children.toArray(select(label).props.children).filter(node => node.props.value)
+    assert.deepEqual(Object.fromEntries(options.map(node => [node.props.value, node.props.children])), labels)
+  }
+  for (const term of terms) assert(text.includes(`${term.translation}${labels[term.status]}`), `list label ${term.status}`)
+  for (const term of terms.slice(0, 2)) assert(text.includes(`${term.translation} · ${labels[term.status]}`), `conflict label ${term.status}`)
+  select('术语状态筛选').props.onChange({ target: { value: 'forbidden' } }); component.render(); await tick(); component.render()
+  assert.equal(requests.filter(request => request.operation === 'linguistReferencesQueryTerms').at(-1).input.status, 'forbidden')
+  component.nodes().find(node => node.type === 'input' && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'synthetic.csv' }], value: 'synthetic.csv' } })
+  await tick(); text = component.render()
+  for (const term of terms) assert(text.includes(`${term.term} → ${term.translation} · ${labels[term.status]}`), `candidate label ${term.status}`)
+  for (const status of Object.keys(labels)) {
+    component.nodes().find(node => node.type === 'input' && node.props['aria-label'] === '术语').props.onChange({ target: { value: 'Synthetic term' } })
+    component.nodes().find(node => node.type === 'input' && node.props['aria-label'] === '译法').props.onChange({ target: { value: '合成译法' } })
+    select('术语约束').props.onChange({ target: { value: status } }); component.render()
+    component.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+    await tick(); component.render()
+    assert.equal(requests.filter(request => request.operation === 'linguistReferencesUpsertTerm').at(-1).input.status, status)
+  }
+  const locale = {}, dictionaries = {}
+  runInNewContext(ts.transpileModule(readFileSync(new URL('ui-locale.tsx', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: locale, require: () => React })
+  locale.registerLinguistLocale({ register(_namespace, language, dictionary) { dictionaries[language] = dictionary; return () => {} } })
+  assert.deepEqual(Object.fromEntries(Object.values(labels).map(label => [label, dictionaries.en[label]])), { 必须: 'Required', 推荐: 'Preferred', 禁用: 'Forbidden', 允许: 'Allowed', 弃用: 'Deprecated' })
   component.dispose()
 })
 
@@ -140,6 +187,65 @@ test('as-is delivery makes no export request before the native confirmation and 
   component.dispose()
 })
 
+test('delivery copies the prepared PM report through the native clipboard and reports write failure', async () => {
+  const reportMarkdown = '# Synthetic PM review\n\nCurrent revision only — 句段 3 ✅\n'
+  const copied = []
+  let clipboardAvailable = false
+  const component = mount('Panels.tsx', 'DeliveryPanel', { projectId: 'p', assets: [{ assetId: 'asset-1', filename: 'synthetic.txt' }], archived: false }, {
+    required: async operation => operation === 'linguistExportsPrepareAsset'
+      ? { reportMarkdown, preflight: { ready: false, stageCounts: { confirmed: 2 }, segmentCount: 3, qa: { openErrors: 1 }, pendingProposalCount: 0, blockers: [] } }
+      : [],
+    writeClipboard: async text => { copied.push(text); return clipboardAvailable },
+  })
+  component.render(); await tick(); component.render()
+  assert(!component.render().includes('复制 PM 审校报告'))
+  component.click('仅运行预检'); await tick(); component.render()
+  assert.equal(component.button('复制 PM 审校报告').size, 'sm')
+  await component.click('复制 PM 审校报告'); await tick()
+  assert.match(component.render(), /无法复制审校报告/)
+  clipboardAvailable = true
+  await component.click('复制 PM 审校报告'); await tick()
+  assert.match(component.render(), /审校报告已复制/)
+  assert.deepEqual(copied, [reportMarkdown, reportMarkdown])
+  component.dispose()
+})
+
+test('project archive requires native confirmation, keeps failure visible, and preserves read-only follow-up', async () => {
+  const requests = []
+  let fail = true, changed = 0
+  const project = { id: 'project-archive', name: 'Synthetic archive', sourceLocale: 'en-US', targetLocale: 'ja-JP', workflowStage: 'translation' }
+  const component = mount('Panels.tsx', 'ProjectSettingsPanel', { project, hasBatches: false, onChanged() { changed++ } }, {
+    required: async (operation, input) => {
+      requests.push({ operation, input })
+      if (operation === 'linguistProjectsArchive' && fail) throw new Error('Synthetic archive refused')
+      return []
+    },
+  })
+  component.render(); await tick(); component.render()
+  component.click('归档项目'); component.render()
+  assert(!requests.some(request => request.operation === 'linguistProjectsArchive'))
+  const modal = component.nodes().find(node => node.type === 'modal')
+  assert.equal(modal.props.title, '归档项目「Synthetic archive」？')
+  assert.match(component.render(), /数据以只读方式保留，仍可打开查看和备份/)
+  component.click('取消'); component.render()
+  assert(!component.nodes().some(node => node.type === 'modal'))
+  component.click('归档项目'); component.render()
+  component.click('确认归档'); component.render()
+  assert.equal(component.button('归档中…').disabled, true)
+  await tick()
+  assert.match(component.render(), /Synthetic archive refused/)
+  assert.equal(changed, 0)
+  fail = false
+  component.click('确认归档'); await tick(); component.render()
+  assert.deepEqual(JSON.parse(JSON.stringify(requests.filter(request => request.operation === 'linguistProjectsArchive').map(request => request.input))), [{ projectId: project.id }, { projectId: project.id }])
+  assert.equal(changed, 1)
+  assert(!component.nodes().some(node => node.type === 'modal'))
+  component.render({ project: { ...project, archivedAt: '2026-09-30T00:00:00Z' } })
+  assert.equal(component.button('归档项目').disabled, true)
+  assert.match(component.render(), /归档项目为只读/)
+  component.dispose()
+})
+
 test('Run panel shows true job progress, reconciles the scoped job, and explicitly cancels the entire Session', async () => {
   let cancelled = 0
   const job = { jobId: 'job-1', sessionId: 's', runId: 'run-1', status: 'running', cursor: 2, total: 5, completed: 2, failed: 0 }
@@ -171,5 +277,91 @@ test('empty batch preview explains the absence of segments instead of rendering 
   const component = mount('BatchPreview.tsx', 'BatchPreview', { projectId: 'p', asset, onClose() {} }, { required: async operation => operation === 'linguistProjectsGetSummary' ? { project: {}, assets: [asset] } : { total: 0, segments: [], hasMore: false } })
   component.render(); await tick(); assert.match(component.render(), /当前批次没有可预览的句段/)
   assert(!component.nodes().some(node => node.props?.role === 'table'))
+  component.dispose()
+})
+
+
+test('compact project controls preserve all four roles, three work modes and Workspace identity', async () => {
+  const workspaces = [
+    { workspaceId: 'workspace-a', title: 'Shared', path: '/synthetic/a' },
+    { workspaceId: 'workspace-b', title: 'Shared', path: '/synthetic/b' },
+    { workspaceId: 'workspace-c', title: 'Unique', path: '/synthetic/c' },
+  ]
+  const projects = ['one', 'two'].map(id => ({ id, name: id, sourceLocale: 'en-US', targetLocale: 'ja-JP', workflowStage: 'translation', workspaceId: 'workspace-a', createdAt: '2026-09-29T00:00:00Z', updatedAt: '2026-09-29T01:00:00Z' }))
+  const entered = [], requests = []
+  const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
+    workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: workspaces } } } }, sessions: {},
+    onEnter: async input => entered.push(input), onOpenSession() {}, onPickDirectory() {},
+  }, { required: async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistProjectsList') return projects
+    if (operation === 'linguistProjectsListFormatQualifications') return []
+    if (operation === 'linguistProjectsGetSummary') return { totalSegments: 8, assetCount: 1 }
+    if (operation === 'linguistProjectsCheckHealth') return { checks: [] }
+    if (operation === 'linguistProjectsReorderActive') return {}
+    throw new Error(operation)
+  } })
+  component.render(); await tick(); component.render(); await tick(); component.render()
+  const select = label => component.nodes().find(node => node.type === 'select' && node.props['aria-label'] === label)
+  const role = select('岗位'), mode = select('工作方式')
+  assert(role, 'roles are a compact, labelled selector')
+  assert(mode, 'work modes are a compact, labelled selector')
+  assert.deepEqual(React.Children.toArray(role.props.children).map(node => node.props.value), ['general', 'translator', 'reviewer', 'proofreader'])
+  assert.deepEqual(React.Children.toArray(mode.props.children).map(node => node.props.value), ['cat', 'working-copy', 'browser'])
+  assert(!component.nodes().some(node => node.props?.role === 'radiogroup'))
+  const picker = select('工作区')
+  assert.deepEqual(React.Children.toArray(picker.props.children).slice(1).map(node => node.props.children), ['Shared · /synthetic/a', 'Shared · /synthetic/b', 'Unique'])
+  role.props.onChange({ target: { value: 'reviewer' } }); mode.props.onChange({ target: { value: 'browser' } }); component.render()
+  assert.equal(component.button('进入工作会话').variant, 'outline')
+  await component.click('进入工作会话'); component.render()
+  assert.deepEqual(JSON.parse(JSON.stringify(entered)), [{ projectId: 'one', workspaceId: 'workspace-a', role: 'reviewer', workMode: 'browser' }])
+  const menus = component.nodes().filter(node => node.type === 'menu')
+  assert.equal(menus.length, 2)
+  assert.equal(menus[0].props.items.find(item => item.id === 'up').disabled, true)
+  await menus[0].props.onSelect('down'); component.render(); await tick()
+  assert.deepEqual(Array.from(requests.find(request => request.operation === 'linguistProjectsReorderActive').input.orderedProjectIds), ['two', 'one'])
+  component.dispose()
+})
+
+test('native project drag/drop submits the full active order, excludes archives, and keeps keyboard moves', async () => {
+  const projects = ['one', 'hidden', 'two', 'three', 'archived'].map(id => ({ id, name: id, sourceLocale: 'en-US', targetLocale: 'ja-JP', workspaceId: id === 'hidden' ? 'workspace-b' : 'workspace-a', ...(id === 'archived' ? { archivedAt: '2026-09-29T00:00:00Z' } : {}), createdAt: '2026-09-29T00:00:00Z', updatedAt: '2026-09-29T01:00:00Z' }))
+  const requests = []
+  const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
+    workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: [{ workspaceId: 'workspace-a', title: 'Synthetic', path: '/synthetic/a' }] } } } }, sessions: {}, onEnter() {}, onOpenSession() {}, onPickDirectory() {},
+  }, { required: async (operation, input) => {
+    if (operation === 'linguistProjectsList') return projects
+    if (operation === 'linguistProjectsListFormatQualifications') return []
+    if (operation === 'linguistProjectsGetSummary') return { totalSegments: 0, assetCount: 0 }
+    if (operation === 'linguistProjectsCheckHealth') return { checks: [] }
+    if (operation === 'linguistProjectsReorderActive') { requests.push(Array.from(input.orderedProjectIds)); return {} }
+    throw new Error(operation)
+  } })
+  component.render(); await tick(); component.render(); await tick(); component.render()
+  const row = id => component.nodes().find(node => node.type === 'li' && node.key.endsWith(`$${id}`))
+  const title = id => component.nodes().find(node => node.type === 'strong' && node.props.children === id)
+  const dataTransfer = { setData(type, value) { assert.equal(type, 'text/plain'); assert.equal(value, 'one') } }
+  const event = clientY => ({ clientY, dataTransfer, preventDefault() {}, currentTarget: { getBoundingClientRect: () => ({ top: 100, height: 40 }), contains: () => false } })
+  assert.equal(title('one').props.draggable, true)
+  title('one').props.onDragStart({ dataTransfer }); component.render()
+  assert.equal(dataTransfer.effectAllowed, 'move')
+  row('three').props.onDragOver(event(130)); component.render()
+  assert.equal(row('three').props['data-drop-position'], 'after')
+  row('three').props.onDrop(event(130)); component.render(); await tick(); component.render(); await tick(); component.render()
+  assert.deepEqual(requests[0], ['hidden', 'two', 'three', 'one'])
+  assert.equal(row('three').props['data-drop-position'], undefined)
+  title('one').props.onDragStart({ dataTransfer }); component.render()
+  row('two').props.onDragOver(event(110)); component.render()
+  assert.equal(row('two').props['data-drop-position'], 'before')
+  row('two').props.onDrop(event(110)); component.render(); await tick(); component.render(); await tick(); component.render()
+  assert.deepEqual(requests[1], ['hidden', 'one', 'two', 'three'])
+  title('one').props.onDragEnd(); component.render()
+  row('two').props.onDrop(event(130)); await tick()
+  assert.equal(requests.length, 2, 'external or cancelled drags do not reorder projects')
+  component.nodes().find(node => node.type === 'checkbox').props.onChange(true); component.render()
+  assert.equal(title('archived').props.draggable, false)
+  const menus = component.nodes().filter(node => node.type === 'menu')
+  assert.equal(menus.length, 3, 'archives have no reorder menu')
+  menus[0].props.onSelect('down'); component.render(); await tick()
+  assert.deepEqual(requests[2], ['two', 'hidden', 'one', 'three'])
   component.dispose()
 })

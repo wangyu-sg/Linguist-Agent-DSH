@@ -399,7 +399,7 @@ test('Session copy HTTP errors expose residual identity and cleanup state withou
     assert.equal(projected.code, 'SESSION_COPY_FAILED')
     assert.deepEqual(projected.sessionCopyDetails, { sessionId: 'session-synthetic-copy', cleanup })
     assert.match(projected.message, /session-synthetic-copy/)
-    assert.match(projected.message, cleanup === 'not-started' ? /may remain/ : cleanup === 'completed' ? /no Linguist binding remains/ : /rollback failed/)
+    assert.match(projected.message, cleanup === 'not-started' ? /before a usable copy/ : cleanup === 'completed' ? /archived.*restore/ : /cleanup failed/)
     assert.doesNotMatch(JSON.stringify(projected), /Synthetic secret|private|internalPath|cause|stack/)
   }
 })
@@ -935,9 +935,17 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     let creates = 0
     let storedCopy
     const persistenceSteps = []
+    const archived = []
     const host = {
       bindings, service,
-      workspaceRegistry: { get: id => id === 'workspace-1' ? { id, path: realpathSync(workspace) } : id === 'workspace-2' ? { id, path: realpathSync(secondWorkspace) } : undefined },
+      workspaceRegistry: {
+        get: id => id === 'workspace-1' ? { id, path: realpathSync(workspace) } : id === 'workspace-2' ? { id, path: realpathSync(secondWorkspace) } : undefined,
+        async archiveSession(id, options) {
+          assert.notEqual(id, 'source-session')
+          assert.deepEqual(options, { stopActivity: true })
+          archived.push(id)
+        },
+      },
       sessionExists: async () => true,
       agentStatus: () => 'idle',
       rebindAgent: () => {},
@@ -1010,17 +1018,19 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     const fork = await copyLinguistSessionToProject(host, 'source-session', target.id)
     assert.equal(fork.mode, 'fork')
     assert.equal(forks, 1)
+    const completedEvents = events
     events = [...events, { type: 'user/message', seq: 4 }]
     assert.equal((await sessionCopyEligibility(host, 'source-session')).reason, 'NO_COMPLETED_ASSISTANT')
     assert.equal(creates, 3)
 
-    // DSH has no public Session delete API. Failures must leave no LA binding or tools.
+    // Failures detach Linguist and archive only the newly created native Session.
     events = []
     const rebinds = []
     host.rebindAgent = id => { rebinds.push({ id, bound: Boolean(bindings.session(id)) }) }
     host.sessionController.rename = async () => { throw new Error('rename refused') }
     await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), /blank-4.*no Linguist binding remains/)
     assert.equal(bindings.session('blank-4'), undefined)
+    assert.deepEqual(archived, ['blank-4'])
     assert.deepEqual(rebinds, [], 'binding is delayed until native title and source/target checks succeed')
     host.sessionController.rename = async () => {}
     host.rebindAgent = id => {
@@ -1031,6 +1041,7 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
     assert.equal(bindings.session('blank-5'), undefined)
     assert.deepEqual(rebinds, [{ id: 'blank-5', bound: true }, { id: 'blank-5', bound: false }])
     assert.equal(new BindingStore(root).session('blank-5'), undefined)
+    assert.deepEqual(archived, ['blank-4', 'blank-5'])
     assert.equal(bindings.session('source-session').projectId, source.id)
     host.rebindAgent = () => { throw new Error('registration and disposal failed') }
     await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
@@ -1038,10 +1049,151 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
       assert.ok(error.cause instanceof AggregateError)
       assert.equal(error.cause.errors.length, 2)
       assert.deepEqual(invokeError(error).sessionCopyDetails, { sessionId: 'blank-6', cleanup: 'failed' })
-      assert.match(error.message, /blank-6.*rollback failed/)
+      assert.match(error.message, /blank-6.*cleanup failed/)
       return true
     })
+    assert.deepEqual(archived, ['blank-4', 'blank-5', 'blank-6'], 'native archival still runs after binding rollback throws')
+    host.workspaceRegistry.archiveSession = async () => { throw new Error('native archive write refused') }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
+      assert.equal(error.cleanup, 'failed')
+      assert.deepEqual(error.cause.errors.map(item => item.message), [
+        'registration and disposal failed', 'registration and disposal failed', 'native archive write refused',
+      ])
+      assert.match(error.message, /blank-7.*cleanup failed/)
+      return true
+    })
+    host.rebindAgent = () => {}
+    host.sessionController.rename = async () => { throw new Error('rename refused') }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
+      assert.equal(error.cleanup, 'failed')
+      assert.deepEqual(error.cause.errors.map(item => item.message), ['rename refused', 'native archive write refused'])
+      return true
+    })
+    events = [{ type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write' } }]
+    host.sessionPersistence.create = async () => { throw new Error('seed creation refused') }
+    host.workspaceRegistry.archiveSession = async () => { assert.fail('never archive an identity that this copy did not create') }
+    await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
+      assert.equal(error.cleanup, 'not-started')
+      assert.equal(error.cause.message, 'seed creation refused')
+      return true
+    })
+    assert.equal(bindings.session('source-session').projectId, source.id)
+    const { RemoteError } = requireDsh('@deepseek-ai/dsh-typert-protocol')
+    const nativeFailureArchives = []
+    host.workspaceRegistry.archiveSession = async (id, options) => {
+      assert.deepEqual(options, { stopActivity: true })
+      nativeFailureArchives.push(id)
+    }
+    for (const [mode, sourceEvents] of [['blank', []], ['fork', completedEvents]]) {
+      events = sourceEvents
+      const childId = `session-${mode}-attach-failed`
+      const failAttach = async () => {
+        throw new RemoteError('session/workspace-attach-failed', 'synthetic native attach refused', { sessionId: childId, workspaceId: 'workspace-1' })
+      }
+      host.sessionController.create = failAttach
+      host.sessionController.fork = failAttach
+      await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => {
+        assert.equal(error.sessionId, childId)
+        assert.equal(error.cleanup, 'completed')
+        return true
+      })
+      for (const invalid of [
+        new RemoteError('session/workspace-attach-failed', 'source ID is not a copy', { sessionId: 'source-session', workspaceId: 'workspace-1' }),
+        new RemoteError('session/workspace-attach-failed', 'another Workspace is not this copy', { sessionId: childId, workspaceId: 'workspace-2' }),
+        Object.assign(new Error('untyped failure is not native ownership proof'), { code: 'session/workspace-attach-failed', details: { sessionId: childId, workspaceId: 'workspace-1' } }),
+      ]) {
+        host.sessionController.create = host.sessionController.fork = async () => { throw invalid }
+        await assert.rejects(copyLinguistSessionToProject(host, 'source-session', target.id), error => error === invalid)
+      }
+    }
+    assert.deepEqual(nativeFailureArchives, ['session-blank-attach-failed', 'session-fork-attach-failed'])
+    assert.equal(bindings.session('source-session').projectId, source.id)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('failed Session seed copy is archived through the real native registry and survives reopening', async () => {
+  const requireNative = createRequire(new URL('../../.toolchain/dsh-0.2.0-rc.2/package.json', import.meta.url))
+  const { Context: NativeContext } = requireNative('@deepseek-ai/cordis')
+  const { Storage } = requireNative('@deepseek-ai/dsh-storage')
+  const jsonStorage = requireNative('@deepseek-ai/dsh-storage-json')
+  const domainStorage = requireNative('@deepseek-ai/dsh-storage-domain')
+  const JsonlPersistence = requireNative('@deepseek-ai/dsh-session-persistence-jsonl').default
+  const { WorkspaceRegistry } = requireNative('@deepseek-ai/dsh-workspace')
+  const { SESSION_FORMAT_VERSION } = requireNative('@deepseek-ai/dsh-session')
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-copy-native-archive-'))
+  const workspace = join(root, 'workspace')
+  mkdirSync(workspace)
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  const ctx = new NativeContext()
+  const fibers = []
+  try {
+    for (const [plugin, config] of [
+      [Storage], [jsonStorage, { root: join(root, 'domains') }], [domainStorage, { backend: 'json' }],
+      [JsonlPersistence, { root: join(root, 'sessions'), compression: 'none' }], [WorkspaceRegistry],
+    ]) {
+      const fiber = ctx.plugin(plugin, config)
+      fibers.push(fiber)
+      await fiber.await()
+    }
+    const registered = await ctx.workspaceRegistry.create(workspace)
+    const source = await service.createProject({ name: 'Synthetic source', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const target = await service.createProject({ name: 'Synthetic target', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const sourceId = SessionId('session-native-copy-source')
+    const sourceHandle = await ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id: sourceId, createdAt: 1, cwd: realpathSync(workspace), isSeeded: false })
+    await sourceHandle.append([{ type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write' } }])
+    await sourceHandle.close()
+    const sourceBefore = await ctx.sessionPersistence.stat(sourceId)
+    const bindings = new BindingStore(root)
+    bindings.bindProject(source.id, registered.id)
+    bindings.bindProject(target.id, registered.id)
+    const sourceBinding = { workspaceId: registered.id, projectId: source.id, role: 'reviewer', workMode: 'cat' }
+    bindings.bindSession(sourceId, sourceBinding)
+    const stopped = []
+    ctx.on('workspace/session-stop', ({ sessionId }) => {
+      assert.ok(ctx.workspaceRegistry.archivedSessionIds.includes(sessionId), 'native archive is durable before stop requests')
+      stopped.push(sessionId)
+    })
+    const host = {
+      service, bindings, workspaceRegistry: ctx.workspaceRegistry, sessionPersistence: ctx.sessionPersistence,
+      sessionExists: async id => Boolean(await ctx.sessionPersistence.stat(id)), agentStatus: () => 'idle',
+      rebindAgent() { assert.fail('failed seed adoption must never bind Linguist tools') },
+      sessionController: {
+        async inspect(id) {
+          const handle = await ctx.sessionPersistence.open(id, 'read')
+          try { return { meta: sourceBefore.header, events: (await handle.read()).events } }
+          finally { await handle.close() }
+        },
+        async create() { throw new Error('synthetic adoption refused after durable seed') },
+      },
+    }
+    let failedId
+    await assert.rejects(copyLinguistSessionToProject(host, sourceId, target.id), error => {
+      assert.ok(error instanceof LinguistSessionCopyError)
+      assert.equal(error.cleanup, 'completed')
+      assert.match(error.message, /archived.*restore/i)
+      failedId = error.sessionId
+      return true
+    })
+    assert.notEqual(failedId, sourceId)
+    assert.deepEqual(ctx.workspaceRegistry.archivedSessionIds, [failedId])
+    assert.deepEqual(stopped, [failedId])
+    assert.ok(await ctx.sessionPersistence.stat(failedId), 'archival retains a recoverable native record')
+    assert.equal(bindings.session(failedId), undefined)
+    assert.deepEqual(bindings.session(sourceId), sourceBinding)
+    assert.deepEqual(await ctx.sessionPersistence.stat(sourceId), sourceBefore)
+    await fibers.pop().dispose()
+    const reopened = ctx.plugin(WorkspaceRegistry)
+    fibers.push(reopened)
+    await reopened.await()
+    assert.deepEqual(ctx.workspaceRegistry.archivedSessionIds, [failedId], 'archive survives native registry reload')
+    await ctx.workspaceRegistry.unarchiveSession(failedId)
+    assert.deepEqual(ctx.workspaceRegistry.archivedSessionIds, [])
+  } finally {
+    for (const fiber of fibers.reverse()) await fiber.dispose()
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('parent delegation list exposes current actor/revision evidence and never treats partial Stage scope as full completion', async () => {

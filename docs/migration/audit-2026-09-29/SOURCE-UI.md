@@ -10,7 +10,7 @@
 - 目标入口只是待核对的位置，不能据文件存在或测试绿标等价。全部安装态为本轮逐项未验，旧包安装不代替最新DSH统一交付验收。
 - LA领域行为保留；聊天、模型、权限、文件、Skills/MCP、浏览器壳、调度使用DSH原生能力，不复制Proma宿主。
 - 源语言下拉30种、默认zh-CN→en-US，只保留未知现值；新增自定义locale输入是目标增强。
-- 已确认目标术语匹配缺插入草稿动作和部分匹配详情；普通Composer默认CAT范围需重核新DSH公开API。
+- 已确认目标术语匹配缺插入草稿动作和部分匹配详情；CAT上下文采用用户已确认的按需附带方式，实际发送时冻结；当前安装交互仍待逐项验收。
 - `ProjectCard`、`DeliverablesSection`当前只有定义，无renderer调用，不把历史文件当现行入口。
 - Proma独立Memory窗口不是LA领域后端；DSH只读Files不能冒称可手工编辑。
 - 源renderer无独立非CAT工作副本页，流程经工具+原生Files；需与Host工具盘点合并。
@@ -427,13 +427,13 @@
 | ID | 用户操作 | 源依据 | 目标已知入口／状态 |
 | --- | --- | --- | --- |
 | LA-UI-108 | 显示项目/批次/引用/选择chip并可清引用选择 | `ComposerContextChips.tsx:10` `ComposerContextChips`<br>`project-composer-context.ts:19` `buildProjectComposerContextChips` | `ComposerContextChips.tsx`<br>`composer-reference.ts`<br>`index.ts`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
-| LA-UI-109 | 普通Composer发送/queue/steer同步冻结CAT上下文 | `agent-host-extension.tsx:52` `captureTurnContext`<br>`AgentView.tsx:2061` `const linguistContext = captureTurnContext()` | `ComposerContextChips.tsx`<br>`composer-reference.ts`<br>`index.ts`<br>`CatToolResult.tsx`<br>`known-sdk-boundary` |
+| LA-UI-109 | 普通Composer发送/queue/steer同步冻结CAT上下文 | `agent-host-extension.tsx:52` `captureTurnContext`<br>`AgentView.tsx:2061` `const linguistContext = captureTurnContext()` | `ComposerContextChips.tsx`<br>`composer-reference.ts`<br>`index.ts`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-110 | 从领域按钮发送完整项目Agent任务 | `project-agent-task.ts:36` `sendProjectAgentTask` | `ComposerContextChips.tsx`<br>`composer-reference.ts`<br>`index.ts`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 | LA-UI-111 | 委派进程状态与专业覆盖分开展示 | `delegation-result.tsx:104` `DelegationSummaryRow` | `ComposerContextChips.tsx`<br>`composer-reference.ts`<br>`index.ts`<br>`CatToolResult.tsx`<br>`entry-mapped-parity-unverified` |
 
 **LA-UI-108** 默认：项目chip保留，窄空间摘要；普通焦点不算引用。 空态：非LA不渲染。 异常：跨项目引用不可见。 键盘：clear独立aria-label。 并发：UI和发送snapshot同project atom。
 
-**LA-UI-109** 默认：默认project/batch，显式引用才带activeSegment；selected最多100并提示。 空态：非LA无context。 异常：超限不可假称全选区已附带。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：点击时深冻结，队列沿原scope，真实RPC Host再准入。 补充：已知固定rc1仅显式原生引用可用，默认自动附scope缺公开同步/真实RPC/await准入hook；最新DSH须重核，不能用抢IME/leading-slash的自动塞chip替代。
+**LA-UI-109** 默认：默认project/batch，显式引用才带activeSegment；selected最多100并提示。 空态：非LA无context。 异常：超限不可假称全选区已附带。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：点击时深冻结，队列沿原scope，真实RPC Host再准入。 补充：2026-09-29用户已明确接受按需点击“附带 CAT 选区”。rc.2显式原生CAT引用在实际发送时同步冻结项目/批次/显式句段引用/选区ID，随同条prompt由Host按真实source.rpcId等待准入；附件/queue/steer保持原生流程。该产品交互决定已确认，当前安装产物仍待逐项验证引用呈现、删除引用、slash/附件/IME/undo、queue/steer和真实请求/模型可见内容。复审记录：artifacts/evidence/native-composer-rc2-public-api-reaudit.json。
 
 **LA-UI-110** 默认：复用原生Agent，不建第二聊天界面。 空态：必要时ensure会话。 异常：超过选择上限拒发领域任务，非静默截断。 键盘：未发现专用快捷键；沿用按钮/表单控件的原生键盘操作。 并发：冻结后发送，异步导航不抢新会话。
 

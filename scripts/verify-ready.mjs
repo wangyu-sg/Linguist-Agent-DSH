@@ -137,15 +137,18 @@ export function requireCapabilityCoverage(domain, ui, observations) {
   const required = new Set([...domain.features.map(item => item.id), ...ui.actions.filter(item => !excluded.has(item.implementationStatus)).map(item => item.id)])
   assert(Array.isArray(observations), 'per-capability installed acceptance is missing')
   const covered = new Set()
+  const blocked = []
   for (const observation of observations) {
-    assert(observation.result === 'passed' && observation.detail?.trim() && observation.featureIds?.length, 'capability observation lacks a passed result, detail or feature IDs')
+    assert((observation.result === 'passed' || observation.result === 'BLOCKED_ENV' && observation.prerequisite?.trim()) && observation.detail?.trim() && observation.featureIds?.length, 'capability observation lacks a passed result or an explicit external prerequisite, detail or feature IDs')
     for (const id of observation.featureIds) {
       assert(required.has(id), `unknown or excluded capability in acceptance: ${id}`)
       covered.add(id)
     }
+    if (observation.result === 'BLOCKED_ENV') blocked.push(`${observation.featureIds.join(', ')}: ${observation.prerequisite}`)
   }
   const missing = [...required].filter(id => !covered.has(id))
   assert(missing.length === 0, `capabilities without installed acceptance: ${missing.join(', ')}`)
+  if (blocked.length) throw new ExternalPrerequisiteError(blocked.join('; '))
 }
 
 function traceContains(path, values, label) {
@@ -395,15 +398,16 @@ export async function verifyReady() {
     assert(map.capabilityAudit?.domain && map.capabilityAudit?.ui, 'complete source capability inventory is missing')
     const domainPath = join(root, map.capabilityAudit.domain)
     const uiPath = join(root, map.capabilityAudit.ui)
-    requireCapabilityCoverage(readJson(domainPath), readJson(uiPath), acceptance.capabilities)
+    assert(Array.isArray(acceptance.capabilities), 'per-capability installed acceptance is missing')
     const paths = acceptance.capabilities.map(observation => {
       const path = checkFileProof(observation.evidencePath, observation.evidenceSha256)
       assert(statSync(path).mtimeMs >= Date.parse(pack.createdAt), 'capability evidence predates the installed package')
       traceContains(path, [current.installationId, ...observation.featureIds], 'capability acceptance')
       return path
     })
+    requireCapabilityCoverage(readJson(domainPath), readJson(uiPath), acceptance.capabilities)
     return [domainPath, uiPath, ...new Set(paths)]
-  })
+  }, true)
   gate('V30', () => { validationMap(map); return tests(['V30']) })
   const requiredGates = gates.filter(item => /^G\d\d$/.test(item.id))
   const status = requiredGates.some(item => item.outcome === 'fail') || gates.find(item => item.id === 'V30')?.outcome === 'fail' ? 'FAILED'

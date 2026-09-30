@@ -41,6 +41,7 @@ import { describeProjectError } from './project-errors'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { groupProposalRuns, textDiffParts } from './proposal-view'
 import { useT } from './ui-locale'
+import { TERM_STATUS_LABELS } from './workflow-ui'
 import { ProjectLocaleSelect } from './ProjectLocaleSelect'
 import styles from './Panels.module.css'
 
@@ -382,7 +383,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNav
       <strong>{t("参考库")}</strong>
       <select aria-label={t("参考类别")} value={kind} onChange={(event) => { setKind(event.target.value as 'tm' | 'terms'); setPage(0); setCandidate(undefined) }}><option value="terms">{t("术语 TB")}</option><option value="tm">{t("翻译记忆 TM")}</option></select>
       <Input aria-label={t("搜索参考")} placeholder={t("搜索")} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} />
-      {kind === 'terms' && <select aria-label={t("术语状态筛选")} value={termFilter} onChange={(event) => { setTermFilter(event.target.value as typeof termFilter); setPage(0) }}><option value="">{t("全部状态")}</option>{(['allowed','preferred','required','forbidden','deprecated'] as const).map((value) => <option key={value}>{value}</option>)}</select>}
+      {kind === 'terms' && <select aria-label={t("术语状态筛选")} value={termFilter} onChange={(event) => { setTermFilter(event.target.value as typeof termFilter); setPage(0) }}><option value="">{t("全部状态")}</option>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>}
       <label>{t("导入文件")} <input type="file" disabled={archived} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
       {kind === 'terms' && <><Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : t('让 Agent 整理本批术语')}</Button><Button variant="outline" size="sm" disabled={archived || selectedTermIds.size === 0} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button><Button variant="outline" size="sm" disabled={segmentIds.length === 0 || segmentIds.length > 200} onClick={() => void validateSelectedSegments()}>{t('校验所选句段术语 {count} 段', { count: segmentIds.length })}</Button></>}
     </div>
@@ -397,7 +398,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNav
     {candidate && <div className={styles.callout} aria-label={t("参考文件候选确认")}>
       <strong>{candidate.filename} {t("· 待确认")} {candidate.summary.entryCount} {t("条")}</strong>
       {candidate.summary.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
-      <ul>{candidate.summary.samples.map((sample, index) => <li key={index}>{sample.kind === 'tm' ? `${sample.source} → ${sample.target}` : `${sample.term} → ${sample.translation} · ${sample.status}`}</li>)}</ul>
+      <ul>{candidate.summary.samples.map((sample, index) => <li key={index}>{sample.kind === 'tm' ? `${sample.source} → ${sample.target}` : `${sample.term} → ${sample.translation} · ${t(TERM_STATUS_LABELS[sample.status])}`}</li>)}</ul>
       {candidate.summary.samplesTruncated && <p>{t("候选样本仅展示前")} {candidate.summary.samples.length} {t("条。")}</p>}
       <div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistReferencesPreviewCandidate', input: { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 } })}>{t("查看原文件")}</Button><Button variant="outline" size="sm" disabled={archived} onClick={() => void finishCandidate('linguistReferencesConfirmImport')}>{t("确认导入")}</Button><Button variant="outline" size="sm" onClick={() => { if (archived) setCandidate(undefined); else void finishCandidate('linguistReferencesCancelImport') }}>{t("取消")}</Button></div>
     </div>}
@@ -405,7 +406,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNav
     {kind === 'terms' && <fieldset disabled={archived} className={styles.formFields}><form className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>
       <Input required aria-label={t("术语")} placeholder={t("术语")} value={term} onChange={(event) => setTerm(event.target.value)} />
       <Input required aria-label={t("译法")} placeholder={t("译法")} value={translation} onChange={(event) => setTranslation(event.target.value)} />
-      <select aria-label={t("术语约束")} value={termStatus} onChange={(event) => setTermStatus(event.target.value as LinguistTermInfo['status'])}>{(['allowed','preferred','required','forbidden','deprecated'] as const).map((value) => <option key={value}>{value}</option>)}</select>
+      <select aria-label={t("术语约束")} value={termStatus} onChange={(event) => setTermStatus(event.target.value as LinguistTermInfo['status'])}>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>
       <Checkbox label={t("区分大小写")} checked={caseSensitive} onChange={setCaseSensitive} />
       <Input aria-label={t("术语模块")} placeholder={t("模块")} value={module} onChange={(event) => setModule(event.target.value)} />
       <Input aria-label={t("术语类别")} placeholder={t("类别")} value={category} onChange={(event) => setCategory(event.target.value)} />
@@ -414,10 +415,10 @@ export function ReferencePanel({ projectId, assetId, segmentIds, archived, onNav
       {editingTermId && <Button variant="outline" size="sm" onClick={resetTerm}>{t("取消编辑")}</Button>}
     </form></fieldset>}
     {message && <p role="status">{message}</p>}
-    {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {entry.status}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={archived} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
+    {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {t(TERM_STATUS_LABELS[entry.status])}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={archived} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
     {list?.items.length === 0 && <p>{t("当前筛选没有参考条目。")}</p>}
     {list?.items.map((item) => <article className={styles.item} key={item.id}>
-      <div className={styles.toolbar}>{'term' in item && <Checkbox label={t('选择术语 {term}', { term: item.term })} checked={selectedTermIds.has(item.id)} onChange={() => setSelectedTermIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} />}<strong>{'term' in item ? item.term : item.source}</strong><span>→ {'translation' in item ? item.translation : item.target}</span>{'status' in item && <small>{item.status}{item.caseSensitive ? t(" · 区分大小写") : ''}</small>}
+      <div className={styles.toolbar}>{'term' in item && <Checkbox label={t('选择术语 {term}', { term: item.term })} checked={selectedTermIds.has(item.id)} onChange={() => setSelectedTermIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} />}<strong>{'term' in item ? item.term : item.source}</strong><span>→ {'translation' in item ? item.translation : item.target}</span>{'status' in item && <small>{t(TERM_STATUS_LABELS[item.status])}{item.caseSensitive ? t(" · 区分大小写") : ''}</small>}
         {'term' in item && <Button variant="outline" size="sm" disabled={archived} onClick={() => { setEditingTermId(item.id); setTerm(item.term); setTranslation(item.translation); setTermStatus(item.status); setCaseSensitive(item.caseSensitive); setModule(item.module ?? ''); setCategory(item.category ?? ''); setNote(item.note ?? '') }}>{t("编辑")}</Button>}
         <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistReferencesDelete', { projectId, kind, id: item.id })}>{t("删除")}</Button>
       </div>{'note' in item && item.note && <p>{item.note}</p>}
@@ -677,7 +678,7 @@ export function DeliveryPanel({ projectId, assets, archived }: { projectId: stri
     {error && <p role="alert">{error}</p>}
     {archived && <p>{t('归档项目只能查看历史交付物。')}</p>}
     {message && <p role="status">{message}</p>}
-    {prepared && <div className={styles.callout}><strong>{prepared.preflight.ready ? t("预检通过") : t("预检有阻塞")}</strong><p>{t("阶段")} {prepared.preflight.stageCounts.confirmed}/{prepared.preflight.segmentCount} {t("· QA 错误")} {prepared.preflight.qa.openErrors} {t("· 建议待审")} {prepared.preflight.pendingProposalCount}</p>{prepared.preflight.blockers.map((blocker) => <p key={blocker.code} role="alert">{blocker.code}：{blocker.message} ({blocker.count})</p>)}<details><summary>{t("完整预检报告")}</summary><pre>{prepared.reportMarkdown}</pre></details></div>}
+    {prepared && <div className={styles.callout}><div className={styles.toolbar}><strong>{prepared.preflight.ready ? t("预检通过") : t("预检有阻塞")}</strong><Button variant="outline" size="sm" onClick={() => void writeClipboard(prepared.reportMarkdown).then((copied) => setMessage(t(copied ? '审校报告已复制' : '无法复制审校报告'))).catch(() => setMessage(t('无法复制审校报告')))}>{t('复制 PM 审校报告')}</Button></div><p>{t("阶段")} {prepared.preflight.stageCounts.confirmed}/{prepared.preflight.segmentCount} {t("· QA 错误")} {prepared.preflight.qa.openErrors} {t("· 建议待审")} {prepared.preflight.pendingProposalCount}</p>{prepared.preflight.blockers.map((blocker) => <p key={blocker.code} role="alert">{blocker.code}：{blocker.message} ({blocker.count})</p>)}<details><summary>{t("完整预检报告")}</summary><pre>{prepared.reportMarkdown}</pre></details></div>}
     {download && <p><a href={fileUrl(download.token)} download={download.filename} onClick={() => setDownload(undefined)}>{t("下载")} {download.filename}</a>{t("（下载链接一次有效）")}</p>}
     <div className={styles.toolbar}><h3>{t("本项目交付记录")}</h3><Button variant="ghost" size="sm" disabled={loadingExports} onClick={() => void refreshExports()}>{t("刷新")}</Button></div>{loadingExports && <p role="status">{t("正在读取交付记录…")}</p>}{exportsError && <p role="alert">{exportsError}<Button variant="ghost" size="sm" onClick={() => void refreshExports()}>{t("重试")}</Button></p>}{!loadingExports && !exportsError && exports.length === 0 && <p className={styles.notice}>{t("尚无交付记录。")}</p>}{exports.map((item) => <p key={item.filename}>{item.filename} · {item.sizeBytes} bytes {item.stale ? t("· 已过时") : ''}{item.assetId && <Button variant="outline" size="sm" disabled={archived || busy} onClick={() => setAsIsAssetId(item.assetId)}>{t("按当前状态重新导出")}</Button>}</p>)}
   </section>
@@ -706,6 +707,8 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
   const [outputStatus, setOutputStatus] = React.useState<'default' | 'Translated' | 'ApprovedTranslation' | 'ApprovedSignOff'>((project.outputStatusPolicy?.sdlxliff_1_2?.[project.workflowStage ?? 'translation'] as 'Translated' | 'ApprovedTranslation' | 'ApprovedSignOff' | undefined) ?? 'default')
   const [qaProfile, setQaProfile] = React.useState(project.qaProfile ?? 'general')
   const [confirmName, setConfirmName] = React.useState('')
+  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
+  const [archiving, setArchiving] = React.useState(false)
   const [backups, setBackups] = React.useState<LinguistBackupInfo[]>([])
   const [backupsLoading, setBackupsLoading] = React.useState(true)
   const [backupsError, setBackupsError] = React.useState('')
@@ -749,6 +752,11 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
   const mutate = async (operation: string, input: object, success = t("操作已完成")): Promise<boolean> => {
     try { await required(operation, input); onChanged(); setMessage(success); void refreshBackups(); return true }
     catch (error) { setMessage(describeProjectError(error, t)); return false }
+  }
+  const archiveProject = async () => {
+    setArchiving(true)
+    try { if (await mutate('linguistProjectsArchive', { projectId }, t('项目已归档'))) setArchiveConfirming(false) }
+    finally { setArchiving(false) }
   }
   const startIntegrity = async () => {
     try { const job = await required<{jobId:string}>('linguistIntegrityStart', { projectId }); setIntegrityJob(job.jobId); setIntegrityStatus(t("全检运行中")); setIntegrityComplete(false) }
@@ -811,7 +819,10 @@ export function ProjectSettingsPanel({ project, hasBatches, onChanged, sessionId
     </details>
     <details className={styles.settingsSection}><summary>{t("完整性与诊断")}</summary><div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => void startIntegrity()}>{t("运行全量完整性检查")}</Button>{integrityJob && !integrityComplete && <Button variant="outline" size="sm" onClick={() => void mutate('linguistIntegrityCancel', { projectId, jobId: integrityJob })}>{t("取消全检")}</Button>}<span role="status">{integrityStatus}</span>{integrityComplete && <Button variant="outline" size="sm" onClick={() => void exportManagedFile('linguistIntegrityExportReport', { projectId, jobId: integrityJob })}>{t("下载脱敏全检报告")}</Button>}<Button variant="outline" size="sm" onClick={() => { void required<ProjectDiagnosticsStatus>('linguistDiagnosticsGetStatus', { projectId, ...(sessionId ? { sessionId } : {}) }).then(setDiagnostics).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t("检查运行状态")}</Button><Button variant="outline" size="sm" onClick={() => { void required<unknown>('linguistDiagnosticsPreviewBundle', { projectId, ...(sessionId ? { sessionId } : {}) }).then(setDiagnosticsPreview).catch((error: unknown) => setMessage(describeProjectError(error, t))) }}>{t("预览脱敏诊断包")}</Button>{diagnosticsPreview !== undefined && <Button variant="outline" size="sm" onClick={() => void exportManagedFile('linguistDiagnosticsExportBundle', { projectId, ...(sessionId ? { sessionId } : {}) })}>{t("下载诊断包")}</Button>}</div>{diagnostics && <div className={styles.callout} role="status"><strong>{t('Prompt 状态')}</strong><p>Version {diagnostics.prompt.promptVersion} · {t('岗位')} {diagnostics.prompt.role} · {t('项目版本')} {diagnostics.projectRevision}</p><p>{t('项目摘要状态')}：{diagnostics.prompt.projectDigestStatus}{diagnostics.prompt.projectDigestTruncated ? ` · ${t('摘要已按预算裁减')}` : ''}</p><p>Hash {diagnostics.prompt.promptHash} · {diagnostics.prompt.charCount} {t('字符')}</p></div>}{diagnosticsPreview !== undefined && <details><summary>{t("诊断包预览")}</summary><pre>{JSON.stringify(diagnosticsPreview, null, 2)}</pre></details>}{download && <p><a href={fileUrl(download.token)} download={download.filename} onClick={() => setDownload(undefined)}>{t("下载")} {download.filename}</a></p>}
     </details>
-    <details className={styles.settingsSection}><summary>{t("归档与移入回收区")}</summary><div className={styles.toolbar}><Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistProjectsArchive', { projectId }, t("项目已归档"))}>{t("归档项目")}</Button><Input disabled={!archived} aria-label={t("输入项目名称确认移入回收区")} placeholder={t("输入完整项目名")} value={confirmName} onChange={(event) => setConfirmName(event.target.value)} /><Button variant="outline" size="sm" disabled={!archived || confirmName !== project.name} onClick={() => void mutate('linguistProjectsDelete', { projectId, confirmationName: confirmName }, t("项目已移入回收区"))}>{t("移入回收区")}</Button></div>
+    <details className={styles.settingsSection}><summary>{t("归档与移入回收区")}</summary><div className={styles.toolbar}><Button variant="outline" size="sm" disabled={archived} onClick={() => { setMessage(''); setArchiveConfirming(true) }}>{t("归档项目")}</Button><Input disabled={!archived} aria-label={t("输入项目名称确认移入回收区")} placeholder={t("输入完整项目名")} value={confirmName} onChange={(event) => setConfirmName(event.target.value)} /><Button variant="outline" size="sm" disabled={!archived || confirmName !== project.name} onClick={() => void mutate('linguistProjectsDelete', { projectId, confirmationName: confirmName }, t("项目已移入回收区"))}>{t("移入回收区")}</Button></div>
+    <Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={archiveConfirming} onClose={() => { if (!archiving) setArchiveConfirming(false) }} title={t('归档项目「{name}」？', { name: project.name })} closeLabel={t('取消')} footer={<><Button variant="ghost" size="sm" disabled={archiving} data-modal-autofocus onClick={() => setArchiveConfirming(false)}>{t('取消')}</Button><Button variant="primary" size="sm" disabled={archived || archiving} onClick={() => void archiveProject()}>{archiving ? t('归档中…') : t('确认归档')}</Button></>}>
+      <p>{t('归档后项目从活跃列表移入「已归档」分组，数据以只读方式保留，仍可打开查看和备份。')}</p>{message && <p role="alert">{message}</p>}
+    </Modal>
     </details>
     {message && <p role="status">{message}</p>}
   </section>

@@ -10,7 +10,7 @@ import { required } from './api'
 import { useT } from './ui-locale'
 import styles from './Panels.module.css'
 
-export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestinations }: { sessionId: string; refresh: number; editable: boolean; onDestinations: (destinations: LinguistScheduleListResult['notificationDestinations']) => void; onEdit: (schedule: LinguistScheduleInfo) => void }): React.ReactElement {
+export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestinations, onOpenSession }: { sessionId: string; refresh: number; editable: boolean; onDestinations: (destinations: LinguistScheduleListResult['notificationDestinations']) => void; onEdit: (schedule: LinguistScheduleInfo) => void; onOpenSession: (sessionId: string) => Promise<void> }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistScheduleListResult>()
   const [error, setError] = React.useState('')
@@ -21,6 +21,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
   const [history, setHistory] = React.useState<LinguistScheduleHistoryResult>()
   const [historyId, setHistoryId] = React.useState<string>()
   const [historyBusy, setHistoryBusy] = React.useState(false)
+  const [openingSessionId, setOpeningSessionId] = React.useState<string>()
   React.useEffect(() => {
     let live = true
     required<LinguistScheduleListResult>('linguistScheduleList', { sessionId })
@@ -56,6 +57,26 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
     finally { setBusyId(undefined) }
   }
 
+  const pause = async (schedule: LinguistScheduleInfo) => {
+    setBusyId(schedule.scheduleId)
+    try {
+      const result = await required<{ scheduleId: string; paused: true }>('linguistSchedulePause', {
+        sessionId, scheduleId: schedule.scheduleId, expectedVersion: schedule.version,
+      })
+      if (result.scheduleId !== schedule.scheduleId || result.paused !== true) throw new Error(t('Host 暂停回执与当前任务不一致。'))
+      setError('')
+      setReload((value) => value + 1)
+    } catch (cause) { setError(String(cause)) }
+    finally { setBusyId(undefined) }
+  }
+
+  const openSession = async (id: string) => {
+    setOpeningSessionId(id)
+    try { await onOpenSession(id); setError('') }
+    catch (cause) { setError(String(cause)) }
+    finally { setOpeningSessionId(undefined) }
+  }
+
   const loadHistory = async (scheduleId: string, before?: string, beforeExecution?: string) => {
     setHistoryBusy(true)
     try {
@@ -79,25 +100,27 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
     {list?.items.length === 0 && <p>{t('此会话没有 Linguist 专用定时任务。')}</p>}
     <Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={cancelId !== undefined} onClose={() => { if (!busyId) setCancelId(undefined) }} title={t('确认取消任务')} closeLabel={t('保留任务')} footer={<><Button variant="ghost" size="sm" disabled={!!busyId} onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button><Button variant="primary" size="md" disabled={!!busyId} onClick={() => cancelId && void cancel(cancelId)}>{t('确认取消任务')}</Button></>}><p>{list?.items.find((item) => item.scheduleId === cancelId)?.title}</p><p>{t('取消将停止后续投递，并删除原生调度历史。')}</p>{error && <p role="alert">{error}</p>}</Modal>
     {list?.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
-      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'recreate-required' ? (schedule.status === 'active' ? '请取消并重新创建此旧版任务。' : '此旧版任务已停止，请重新创建。') : schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
+      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedByUser ? '已手动暂停' : schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'recreate-required' ? (schedule.status === 'active' ? '请取消并重新创建此旧版任务。' : '此旧版任务已停止，请重新创建。') : schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
       <details><summary>{t("任务描述")}</summary><p>{schedule.prompt}</p></details>
       <p>{t(schedule.sessionMode === 'daily' ? '每日新会话，同日复用' : '持续复用任务会话')}{schedule.executionSessionId && <> · <code>{schedule.executionSessionId}</code></>}</p>
       <p>{t('已结束的执行次数')}：{schedule.runCount}{schedule.maxRuns !== undefined && ` / ${schedule.maxRuns}`}</p>
-      <p>{t('岗位')}：{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[schedule.role])} · {t('执行范围')}：{t({ project: '全项目', asset: '当前批次', segments: '勾选句段' }[schedule.scope])} · {t('调度方式')}：{t({ after: '延迟一次', at: '指定时间一次', every: '按间隔重复', daily: '每天', weekly: '每周', cron: 'Cron' }[schedule.kind])}</p>
-      {!schedule.limitReached && !schedule.pausedAfterFailures && <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>}
+      <p>{t('岗位')}：{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[schedule.role])} · {t('执行范围')}：{t({ project: '全项目', asset: '当前批次', segments: '勾选句段' }[schedule.scope])} · {t('调度方式')}：{t({ after: '延迟一次', at: '指定时间一次', every: '按间隔重复', daily: '每天', weekly: '每周', monthly: '每月', cron: 'Cron' }[schedule.kind])}</p>
+      {!schedule.limitReached && !schedule.pausedAfterFailures && !schedule.pausedByUser && <p>{t('下次到期')}：{new Date(schedule.scheduledAt).toLocaleString()}{schedule.lastDeliveredAt && <> · {t('最近投递')}：{new Date(schedule.lastDeliveredAt).toLocaleString()}</>}</p>}
       {schedule.consecutiveFailures > 0 && <p>{t('连续失败次数')}：{schedule.consecutiveFailures} / 5</p>}
       <div className={styles.toolbar}>
-        <Button variant="outline" size="sm" disabled={!editable || schedule.authorizationStatus === 'recreate-required' || (schedule.status !== 'active' && !schedule.pausedAfterFailures)} onClick={() => onEdit(schedule)}>{t(schedule.pausedAfterFailures ? '重新核验并恢复' : '编辑并重新核验')}</Button>
+        <Button variant="outline" size="sm" disabled={!editable || busyId === schedule.scheduleId || schedule.authorizationStatus === 'recreate-required' || (schedule.status !== 'active' && !schedule.pausedAfterFailures && !schedule.pausedByUser)} onClick={() => onEdit(schedule)}>{t(schedule.pausedAfterFailures || schedule.pausedByUser ? '重新核验并恢复' : '编辑并重新核验')}</Button>
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
+        {schedule.status === 'active' && <Button variant="outline" size="sm" disabled={!editable || busyId === schedule.scheduleId || schedule.authorizationStatus === 'recreate-required'} onClick={() => void pause(schedule)}>{t('暂停任务')}</Button>}
         <Button variant="ghost" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('执行与投递历史')}</Button>
         {!schedule.limitReached && !schedule.pausedAfterFailures && <Button variant="ghost" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
       </div>
       {accepted?.scheduleId === schedule.scheduleId && <p role="status">{t('已受理立即运行请求，消息 {id} 已交给 DSH Session；专业任务是否完成需查看实际结果。', { id: accepted.messageId })}</p>}
+      {schedule.pausedByUser && <p role="status">{t('已暂停后续执行，当前已开始的回合不会自动中止。')}</p>}
       {historyId === schedule.scheduleId && history && <div className={styles.callout}>
         <strong>{t('最近执行记录')}</strong>
         <p>{t('执行状态来自 DSH 会话结束事件；专业完成情况请查看对应岗位决策。')}</p>
         {history.executions.length === 0 && <p>{t('暂无执行记录。')}</p>}
-        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ dispatched: '已分发到任务会话', 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.notifications?.map(receipt => <span key={receipt.destinationId}> · {t('通知')} {receipt.destinationId}：{t(receipt.status === 'sent' ? '已发送' : receipt.status === 'failed' ? '发送失败' : '发送结果未知')}{receipt.code && ` (${receipt.code})`}</span>)}{run.sessionId && <> · <code>{run.sessionId}</code></>}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>}</p>)}
+        {history.executions.map(run => <p key={run.messageId}>{new Date(run.admittedAt).toLocaleString()} · {t('轮次')} {run.turn} · {t(run.phase === 'admission' ? '授权与模型准备' : '已进入执行')} · {t(({ dispatched: '已分发到任务会话', 'not-admitted': '未进入执行', unfinished: '尚无结束记录', completed: '执行结束', aborted: '已取消', blocked: '执行受阻', error: '执行失败', 'max-tokens': '达到输出上限', interrupted: '执行中断', forked: '历史分支边界' } as Record<string, string>)[run.outcome] ?? run.outcome)}{run.notifications?.map(receipt => <span key={receipt.destinationId}> · {t('通知')} {receipt.destinationId}：{t(receipt.status === 'sent' ? '已发送' : receipt.status === 'failed' ? '发送失败' : '发送结果未知')}{receipt.code && ` (${receipt.code})`}</span>)}{run.sessionId && <> · <code>{run.sessionId}</code></>}{run.endedAt && <> · {new Date(run.endedAt).toLocaleString()}</>}{run.failure && <> · {t('错误代码')}：<code>{run.failure.code}</code>{run.failure.status !== undefined && ` (HTTP ${run.failure.status})`}</>} <Button variant="outline" size="sm" disabled={!run.sessionId || openingSessionId === run.sessionId} onClick={() => run.sessionId && void openSession(run.sessionId)}>{run.sessionId && openingSessionId === run.sessionId ? t('正在打开…') : t('打开执行会话')}</Button></p>)}
         {history.nextExecutionBefore && <Button variant="ghost" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, undefined, history.nextExecutionBefore)}>{t('读取更早执行')}</Button>}
         <strong>{t('原生投递记录')}</strong>
         {history.records.length === 0 && <p>{t('暂无投递记录。')}</p>}

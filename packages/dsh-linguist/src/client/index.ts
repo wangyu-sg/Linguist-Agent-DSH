@@ -49,7 +49,7 @@ const DETACH_EVENT = 'linguist:session-detached'
 
 export const inject = ['slots', 'layout', 'sidebarRight', 'sidebarRightTabs', 'sessions', 'uiWorkspace', 'workspaces', 'conversation', 'inputTriggers', 'locale', 'remote', 'remote.skills']
 
-function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: (sessionId: string) => Promise<void>; onSendAgentTask: (sessionId: string, text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (sessionId: string, projectId: string, assetId: string) => void; capabilities: React.ReactNode }) {
+function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: (sessionId: string) => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; onSendAgentTask: (sessionId: string, text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (sessionId: string, projectId: string, assetId: string) => void; capabilities: React.ReactNode }) {
   const t = useT()
   const info = props.useTabInfo()
   const address = info.tab.navigation.address
@@ -79,7 +79,7 @@ function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: 
   }, [sessionId])
   if (error) return createElement('p', { role: 'alert', className: styles.error }, error)
   if (!binding) return createElement('p', { role: 'status', className: styles.notice }, t('正在验证 CAT 会话绑定…'))
-  return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onCancelRun: () => props.onCancelRun(sessionId), onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
+  return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onCancelRun: () => props.onCancelRun(sessionId), onOpenSession: props.onOpenSession, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
 }
 
 function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
@@ -199,7 +199,7 @@ export function apply(ctx: Context): void {
   const t = ctx.locale.bind('linguist')
   const pickDirectory = async (workspaceId: string) => {
     const workspace = ctx.workspaces.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId)
-    if (!workspace) throw new Error(t('请选择 DSH Workspace，或先为项目建立关联。'))
+    if (!workspace) throw new Error(t('请选择工作区，或先为项目建立关联。'))
     const selected = await ctx.uiWorkspace.pickDirectory()
     if (selected === null) return null
     const relative = selected === workspace.path ? '.' : relativizeToCwd(selected, workspace.path)
@@ -299,10 +299,18 @@ export function apply(ctx: Context): void {
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding)
   }
+  const openExecutionSession = async (sessionId: string) => {
+    await ctx.sessions.refresh()
+    const id = sessionId as Parameters<typeof ctx.uiWorkspace.openSession>[0]
+    if (!ctx.sessions.list.getSnapshot().ids.includes(id)) throw new Error(t('执行会话已不存在或已归档。'))
+    const binding = await getBinding(sessionId)
+    if (binding) await openBoundSession(binding)
+    else { ctx.layout.selectPanel(null); ctx.uiWorkspace.openSession(id) }
+  }
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onCancelRun: cancelRun, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) }))))
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onCancelRun: cancelRun, onOpenSession: openExecutionSession, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: BATCH_PROVIDER_ID, kind: BATCH_KIND, patterns: [`${BATCH_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => t('批次语义预览') }), 'linguist: batch preview')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: BATCH_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(BatchPreviewPage, props))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: WORKING_PROVIDER_ID, kind: WORKING_KIND, priority: 'extension', keepMounted: true, title: () => t('Linguist 工作副本') }), 'linguist: working-copy page')

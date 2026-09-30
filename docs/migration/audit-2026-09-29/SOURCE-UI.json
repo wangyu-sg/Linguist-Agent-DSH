@@ -4819,11 +4819,18 @@
           "line": 1
         }
       ],
-      "implementationStatus": "known-sdk-boundary",
+      "implementationStatus": "entry-mapped-parity-unverified",
       "installedStatus": "not-validated-per-interaction-in-this-audit",
       "boundary": "la-domain",
-      "auditNote": "已知固定rc1仅显式原生引用可用，默认自动附scope缺公开同步/真实RPC/await准入hook；最新DSH须重核，不能用抢IME/leading-slash的自动塞chip替代。",
-      "sourceTests": []
+      "auditNote": "2026-09-29用户已明确接受按需点击“附带 CAT 选区”。rc.2显式原生CAT引用在实际发送时同步冻结项目/批次/显式句段引用/选区ID，随同条prompt由Host按真实source.rpcId等待准入；附件/queue/steer保持原生流程。该产品交互决定已确认，当前安装产物仍待逐项验证引用呈现、删除引用、slash/附件/IME/undo、queue/steer和真实请求/模型可见内容。复审记录：artifacts/evidence/native-composer-rc2-public-api-reaudit.json。",
+      "sourceTests": [],
+      "productDecision": {
+        "decisionDate": "2026-09-29",
+        "status": "user-accepted",
+        "behavior": "CAT上下文按需点击“附带 CAT 选区”；实际发送时冻结项目、批次、显式句段引用与选区，并随该条原生消息携带。",
+        "authorization": "用户确认：接受，按需点击附带 CAT 选区（推荐）。",
+        "acceptanceBoundary": "产品交互决定已确认；当前安装产物的逐项交互、真实请求与模型证据仍需验收。"
+      }
     },
     {
       "id": "LA-UI-110",
