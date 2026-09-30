@@ -28,7 +28,6 @@ index 114b6d6..dff2d18 100644
  `/browser-skill`. Set `lazyTools: false` to make the tools available immediately.
  
 diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin-browserskill/package.json
-index 28f4017..614d4b1 100644
 --- a/packages/dsh-plugin-browserskill/package.json
 +++ b/packages/dsh-plugin-browserskill/package.json
 @@ -1,7 +1,8 @@
@@ -36,12 +35,12 @@ index 28f4017..614d4b1 100644
    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
    "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (browser_* tools) to the model",
 -  "version": "0.3.1",
-+  "version": "0.3.1-la-dsh.3",
++  "version": "0.3.1-la-dsh.4",
 +  "private": true,
    "license": "MIT",
    "publishConfig": {
      "access": "public",
-@@ -66,14 +67,14 @@
+@@ -66,14 +67,15 @@
      "lint:publint": "publint"
    },
    "peerDependencies": {
@@ -60,11 +59,12 @@ index 28f4017..614d4b1 100644
 +    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
 +    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
 +    "@deepseek-ai/schemastery": "3.18.4",
-+    "react": "18.3.1"
++    "react": "18.3.1",
++    "react-dom": "18.3.1"
    },
    "peerDependenciesMeta": {
      "@deepseek-ai/dsh-attachment": {
-@@ -94,25 +95,25 @@
+@@ -94,25 +96,25 @@
    },
    "devDependencies": {
      "@browser-skill/ui": "workspace:*",
@@ -109,7 +109,7 @@ index 28f4017..614d4b1 100644
      "@remixicon/react": "^4.9.0",
      "@tailwindcss/cli": "^4.3.3",
      "@testing-library/react": "^16.1.0",
-@@ -128,6 +129,42 @@
+@@ -128,6 +130,42 @@
      "tailwindcss": "^4.3.3",
      "tsdown": "^0.22.14",
      "typescript": "^5.8.0",
@@ -714,10 +714,9 @@ index 7590a25..fde1b01 100644
  export function armLazyTools(ctx: Context, registerSuite: () => () => void): () => void {
    let disposed = false;
 diff --git a/packages/dsh-plugin-browserskill/src/runner.ts b/packages/dsh-plugin-browserskill/src/runner.ts
-index c1c4902..a53f1aa 100644
 --- a/packages/dsh-plugin-browserskill/src/runner.ts
 +++ b/packages/dsh-plugin-browserskill/src/runner.ts
-@@ -98,7 +98,7 @@ interface LiveRun {
+@@ -98,7 +98,7 @@
    requestKill: () => boolean;
  }
  
@@ -726,15 +725,15 @@ index c1c4902..a53f1aa 100644
    const live = new Map<ChildProcess, LiveRun>();
    const windows = process.platform === "win32";
    const cancelling = new Map<ChildProcess, ReturnType<typeof setTimeout>>();
-@@ -140,9 +140,9 @@ export function createBskRunner(bskPath: string, spawnImpl: SpawnImpl = spawn):
+@@ -140,9 +140,9 @@
              windows
                ? {
                    windowsHide: true,
 -                  env: { ...process.env, BSK_CANCEL_ON_STDIN_CLOSE: "1" },
-+                  env: { ...process.env, ...(bskHome ? { BSK_HOME: bskHome } : {}), BSK_CANCEL_ON_STDIN_CLOSE: "1" },
++                  env: { ...process.env, ...(bskHome ? { BSK_HOME: bskHome } : {}), BSK_AUTO_UPDATE: "off", BSK_CANCEL_ON_STDIN_CLOSE: "1" },
                  }
 -              : undefined,
-+              : bskHome ? { env: { ...process.env, BSK_HOME: bskHome } } : undefined,
++              : { env: { ...process.env, ...(bskHome ? { BSK_HOME: bskHome } : {}), BSK_AUTO_UPDATE: "off" } },
            );
            // A child exiting while cancellation closes stdin may report EPIPE.
            // Process completion remains the authority for the run result.
@@ -1051,13 +1050,33 @@ index 138cf2a..9116aaf 100644
        "browser_interact",
        "browser_page",
 diff --git a/packages/dsh-plugin-browserskill/tests/runner.test.ts b/packages/dsh-plugin-browserskill/tests/runner.test.ts
-index d8861a3..88b9bf6 100644
 --- a/packages/dsh-plugin-browserskill/tests/runner.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/runner.test.ts
-@@ -65,6 +65,21 @@ afterEach(() => {
+@@ -65,6 +65,42 @@
  });
  
  describe("createBskRunner", () => {
++  it("disables auto-update in actual child processes with and without a configured home", async () => {
++    const directory = await mkdtemp(join(tmpdir(), "bsk-pinned-runner-"));
++    const originalAutoUpdate = process.env.BSK_AUTO_UPDATE;
++    process.env.BSK_AUTO_UPDATE = "on";
++    try {
++      const script = join(directory, "synthetic-bsk.cjs");
++      await writeFile(script, 'process.stdout.write(JSON.stringify({ autoUpdate: process.env.BSK_AUTO_UPDATE, home: process.env.BSK_HOME }))');
++      for (const home of [undefined, join(directory, "configured-home")]) {
++        const runner = createBskRunner(process.execPath, spawn, home);
++        const result = await runner.run([script]);
++        expect(result.code).toBe(0);
++        expect(JSON.parse(result.stdout)).toEqual({ autoUpdate: "off", home: home ?? process.env.BSK_HOME });
++        expect(process.env.BSK_AUTO_UPDATE).toBe("on");
++      }
++    } finally {
++      if (originalAutoUpdate === undefined) delete process.env.BSK_AUTO_UPDATE;
++      else process.env.BSK_AUTO_UPDATE = originalAutoUpdate;
++      await rm(directory, { recursive: true, force: true });
++    }
++  });
++
 +  it("passes the configured daemon home only to its child", async () => {
 +    const child = new FakeChild();
 +    const originalHome = process.env.BSK_HOME;
@@ -1076,6 +1095,15 @@ index d8861a3..88b9bf6 100644
    it("appends --json and collects stdout", async () => {
      const child = new FakeChild();
      const seen: string[][] = [];
+@@ -416,7 +452,7 @@
+       ["snapshot", "--json"],
+       {
+         windowsHide: true,
+-        env: { ...process.env, BSK_CANCEL_ON_STDIN_CLOSE: "1" },
++        env: { ...process.env, BSK_AUTO_UPDATE: "off", BSK_CANCEL_ON_STDIN_CLOSE: "1" },
+       },
+     ]);
+     abort.abort();
 diff --git a/packages/dsh-plugin-browserskill/tests/skill.test.ts b/packages/dsh-plugin-browserskill/tests/skill.test.ts
 index 99ee214..45e3b2b 100644
 --- a/packages/dsh-plugin-browserskill/tests/skill.test.ts

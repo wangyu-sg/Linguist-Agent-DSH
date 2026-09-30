@@ -150,3 +150,86 @@ test('a copied Session can retry navigation without creating a second copy', asy
   assert.equal(navigations, 2)
   assert.equal(state.at(-1), '')
 })
+
+test('opening a project reuses native CAT history, lazily ensures one Session, and rejects stale navigation and read errors', async () => {
+  const registrations = new Map(), listeners = new Set(), bindings = new Map()
+  const opened = [], resources = [], creates = [], binds = []
+  let mounted, navigation = new AbortController(), createResult, projectResult, bindingError
+  const workspace = { workspaceId: 'workspace-A', path: '/synthetic/workspace' }
+  const byId = {}, sessionIds = []
+  const ctx = {
+    effect(register, label) { if (label === 'linguist: project Session visits') register() },
+    locale: { bind: () => text => text },
+    slots: { inject: (_name, register) => register(), register: (key, render) => registrations.set(key.name, render) },
+    layout: { selectPanel() { navigation.abort() }, beginNavigation() { navigation.abort(); navigation = new AbortController(); return navigation.signal } },
+    uiWorkspace: { openSession(id) { opened.push(id); navigation.abort(); mounted = id; listeners.forEach(listener => listener()) } },
+    workspaces: { list: { getSnapshot: () => ({ items: [workspace] }) } },
+    sidebarRight: { mounted: { getSnapshot: () => mounted, subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) } }, openResourceIn: (...args) => resources.push(args) },
+    sessions: { refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds, byId, phase: 'ready' }) }, create: async input => { creates.push(input); const id = await (createResult ?? Promise.resolve(`created-${creates.length}`)); addSession(id, {}, 100); return id } },
+  }
+  function addSession(id, binding, updatedAt) { if (!sessionIds.includes(id)) sessionIds.push(id); byId[id] = { id, cwd: workspace.path, updatedAt }; if (binding.projectId) bindings.set(id, { sessionId: id, workspaceId: workspace.workspaceId, workMode: 'cat', ...binding }) }
+  function visit(id) { mounted = id; listeners.forEach(listener => listener()); mounted = undefined }
+  const api = {
+    async getBinding(id) { if (bindingError === id) throw new Error('Synthetic binding read failure'); return bindings.get(id) },
+    async bindSession(value, workspaceId) { binds.push(value); const binding = { ...value, workspaceId }; bindings.set(value.sessionId, binding); return binding },
+    async required(operation, input) { assert.equal(operation, 'linguistProjectsOpen'); return await (projectResult ?? { project: { id: input.projectId, workspaceId: workspace.workspaceId }, health: { projectId: input.projectId, healthy: true } }) },
+  }
+  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
+  const code = ts.transpileModule(readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  runInNewContext(code, { exports, setTimeout, clearTimeout, require: name => {
+    if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }
+    if (name === './api') return api
+    if (name === './Native.module.css') return { default: {} }
+    if (name === './CatToolResult') return { catToolNames: [] }
+    if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
+    if (name === '@deepseek-ai/dsh-client-ui-plugin-manager/client') return { PANEL_ID: 'plugins' }
+    if (name === './ui-locale' || name === './composer-reference' || name === './cat-editor-state' || name === './cat-navigation' || name === '@deepseek-ai/dsh-client-ui-primitives' || components.some(component => name === `./${component}`)) return {}
+    throw new Error(`Unexpected Client import: ${name}`)
+  } })
+  exports.apply(ctx)
+  const { onOpenProject } = registrations.get('main')().child.props
+  assert.equal(typeof onOpenProject, 'function', 'project names need an ensure/open callback distinct from explicit Session creation')
+  addSession('cat-current', { projectId: 'project-A', role: 'reviewer' }, 1)
+  addSession('cat-newer', { projectId: 'project-A', role: 'proofreader' }, 999)
+  visit('cat-current')
+  await onOpenProject('project-A')
+  assert.equal(opened.at(-1), 'cat-current', 'current project Session wins over most recently updated')
+  assert.equal(creates.length, 0); assert.equal(binds.length, 0)
+  visit('cat-newer'); visit('cat-current')
+  addSession('ordinary', {}, 1000); visit('ordinary')
+  await onOpenProject('project-A')
+  assert.equal(opened.at(-1), 'cat-current', 'observed native MRU wins over update timestamp')
+  await onOpenProject('empty-project')
+  assert.equal(creates.length, 1)
+  assert.deepEqual(JSON.parse(JSON.stringify(binds[0])), { sessionId: 'created-1', projectId: 'empty-project', role: 'general', workMode: 'cat' })
+  await onOpenProject('empty-project'); assert.equal(creates.length, 1)
+  projectResult = Promise.reject(new Error('Synthetic ProjectOpen failure'))
+  await assert.rejects(onOpenProject('failed-project'), /ProjectOpen failure/); assert.equal(creates.length, 1)
+  projectResult = { project: { id: 'unhealthy', workspaceId: workspace.workspaceId }, health: { projectId: 'unhealthy', healthy: false } }
+  await assert.rejects(onOpenProject('unhealthy'), /需要修复/); assert.equal(creates.length, 1)
+  projectResult = undefined; bindingError = 'created-1'
+  await assert.rejects(onOpenProject('unread-project'), /binding read failure/); assert.equal(creates.length, 1)
+  bindingError = undefined
+  let resolveCreate
+  createResult = new Promise(resolve => { resolveCreate = resolve })
+  const first = onOpenProject('concurrent-project'), second = onOpenProject('concurrent-project')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(creates.length, 2, 'same-project concurrent opens share one ensure/create')
+  resolveCreate('concurrent-session'); await Promise.all([first, second]); createResult = undefined
+  assert.equal(opened.filter(id => id === 'concurrent-session').length, 1)
+  let resolveProject
+  projectResult = new Promise(resolve => { resolveProject = resolve })
+  const late = onOpenProject('late-project'), count = opened.length
+  ctx.layout.selectPanel('another-panel')
+  resolveProject({ project: { id: 'late-project', workspaceId: workspace.workspaceId }, health: { projectId: 'late-project', healthy: true } })
+  await late; projectResult = undefined
+  assert.equal(opened.length, count); assert.equal(creates.length, 2)
+  createResult = new Promise(resolve => { resolveCreate = resolve })
+  const lateCreate = onOpenProject('late-create')
+  await new Promise(resolve => setImmediate(resolve))
+  await onOpenProject('project-A')
+  const current = opened.at(-1)
+  resolveCreate('late-created'); await lateCreate
+  assert.equal(opened.at(-1), current, 'late Session completion cannot steal another project navigation')
+  assert.equal(resources.at(-1)[0], current)
+})

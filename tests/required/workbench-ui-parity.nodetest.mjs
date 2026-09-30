@@ -288,10 +288,11 @@ test('compact project controls preserve all four roles, three work modes and Wor
     { workspaceId: 'workspace-c', title: 'Unique', path: '/synthetic/c' },
   ]
   const projects = ['one', 'two'].map(id => ({ id, name: id, sourceLocale: 'en-US', targetLocale: 'ja-JP', workflowStage: 'translation', workspaceId: 'workspace-a', createdAt: '2026-09-29T00:00:00Z', updatedAt: '2026-09-29T01:00:00Z' }))
-  const entered = [], requests = []
+  const entered = [], openedProjects = [], requests = []
+  let projectOpenError
   const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
     workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: workspaces } } } }, sessions: {},
-    onEnter: async input => entered.push(input), onOpenSession() {}, onPickDirectory() {},
+    onEnter: async input => entered.push(input), onOpenProject: async id => { if (projectOpenError) throw projectOpenError; openedProjects.push(id) }, onOpenSession() {}, onPickDirectory() {},
   }, { required: async (operation, input) => {
     requests.push({ operation, input })
     if (operation === 'linguistProjectsList') return projects
@@ -318,8 +319,16 @@ test('compact project controls preserve all four roles, three work modes and Wor
   const menus = component.nodes().filter(node => node.type === 'menu')
   assert.equal(menus.length, 2)
   assert.equal(menus[0].props.items.find(item => item.id === 'up').disabled, true)
-  await menus[0].props.onSelect('down'); component.render(); await tick()
+  await menus[0].props.onSelect('down'); component.render(); await tick(); component.render()
   assert.deepEqual(Array.from(requests.find(request => request.operation === 'linguistProjectsReorderActive').input.orderedProjectIds), ['two', 'one'])
+  assert.equal(component.button('one').variant, 'ghost')
+  await component.click('one'); await tick(); component.render()
+  assert.deepEqual(openedProjects, ['one'], 'project title uses ensure/open independently of explicit role/mode creation')
+  assert.equal(entered.length, 1, 'opening the title does not call the explicit new-Session path')
+  projectOpenError = new Error('Synthetic project open refused')
+  await component.click('one'); await tick()
+  assert.match(component.render(), /Synthetic project open refused/)
+  assert.equal(component.button('one').disabled, false)
   component.dispose()
 })
 
@@ -338,7 +347,7 @@ test('native project drag/drop submits the full active order, excludes archives,
   } })
   component.render(); await tick(); component.render(); await tick(); component.render()
   const row = id => component.nodes().find(node => node.type === 'li' && node.key.endsWith(`$${id}`))
-  const title = id => component.nodes().find(node => node.type === 'strong' && node.props.children === id)
+  const title = id => component.nodes().find(node => node.type === 'button' && node.props.children === id)
   const dataTransfer = { setData(type, value) { assert.equal(type, 'text/plain'); assert.equal(value, 'one') } }
   const event = clientY => ({ clientY, dataTransfer, preventDefault() {}, currentTarget: { getBoundingClientRect: () => ({ top: 100, height: 40 }), contains: () => false } })
   assert.equal(title('one').props.draggable, true)

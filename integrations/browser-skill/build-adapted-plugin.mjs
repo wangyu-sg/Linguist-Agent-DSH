@@ -87,7 +87,7 @@ try {
     sourceCommit: baseline.upstreamCommit,
     patchSha256: baseline.patchSha256,
     dshVersion: baseline.dshVersion,
-    unitTests: "382 passed",
+    unitTests: "383 passed",
   };
   await writeFile(join(out, "BUILD.json"), JSON.stringify(receipt, null, 2) + "\n");
   process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");

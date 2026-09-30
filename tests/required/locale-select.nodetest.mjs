@@ -60,6 +60,6 @@ test('create and settings use the same dropdown and create preserves QA choice b
   }
   assert.match(settings, /<ProjectLocaleSelect[^>]*disabled=\{archived \|\| hasBatches\}/)
   assert.match(create, /workflowStage, qaProfile, workspaceId/)
-  assert.match(create, /await enter\(created\)/)
+  assert.match(create, /await openProject\(created\)/)
   assert.match(create, /value=\{qaProfile\}/)
 })

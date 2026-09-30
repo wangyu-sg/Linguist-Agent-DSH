@@ -38,7 +38,7 @@ async function body(request) {
 
 async function bsk(current, args) {
   const result = await exec(current.bskPath, args, {
-    env: { ...process.env, BSK_HOME: current.bskHome, BSK_AUTO_START: '0' },
+    env: { ...process.env, BSK_HOME: current.bskHome, BSK_AUTO_START: '0', BSK_AUTO_UPDATE: 'off' },
     cwd: root, timeout: 150_000, maxBuffer: 1024 * 1024,
   })
   return result.stdout.trim()

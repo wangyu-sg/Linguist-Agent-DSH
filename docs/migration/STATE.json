@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T04:37:59.946914+00:00",
+  "updatedAt": "2026-09-30T05:42:00.793252+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -101,7 +101,7 @@
     "officialDesktopVersion": "0.2.0-rc.2",
     "officialDesktopPath": "/Applications/DeepSeek Harness.app",
     "desktopEvidence": "artifacts/evidence/dsh-rc2-official-desktop.json",
-    "sourceHead": "7df65b06b814e56feb3853c9d3f0067c543c7d31",
+    "sourceHead": "70d6b1feab08b2767189e3597a69d81d86adb2a8",
     "lastInstalledPluginSha256": "b9c16b6d1905955cb38f9603f80fdfed6ac9d89fe05f1f79ebed7dc69dfddd9a",
     "lastInstalledPluginRuntime": "0.2.0-rc.2",
     "pluginStatus": "Both rc.2 plugins installed through the official native plugin manager; enabled and no error badge",
@@ -111,7 +111,8 @@
     "auditDirectory": "docs/migration/audit-2026-09-29",
     "packagePolicy": "One integrated rc.2 native candidate after full diff review; installed acceptance remains mandatory",
     "knownEngineeringGaps": [
-      "Final native replacement and complete per-capability UI/model/browser/desktop acceptance pending; integrated source build and 247 Node/21 Bun/8 type checks passed."
+      "Final native replacement and complete per-capability UI/model/browser/desktop acceptance pending; final source build and 248 Node/21 Bun/8 type checks passed.",
+      "LA-UI-136: official rc.2 exposes no native Workspace row decoration Slot; existing project-page and Session-header identity surfaces await explicit product adjustment decision."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
     "installedAcceptanceStatus": "NOT_READY: current b9 visual checks show CSS composition repaired; final source corrections and comprehensive installed acceptance remain",
@@ -126,28 +127,39 @@
       "Native project drag reorder, archival confirmation and copying the actual PM report",
       "Checkbox layout and five terminology status labels",
       "Manual schedule pause/resume and opening the actual execution Session",
-      "Monthly short-month and interval active-window/weekday rules on native DSH at tasks, including cold recovery and truthful in-flight pause history"
+      "Monthly short-month and interval active-window/weekday rules on native DSH at tasks, including cold recovery and truthful in-flight pause history",
+      "Actual tarball PDF resource and both Host/worker DOCX/PPTX parsers",
+      "Every BrowserSkill child pinned to automatic updates off; adapter .4 fixed artifact",
+      "Project-name native CAT Session reuse, lazy creation, preserved role and canceled late navigation"
     ],
     "sourceChecks": {
       "status": "passed",
-      "nodeTests": 247,
+      "nodeTests": 248,
       "bunTests": 21,
       "typechecks": 8,
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
-      "buildLog": "artifacts/evidence/native-final-integrated-build.log",
+      "buildLog": "artifacts/evidence/native-resources-project-open-build.log",
       "privatePushBoundaryTests": 4
     },
-    "knownHostApiBoundaries": [],
-    "candidateStatus": "Integrated source frozen after successful build and required checks; exact staged diff Ponytail review and final pack pending",
-    "candidatePluginSha256": "b9c16b6d1905955cb38f9603f80fdfed6ac9d89fe05f1f79ebed7dc69dfddd9a",
+    "knownHostApiBoundaries": [
+      {
+        "featureId": "LA-UI-136",
+        "status": "PUBLIC_SDK_SEAM_UNAVAILABLE",
+        "evidencePath": "artifacts/evidence/native-workspace-badge-public-api.json",
+        "userAdjustmentDecision": "pending",
+        "boundary": "Official rc.2 Workspace row has no public decoration seat; replacing sidebar.workspaces would replace the native browsing region. Project/Workspace association is available in the project page and native Session header, not claimed as a Workspace inline badge."
+      }
+    ],
+    "candidateStatus": "Final source corrections built and packaged: PDF worker/resource guard, nested file-type bundling, project-title native CAT Session reuse, and fixed BrowserSkill .4 runner. Actual native installation still b9; final exact-diff review and installed acceptance pending.",
+    "candidatePluginSha256": "9b0275459a72fabecec8f7f801802b82c880c681d00ec9c3bdff124f1b990673",
     "lastInstalledBrowserSkillSha256": "a61fd813bed53154f6555dbad046924f6820912ee469d7191bd25fa47aad350e",
-    "candidateCodeCommit": "5eab519",
+    "candidateCodeCommit": "895ab8ff02713d3d4f28003af9014fbeaa12e754",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "f7f425a64241f543a1808bc4a66b8668fb5a0032d143cf070b4df8e17e83a9fc",
+      "sha256": "cfc87ad510eac5d442460ea087faa2a1cbbfa8d2bc54864572050ca11ecffaa2",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "5eab519",
-      "receipt": "artifacts/evidence/ponytail-review-rc2-integrated.json"
+      "committedAs": "895ab8f",
+      "receipt": "artifacts/evidence/ponytail-review-native-final.json"
     },
     "acceptedProductAdjustments": [
       {
@@ -163,14 +175,20 @@
       "status": "CLI_CHAIN_PASS",
       "receipt": "artifacts/evidence/browser-skill-localhost.json",
       "installedNativeToolAcceptance": "pending"
-    }
+    },
+    "resourceCheckEvidence": "artifacts/evidence/native-resources-project-open-pack.log",
+    "sourceReadonlyEvidence": "artifacts/evidence/source-readonly-recheck-final.json",
+    "browserCliPinRecoveryEvidence": "artifacts/evidence/browser-cli-pin-recovery.json",
+    "candidateBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
+    "browserAdapterValidationEvidence": "artifacts/evidence/browser-adapter4-validation.json",
+    "projectOpenRegressionEvidence": "artifacts/evidence/installed-domain-e20/project-open-regression.json"
   },
   "externalPrerequisites": [
     {
       "gate": "G13",
       "featureId": "D059",
       "status": "BLOCKED_ENV",
-      "prerequisite": "Configure an authorized Feishu notification destination in native Linguist plugin settings; no destination was present in the installed public ScheduleList response. User input pending for one synthetic real delivery.",
+      "prerequisite": "An authorized Feishu notification destination and credentials are required for real delivery; current native ScheduleList has zero destinations, and the user deferred configuration.",
       "credentialsRequestedInChat": false,
       "userDecision": "2026-09-30: user chose not to configure Feishu for now; real delivery stays BLOCKED_ENV while unaffected work continues."
     }

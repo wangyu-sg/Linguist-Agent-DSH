@@ -1,12 +1,10 @@
 /**
  * Runtime probe for node:sqlite (PB-024, plan §5.7).
  *
- * The CAT store runs on `node:sqlite` (DatabaseSync) inside the Electron
- * main process (Electron 39.5.1 = Node 22.22.x). Probed facts on this
- * machine (see DEV_BASELINE_REPORT / PB-003):
+ * The CAT store runs on `node:sqlite` (DatabaseSync) inside the DSH Host.
+ * Probe the actual runtime capabilities rather than infer them from Node's version:
  * - DatabaseSync works: create/insert/select, VACUUM INTO.
- * - `db.backup()` does NOT exist before Node 23.4 — backup uses
- *   `VACUUM INTO '<path>'` instead (see backup.ts).
+ * - When `db.backup()` is absent, backups use `VACUUM INTO '<path>'`.
  * - bun 1.3.14 has NO node:sqlite at all (`import 'node:sqlite'` throws
  *   "No such built-in module"), so the store test suite runs under
  *   `node --test` (see package.json `test` script and src/*.nodetest.ts).
@@ -36,7 +34,7 @@ export interface SqliteDatabase {
   exec(sql: string): void
   prepare(sql: string): SqliteStatement
   close(): void
-  /** Present only on Node >= 23.4; we fall back to VACUUM INTO. */
+  /** Probed on the actual database instance; otherwise use VACUUM INTO. */
   backup?: (path: string) => unknown
 }
 
@@ -49,7 +47,7 @@ export interface SqliteRuntimeProbe {
   ok: boolean
   /** process.version of the current runtime. */
   nodeVersion: string
-  /** true when DatabaseSync#backup exists (Node >= 23.4). */
+  /** true when DatabaseSync#backup exists on the actual runtime. */
   hasBackupApi: boolean
   /** Human-readable findings, e.g. why ok is false or which fallback is used. */
   notes: string[]
@@ -105,8 +103,8 @@ export function probeSqliteRuntime(): SqliteRuntimeProbe {
         hasBackupApi = typeof db.backup === 'function'
         notes.push(
           hasBackupApi
-            ? 'DatabaseSync#backup available (Node >= 23.4)'
-            : 'DatabaseSync#backup unavailable (Node < 23.4); backups use VACUUM INTO fallback',
+            ? 'DatabaseSync#backup available'
+            : 'DatabaseSync#backup unavailable; backups use VACUUM INTO',
         )
       } finally {
         db.close()

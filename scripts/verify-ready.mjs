@@ -372,7 +372,7 @@ export async function verifyReady() {
     accept()
     const build = readJson(join(root, 'integrations/browser-skill/dist/BUILD.json'))
     const local = readJson(join(root, 'integrations/browser-skill/dist/LOCALHOST_SMOKE.json'))
-    assert(build.sha256 === pack.browserSkill.sha256 && build.unitTests === '382 passed', 'adapted BrowserSkill build or regression evidence differs from installed pack')
+    assert(build.sha256 === pack.browserSkill.sha256 && build.unitTests === '383 passed', 'adapted BrowserSkill build or regression evidence differs from installed pack')
     assert(local.checks?.cli === 'PASS' && local.checks?.daemon === 'PASS' && local.checks?.fixtureHttp === 'PASS', 'BrowserSkill CLI/daemon localhost baseline did not pass')
     return [join(root, 'integrations/browser-skill/dist/BUILD.json'), join(root, 'integrations/browser-skill/dist/LOCALHOST_SMOKE.json'), ...browserProof(acceptance, current, pack), ...tests(['V21', 'V23', 'V24'])]
   }, true)

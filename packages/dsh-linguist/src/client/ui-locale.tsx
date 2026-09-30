@@ -27,6 +27,7 @@ const english: Record<string, string> = {
   '关联所选工作区': 'Associate selected Workspace',
   '新会话': 'New session',
   '请选择工作区，或先为项目建立关联。': 'Select a Workspace or associate one with the project.',
+  '项目身份校验失败': 'Project identity verification failed',
   '已从工作区备份目录导入 {name}': 'Imported {name} from a Workspace backup directory',
   '尚无工作区。请先在 DSH 原生侧栏创建工作区。': 'No Workspace exists. Create one in the native DSH sidebar first.',
   '先选择工作区，再设置项目语言和工作阶段。': 'Select a Workspace, then set the project languages and workflow stage.',

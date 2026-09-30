@@ -23,7 +23,7 @@ const evidence = { installationId: current.installationId, browserSkillSha256: c
   status: 'FAILED', checks: {}, trace: [] }
 const bsk = async args => {
   const { stdout } = await exec(current.bskPath, [...args, '--json'], {
-    env: { ...process.env, BSK_HOME: current.bskHome, BSK_AUTO_START: '0' }, timeout: 20000, maxBuffer: 1024 * 1024,
+    env: { ...process.env, BSK_HOME: current.bskHome, BSK_AUTO_START: '0', BSK_AUTO_UPDATE: 'off' }, timeout: 20000, maxBuffer: 1024 * 1024,
   })
   return JSON.parse(stdout)
 }

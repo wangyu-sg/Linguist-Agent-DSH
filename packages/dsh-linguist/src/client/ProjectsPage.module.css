@@ -20,10 +20,10 @@
 .project { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; border-bottom: .5px solid var(--dsw-alias-border-l2); padding: 12px 0; }
 .project[data-drop-position="before"] { box-shadow: inset 0 2px var(--dsw-alias-brand-primary); }
 .project[data-drop-position="after"] { box-shadow: inset 0 -2px var(--dsw-alias-brand-primary); }
-.project strong[draggable="true"] { cursor: grab; }
-.project strong, .project small { display: block; }
+.projectName[draggable="true"] { cursor: grab; }
+.project small { display: block; }
 .projectIdentity { min-width: 0; flex: 1 1 240px; }
-.projectIdentity strong { margin-bottom: 4px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.projectIdentity .projectName { margin: 0 0 4px -8px; max-width: 100%; font-size: 14px; font-weight: 600; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .projectIdentity small { font-size: 12px; line-height: 1.6; }
 .projectActions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .project small { color: var(--dsw-alias-label-secondary); }

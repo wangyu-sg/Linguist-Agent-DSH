@@ -22,12 +22,13 @@ type Project = LinguistProjectInfo & { workspaceId?: string }
 type ImportedBackup = { project: Project; importedFrom: string; schemaVersion: number }
 type ProjectDetail = { summary?: LinguistProjectSummary; health?: LinguistProjectHealthReport; summaryError?: string; healthError?: string }
 
-export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onPickDirectory, capabilities }: {
+export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onOpenSession, onPickDirectory, capabilities }: {
   workspaces: IWorkspaces
   capabilities: React.ReactNode
   onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
   onEnter: (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
+  onOpenProject: (projectId: string) => Promise<void>
   onOpenSession: (binding: LinguistBinding) => Promise<void>
 }): React.ReactElement {
   const t = useT()
@@ -101,7 +102,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
       setDialog(undefined)
       setRefresh((value) => value + 1)
       showMessage(t('已创建 {name}', { name: created.name }))
-      await enter(created)
+      await openProject(created)
     } catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
@@ -111,6 +112,13 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
     setBusy(true)
     showMessage('')
     try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project?.archivedAt ? 'cat' : workMode }); showMessage(t("会话已打开")) }
+    catch (error) { showMessage(describeProjectError(error, t), true) }
+    finally { setBusy(false) }
+  }
+  const openProject = async (project: Project) => {
+    setBusy(true)
+    showMessage('')
+    try { await onOpenProject(project.id); showMessage(t('会话已打开')) }
     catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
@@ -194,7 +202,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenSession, onP
             setDropTarget({ projectId: project.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' })
           }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined) }} onDrop={(event) => { if (!project.archivedAt) dropProject(event, project.id) }}>
             <div className={styles.projectIdentity}>
-              <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><strong tabIndex={0} draggable={!project.archivedAt && !busy} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</strong></Tooltip>
+              <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}>{project.name}</Button></Tooltip>
               <small>{project.sourceLocale} → {project.targetLocale} · {t(stageName(project.workflowStage ?? 'translation'))}{project.archivedAt ? t(" · 已归档") : ''} · {detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}{project.workspaceId && <> · <span title={workspace?.path}>{workspace ? `${t('工作区')} · ${workspace.title}` : t('工作区不可用')}</span></>}</small>
               {failedChecks && failedChecks.length > 0 && <span className={styles.warning}>{t('需要修复')} · {failedChecks.join('；')}</span>}
               {detail?.healthError && <span className={styles.warning}>{t('健康检查不可用')} · {detail.healthError}</span>}

@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createElement, useEffect, useState } from 'react'
 import { Button, Menu, Modal, Tooltip, IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LinguistAssetInfo, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
+import type { LinguistAssetInfo, LinguistProjectOpenResult, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
 import { bindSession, getBinding, required, type LinguistBinding } from './api'
 import { CatWorkbench } from './CatWorkbench'
 import { clearCatEditorStates } from './cat-editor-state'
@@ -299,6 +299,51 @@ export function apply(ctx: Context): void {
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding)
   }
+  const visitedSessions: Parameters<typeof ctx.sessions.scope>[0][] = []
+  ctx.effect(() => {
+    const remember = () => {
+      const id = ctx.sidebarRight.mounted.getSnapshot()
+      if (id === undefined) return
+      const previous = visitedSessions.indexOf(id)
+      if (previous !== -1) visitedSessions.splice(previous, 1)
+      visitedSessions.unshift(id)
+    }
+    remember()
+    return ctx.sidebarRight.mounted.subscribe(remember)
+  }, 'linguist: project Session visits')
+  const pendingProjectSessions = new Map<string, Promise<LinguistBinding>>()
+  const openProject = async (projectId: string) => {
+    const navigation = ctx.layout.beginNavigation()
+    const opened = await required<LinguistProjectOpenResult & { project: { workspaceId?: string } }>('linguistProjectsOpen', { projectId })
+    if (navigation.aborted) return
+    if (opened.project.id !== projectId || opened.health.projectId !== projectId) throw new Error(t('项目身份校验失败'))
+    if (!opened.health.healthy) throw new Error(t('需要修复'))
+    const workspace = ctx.workspaces.list.getSnapshot().items.find(item => item.workspaceId === opened.project.workspaceId)
+    if (!workspace) throw new Error(t('请选择工作区，或先为项目建立关联。'))
+    let pending = pendingProjectSessions.get(projectId)
+    if (!pending) {
+      pending = (async () => {
+        await ctx.sessions.refresh()
+        const snapshot = ctx.sessions.list.getSnapshot()
+        const candidates = [...new Set([
+          ...visitedSessions,
+          ...[...snapshot.ids].sort((left, right) => snapshot.byId[right]!.updatedAt - snapshot.byId[left]!.updatedAt),
+        ])]
+        for (const id of candidates) {
+          if (!snapshot.ids.includes(id)) continue
+          const row = snapshot.byId[id]!
+          if (row.cwd !== workspace.path || row.parentId !== undefined || row.origin === 'subagent') continue
+          const binding = await getBinding(id)
+          if (binding?.projectId === projectId && binding.workspaceId === workspace.workspaceId && binding.workMode === 'cat') return binding
+        }
+        const id = await ctx.sessions.create({ workspaceId: workspace.workspaceId })
+        return bindSession({ sessionId: String(id), projectId, role: 'general', workMode: 'cat' }, String(workspace.workspaceId))
+      })().finally(() => pendingProjectSessions.delete(projectId))
+      pendingProjectSessions.set(projectId, pending)
+    }
+    const binding = await pending
+    if (!navigation.aborted) await openBoundSession(binding)
+  }
   const openExecutionSession = async (sessionId: string) => {
     await ctx.sessions.refresh()
     const id = sessionId as Parameters<typeof ctx.uiWorkspace.openSession>[0]
@@ -307,7 +352,7 @@ export function apply(ctx: Context): void {
     if (binding) await openBoundSession(binding)
     else { ctx.layout.selectPanel(null); ctx.uiWorkspace.openSession(id) }
   }
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenProject: openProject, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onCancelRun: cancelRun, onOpenSession: openExecutionSession, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) }))))
