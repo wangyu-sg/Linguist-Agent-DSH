@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T14:51:51.457471+00:00",
+  "updatedAt": "2026-09-30T15:43:06.176141+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -111,11 +111,11 @@
     "auditDirectory": "docs/migration/audit-2026-09-29",
     "packagePolicy": "One integrated rc.2 native candidate after full diff review; installed acceptance remains mandatory",
     "knownEngineeringGaps": [
-      "Remaining full per-capability/model/UI evidence incomplete; no readiness claim.",
-      "Adjacent UI navigation: external QA/navigation and confirm advance only scroll; unloaded-page confirm advance requires source-equivalent continuation. Grid arrow repair does not claim these passed."
+      "Remaining full current-package UI/model/delegation/schedule/Browser evidence incomplete.",
+      "Adjacent navigation corrections awaiting final correctness review, frozen package and real native acceptance."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
-    "installedAcceptanceStatus": "NOT_READY: 0619 installed smoke9/9 and actual grid keyboard/cold reopen passed. Hot-enabled Host MQ export still failed; same request passed after actual cold restart. Full cold domain suite and remaining UI/model capabilities continue.",
+    "installedAcceptanceStatus": "NOT_READY: 0619 smoke9/9, native grid keyboard and official cold reopen passed; cold domain23/23 with274HTTP and all8formats passed. Remaining full UI/model/delegation/schedule/Browser acceptance still pending.",
     "implementedAwaitingInstalledAcceptance": [
       "DSH rc.2 and BrowserSkill .3 exact dependency alignment",
       "Native controls, project dialogs, pane layouts, grouped settings and action feedback",
@@ -153,7 +153,7 @@
       "requiredReceipt": "artifacts/evidence/required-synthetic.json",
       "buildLog": "artifacts/evidence/cat-arrow-build.log",
       "privatePushBoundaryTests": 4,
-      "freshForCurrentWorkingTree": true
+      "freshForCurrentWorkingTree": false
     },
     "knownHostApiBoundaries": [
       {
@@ -165,16 +165,16 @@
         "acceptedBehavior": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。"
       }
     ],
-    "candidateStatus": "0619 is now installed and cold-reopened; focused grid keyboard acceptance passed. Full migration gates remain pending.",
+    "candidateStatus": "Adjacent navigation and QA action grouping remain under review; 29bf candidate invalidated by reproduced races and subsequent design edits. Actual installed identity remains 0619.",
     "candidatePluginSha256": "06190cb843e078df7201d7767aaddca1cc378ba94b83486ef778fa09668f7329",
     "lastInstalledBrowserSkillSha256": "7a6cfa1d9f52841d56ec02a8c8749f843a5531f10113038a4670212dcd9d0c06",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
     "fullDiffReview": {
-      "sha256": "3032b22c174f9d6798c92ddb129b2d918f134cd834c4d2b8579dd3a9a9a71985",
+      "sha256": "81e18cd6e98bb2059963e67468f864fa8e7a1524be53b02647ba327bcc44f657",
       "conclusion": "Lean already. Ship.",
-      "committedAs": "9868c94",
-      "receipt": "artifacts/evidence/ponytail-review-mq-ui-label.json",
-      "scope": "MemoQ and selection-label source checkpoint, seven-file exact staged diff. Later user-accepted identity-placement documentation remains uncommitted."
+      "committedAs": "376b841",
+      "receipt": "artifacts/evidence/ponytail-review-cat-arrow.json",
+      "scope": "Six-file exact staged diff: keyboard focus source/tests and continuation plus accepted identity placement. Subsequent cold-domain summary update remains uncommitted."
     },
     "acceptedProductAdjustments": [
       {
@@ -213,7 +213,7 @@
     "nativeUpdateConfirmation": "User explicitly approved 0619 update and native verification; actual Install and Enable now performed.",
     "installationId": "la-06190cb843e0-7a6cfa1d",
     "coldStartStatusEvidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
-    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0619/receipt.json",
+    "domainAcceptanceEvidence": "artifacts/evidence/installed-domain-0619-cold/domain-acceptance-summary.json",
     "keyboardNavigationRegression": {
       "reproduction": "artifacts/evidence/cat-arrow-reproduction-4f2e.json",
       "red": "artifacts/evidence/cat-arrow-red.log",
@@ -227,6 +227,29 @@
       "coldSameRequest": "strict export succeeds with4/4 native status preserved",
       "evidence": "artifacts/evidence/installed-domain-0619/mq-cold-retry.json",
       "conclusion": "Use official cold restart before Host regression acceptance; native manager hot enable did not demonstrate updated Host behavior."
+    },
+    "backupRestoreAcceptance": {
+      "installationId": "la-06190cb843e0-7a6cfa1d",
+      "status": "PASS_INSTALLED_BACKUP_RESTORE",
+      "httpRequestCount": 41,
+      "checksPassed": 6,
+      "evidence": "artifacts/evidence/maintenance-0619/domain-acceptance-summary.json",
+      "limits": "Native UI and model evidence are separate. Initial assertion incorrectly expected raw pre-restore safety snapshot in normal backup list; original failed receipt retained, identical source/target contract verified."
+    },
+    "professionalSessionPreparation": {
+      "evidence": "artifacts/evidence/roles-0619/native-bindings.json",
+      "boundRoles": [
+        "general",
+        "translator",
+        "reviewer",
+        "proofreader"
+      ],
+      "modelCallsPerformed": false
+    },
+    "externalNavigationRegression": {
+      "status": "REPRODUCED_ON_INSTALLED_0619",
+      "evidence": "artifacts/evidence/cat-navigation-0619-before.json",
+      "detail": "Installed 0619 next-untouched focuses HTML root; source corrections add explicit jump focus, stable post-confirm successor, filter cancellation and page identity. Review continues; no new native pass claimed."
     }
   },
   "externalPrerequisites": [

@@ -9,6 +9,7 @@
 .panel details[open] > summary { margin-bottom: 8px; }
 .panel [role="alert"] { color: var(--dsw-alias-state-error-primary); }
 .toolbar { composes: toolbar from './Controls.module.css'; }
+.toolbarActions { display: inline-flex; flex: none; align-items: center; gap: 8px; }
 .form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .form > div { min-width: 0; flex: 1 1 160px; }
 .localeForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 640px; align-items: start; }
@@ -19,7 +20,7 @@
 .toolbar select, .form select { max-width: 100%; }
 .toolbar input[type="file"] { max-width: 280px; }
 .item, .selected, .callout { display: flex; flex-direction: column; min-width: 0; gap: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
-.selected { border-color: var(--dsw-alias-state-business-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, transparent); }
+.selected { border-color: var(--dsw-alias-border-l4); background: var(--dsw-alias-interactive-bg-active); }
 .callout { background: var(--dsw-alias-bg-layer-1); }
 .item strong, .selected strong { font-size: 13px; overflow-wrap: anywhere; }
 .compare, .bilingual { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

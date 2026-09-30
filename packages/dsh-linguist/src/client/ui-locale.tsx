@@ -7,6 +7,7 @@ const english: Record<string, string> = {
   '调整辅助区高度': 'Resize panels',
   '收起辅助区': 'Collapse panels', '展开辅助区': 'Expand panels',
   '↑↓ 切换 · Enter 编辑 · Esc 取消': '↑↓ Navigate · Enter Edit · Esc Cancel',
+  '当前批次和筛选范围内没有下一个可编辑句段': 'No next editable segment in the current batch and filter',
   '决策覆盖读取失败': 'Could not load decision coverage',
   '阻塞': 'Blocked',
   '已修正': 'Corrected',

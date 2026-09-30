@@ -75,6 +75,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(new Set())
   const [agentReference, setAgentReference] = React.useState<{ segmentId: string; assetId: string }>()
   const uiRevision = React.useRef(0)
+  // Background selection cleanup must not cancel an explicit jump.
+  const navigationRevision = React.useRef(0)
+  const confirmedDatasetRevision = React.useRef(0)
   const [dock, setDock] = React.useState<Dock>(storedLocation.value.dock)
   const [dockOpen, setDockOpen] = React.useState(storedLocation.value.dockOpen)
   const [dockHeight, setDockHeight] = React.useState(storedLocation.value.dockHeight)
@@ -111,9 +114,16 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const handleEditorChange = React.useCallback((segmentId: string, handle: TargetEditorHandle | undefined) => {
     setEditor((current) => handle ? { segmentId, handle } : current?.segmentId === segmentId ? undefined : current)
   }, [])
-  const loadingOffsets = React.useRef(new Set<number>())
-  const pendingNavigation = React.useRef<string>()
+  const loadingPages = React.useRef(new Map<number, { ids: string[]; request: Promise<LinguistSegmentInfo[]> }>())
+  const pendingNavigation = React.useRef<{ id: string; signature: string }>()
   const signature = `${projectId}\0${assetId ?? ''}\0${stageFilter}\0${search}`
+  const currentSignature = React.useRef(signature)
+  currentSignature.current = signature
+  React.useLayoutEffect(() => {
+    navigationRevision.current += 1
+    if (pendingNavigation.current?.signature !== signature) pendingNavigation.current = undefined
+    setFocusIndex(undefined)
+  }, [signature])
   const active = selectedId === undefined ? undefined : [...(dataset?.rows.values() ?? [])].find((row) => row.id === selectedId)
   const workflowStage = project?.workflowStage ?? 'translation'
   const assetMaximum = workbenchSize.width ? Math.max(180, Math.min(420, Math.floor(workbenchSize.width * .86))) : 420
@@ -257,42 +267,46 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   React.useEffect(() => {
     if (project === undefined) return
     let live = true
-    loadingOffsets.current.clear()
+    const queryRevision = navigationRevision.current
+    const datasetRevision = confirmedDatasetRevision.current
+    const requested = pendingNavigation.current
     setLoading(true)
     required<LinguistCatQueryResult>('linguistCatQuery', {
       projectId, assetId, currentStageState: stageFilter || undefined,
       search: search || undefined, limit: PAGE_SIZE, offset: 0, includeIndex: true,
     }).then((page) => {
-      if (!live) return
+      if (!live || datasetRevision !== confirmedDatasetRevision.current) return
       setDataset({ signature, total: page.total, ids: page.segmentIds, rows: mergeIndexedPage(new Map(), 0, page.segments) })
       setLoading(false)
-      const requested = pendingNavigation.current
+      if (queryRevision !== navigationRevision.current) return
       if (requested) {
-        const index = page.segmentIds.indexOf(requested)
-        pendingNavigation.current = undefined
-        if (index >= 0) { setSelectedId(requested); setFocusIndex(index) }
-        else setNotice(t('句段 {id} 不在当前项目范围内', { id: requested }))
-      } else if (selectedId !== undefined && page.segmentIds.includes(selectedId)) setFocusIndex(page.segmentIds.indexOf(selectedId))
-      else if (selectedId !== undefined) setSelectedId(undefined)
+        const index = page.segmentIds.indexOf(requested.id)
+        if (pendingNavigation.current === requested) pendingNavigation.current = undefined
+        if (index >= 0) { setSelectedId(requested.id); setFocusIndex(index) }
+        else setNotice(t('句段 {id} 不在当前项目范围内', { id: requested.id }))
+      } else if (selectedId !== undefined && !page.segmentIds.includes(selectedId)) setSelectedId(undefined)
     }).catch((error: unknown) => {
       if (live) { setLoadError(String(error)); setLoading(false) }
     })
     return () => { live = false }
   }, [project, projectId, assetId, stageFilter, search, reload])
 
-  const loadPage = React.useCallback(async (offset: number) => {
-    if (loadingOffsets.current.has(offset) || dataset?.rows.has(offset)) return
-    loadingOffsets.current.add(offset)
-    try {
-      const page = await required<LinguistCatQueryResult>('linguistCatQuery', {
-        projectId, assetId, currentStageState: stageFilter || undefined,
-        search: search || undefined, limit: PAGE_SIZE, offset, includeIndex: false,
-      })
-      setDataset((current) => current?.signature === signature
+  const loadPage = React.useCallback((offset: number, indexed: Dataset): Promise<LinguistSegmentInfo[]> => {
+    if (indexed.signature !== currentSignature.current) return Promise.resolve([])
+    const pending = loadingPages.current.get(offset)
+    if (pending?.ids === indexed.ids) return pending.request
+    if (indexed.rows.has(offset)) return Promise.resolve(indexed.ids.slice(offset, offset + PAGE_SIZE).map((_, index) => indexed.rows.get(offset + index)!))
+    const request: Promise<LinguistSegmentInfo[]> = required<LinguistCatQueryResult>('linguistCatQuery', {
+      projectId, assetId, currentStageState: stageFilter || undefined,
+      search: search || undefined, limit: PAGE_SIZE, offset, includeIndex: false,
+    }).then((page) => {
+      setDataset((current) => current?.ids === indexed.ids
         ? { ...current, rows: mergeIndexedPage(current.rows, offset, page.segments) } : current)
-    } catch (error) { setNotice(String(error)) }
-    finally { loadingOffsets.current.delete(offset) }
-  }, [dataset, projectId, assetId, stageFilter, search, signature])
+      return page.segments
+    }).finally(() => { if (loadingPages.current.get(offset)?.request === request) loadingPages.current.delete(offset) })
+    loadingPages.current.set(offset, { ids: indexed.ids, request })
+    return request
+  }, [projectId, assetId, stageFilter, search])
 
   const updateRow = React.useCallback((row: LinguistSegmentInfo) => {
     setDataset((current) => {
@@ -329,6 +343,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [projectId, refreshSummary, updateRow])
 
   const mutateStage = React.useCallback(async (segment: LinguistSegmentInfo, confirm: boolean) => {
+    const requestRevision = navigationRevision.current
     try {
       const latest = await reloadRow(segment.id)
       if (confirm && latest.currentStageState === 'confirmed') return
@@ -340,14 +355,36 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       setRowSignalRefresh((value) => value + 1)
       void refreshSummary().catch((error: unknown) => setNotice(String(error)))
       setNotice(confirm ? t(stageCompletionLabel(workflowStage)) : t("已撤销当前阶段确认"))
-      if (confirm && dataset !== undefined) {
-        const index = dataset.ids.indexOf(segment.id)
-        const nextRow = findNextEditableRow(dataset.rows, index, segment.assetId, dataset.total)
-        if (nextRow.kind === 'load') void loadPage(Math.floor(nextRow.index / PAGE_SIZE) * PAGE_SIZE)
-        else if (nextRow.kind === 'found') { setSelectedId(dataset.ids[nextRow.index]); setFocusIndex(nextRow.index) }
+      if (confirm && dataset !== undefined && navigationRevision.current === requestRevision && currentSignature.current === dataset.signature) {
+        const page = await required<LinguistCatQueryResult>('linguistCatQuery', {
+          projectId, assetId, currentStageState: stageFilter || undefined,
+          search: search || undefined, limit: PAGE_SIZE, offset: 0, includeIndex: true,
+        })
+        if (navigationRevision.current !== requestRevision || currentSignature.current !== dataset.signature) return
+        const indexed: Dataset = { signature: dataset.signature, total: page.total, ids: page.segmentIds, rows: mergeIndexedPage(new Map(), 0, page.segments) }
+        const currentIndex = indexed.ids.indexOf(segment.id)
+        const following = new Set(dataset.ids.slice(dataset.ids.indexOf(segment.id) + 1))
+        const followingIndex = indexed.ids.findIndex((id) => following.has(id))
+        const index = currentIndex >= 0 ? currentIndex : followingIndex >= 0 ? followingIndex - 1 : indexed.total
+        let candidateRows = new Map(indexed.rows)
+        confirmedDatasetRevision.current += 1
+        setDataset(indexed)
+        let nextRow = findNextEditableRow(candidateRows, index, next.assetId, indexed.total)
+        while (nextRow.kind === 'load') {
+          const offset = Math.floor(nextRow.index / PAGE_SIZE) * PAGE_SIZE
+          const segments = await loadPage(offset, indexed)
+          if (navigationRevision.current !== requestRevision || currentSignature.current !== dataset.signature) return
+          candidateRows = mergeIndexedPage(candidateRows, offset, segments)
+          if (!candidateRows.has(nextRow.index)) { setNotice(t('当前批次和筛选范围内没有下一个可编辑句段')); return }
+          nextRow = findNextEditableRow(candidateRows, index, next.assetId, indexed.total)
+        }
+        confirmedDatasetRevision.current += 1
+        setDataset({ ...indexed, rows: candidateRows })
+        if (nextRow.kind === 'found') { navigationRevision.current += 1; setSelectedId(indexed.ids[nextRow.index]); setFocusIndex(nextRow.index) }
+        else setNotice(t('当前批次和筛选范围内没有下一个可编辑句段'))
       }
     } catch (error) { setNotice(String(error)) }
-  }, [projectId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage])
+  }, [projectId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage, assetId, stageFilter, search])
 
   const confirmSelected = async () => {
     const ids = [...selectedIds]
@@ -368,9 +405,11 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }
 
   const navigateToSegment = (id: string) => {
+    navigationRevision.current += 1
+    pendingNavigation.current = undefined
     const index = dataset?.ids.indexOf(id) ?? -1
     if (index >= 0) { setSelectedId(id); setFocusIndex(index); return }
-    pendingNavigation.current = id
+    pendingNavigation.current = { id, signature: `${projectId}\0\0\0` }
     setAssetId(undefined)
     setStageFilter('')
     setSearch('')
@@ -380,16 +419,18 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const nextUntouched = async () => {
     if (jumpBusy) return
     setJumpBusy(true)
+    const requestRevision = navigationRevision.current
     try {
       const [all, untouched] = await Promise.all([
         required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, limit: 1, includeIndex: true }),
         required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, currentStageState: 'untouched', limit: 1, includeIndex: true }),
       ])
+      if (navigationRevision.current !== requestRevision) return
       const available = new Set(untouched.segmentIds)
       const current = all.segmentIds.indexOf(selectedId ?? '')
       const next = [...all.segmentIds.slice(current + 1), ...all.segmentIds.slice(0, current + 1)].find((id) => available.has(id))
       if (!next) { setNotice(t('当前范围没有待处理句段。')); return }
-      pendingNavigation.current = next
+      pendingNavigation.current = { id: next, signature: `${projectId}\0${assetId ?? ''}\0\0` }
       setStageFilter('')
       setSearch('')
       setReload((value) => value + 1)
@@ -400,12 +441,14 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const nextQa = async () => {
     if (jumpBusy) return
     setJumpBusy(true)
+    const requestRevision = navigationRevision.current
     try {
       const [all, first] = await Promise.all([
         required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, limit: 1, includeIndex: true }),
         required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId, status: 'open', limit: 200, offset: 0 }),
       ])
       const pages = first.hasMore ? await Promise.all(Array.from({ length: Math.ceil(first.total / 200) - 1 }, (_, index) => required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId, status: 'open', limit: 200, offset: (index + 1) * 200 }))) : []
+      if (navigationRevision.current !== requestRevision) return
       const bySegment = new Map([...first.items, ...pages.flatMap((page) => page.items)].map((finding) => [finding.segmentId, finding]))
       const current = all.segmentIds.indexOf(selectedId ?? '')
       const next = [...all.segmentIds.slice(current + 1), ...all.segmentIds.slice(0, current + 1)].find((id) => bySegment.has(id))
@@ -449,10 +492,12 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
   React.useEffect(() => {
     if (navigation === undefined) return
+    navigationRevision.current += 1
+    pendingNavigation.current = undefined
     if (navigation.dock) { setDock(navigation.dock); setDockOpen(true) }
     if (navigation.inspector) { setInspectorOpen(true); if (compactLayout.current) setAssetNavigatorOpen(false) }
     if (navigation.segmentId) {
-      pendingNavigation.current = navigation.segmentId
+      pendingNavigation.current = { id: navigation.segmentId, signature: `${projectId}\0\0\0` }
       setAssetId(undefined)
       setStageFilter('')
       setSearch('')
@@ -531,10 +576,15 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
           </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
             : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
-              for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset)
-            }} onOpenQa={openQaForRow} onOpenProposal={openProposalForRow} onReviewProposal={reviewProposalForRow} onSelect={(id) => setSelectedId(id)} onToggleSelected={(id) => setSelectedIds((current) => {
+              for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset, dataset).catch((error: unknown) => setNotice(String(error)))
+            }} onOpenQa={openQaForRow} onOpenProposal={openProposalForRow} onReviewProposal={reviewProposalForRow} onSelect={(id) => {
+              navigationRevision.current += 1
+              pendingNavigation.current = undefined
+              setSelectedId(id)
+              setFocusIndex((current) => current !== undefined && dataset.ids[current] === id ? current : undefined)
+            }} onToggleSelected={(id) => setSelectedIds((current) => {
               const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next
-            })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId })} onFocusSettled={() => setFocusIndex(undefined)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
+            })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
       {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={320} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
@@ -569,7 +619,7 @@ interface RowsProps {
   drafts: Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>;
   editingIdAtom: PrimitiveAtom<string | undefined>;
   onVisibleRange: (start: number, end: number) => void; onSelect: (id: string) => void;
-  onToggleSelected: (id: string) => void; onFocusSettled: () => void;
+  onToggleSelected: (id: string) => void; onFocusSettled: (index: number) => void;
   onReferenceAgent: (segment: LinguistSegmentInfo) => void;
   onOpenQa: (segmentId: string) => void;
   onOpenProposal: (proposal: LinguistProposalInfo) => void;
@@ -585,6 +635,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
   const t = useT()
   const scroller = React.useRef<HTMLDivElement>(null)
   const pendingRowFocus = React.useRef<string>()
+  if (pendingRowFocus.current !== props.selectedId) pendingRowFocus.current = undefined
   const [editingId, setEditingId] = useAtom(props.editingIdAtom)
   const currentEditingId = React.useRef(editingId)
   currentEditingId.current = editingId
@@ -596,8 +647,18 @@ function SegmentRows(props: RowsProps): React.ReactElement {
     if (items.length > 0) props.onVisibleRange(items[0]!.index, items.at(-1)!.index)
   }, [items[0]?.index, items.at(-1)?.index, props.onVisibleRange])
   React.useEffect(() => {
-    if (props.focusIndex !== undefined) { virtualizer.scrollToIndex(props.focusIndex); props.onFocusSettled() }
-  }, [props.focusIndex, virtualizer, props.onFocusSettled])
+    if (props.focusIndex !== undefined && props.data.ids[props.focusIndex] === props.selectedId) virtualizer.scrollToIndex(props.focusIndex)
+  }, [props.focusIndex, props.selectedId, props.data.ids, virtualizer])
+  React.useEffect(() => {
+    const index = props.focusIndex
+    if (index === undefined) return
+    if (props.data.ids[index] !== props.selectedId) { props.onFocusSettled(index); return }
+    if (!props.data.rows.has(index)) return
+    const row = scroller.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)
+    if (!row) return
+    if (!row.contains(document.activeElement)) row.focus({ preventScroll: true })
+    props.onFocusSettled(index)
+  }, [props.focusIndex, props.selectedId, props.data.ids, props.data.rows, items[0]?.index, items.at(-1)?.index, props.onFocusSettled])
   return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total + 1} ref={scroller} onScroll={() => setMenuId(undefined)}>
     <div className={styles.gridHeading} role="row" aria-rowindex={1}><span role="columnheader">#</span><span role="columnheader">{t('源文')}</span><span role="columnheader">{t('译文')}</span><span role="columnheader">{t('操作')}</span></div>
     <div className={styles.gridInner} style={{ height: virtualizer.getTotalSize() }}>
@@ -618,7 +679,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
         const signal = props.signals.get(id)
         return <div key={id} ref={(node) => {
           virtualizer.measureElement(node)
-          if (node && pendingRowFocus.current === id) {
+          if (node && segment !== undefined && pendingRowFocus.current === id && props.selectedId === id) {
             pendingRowFocus.current = undefined
             node.focus({ preventScroll: true })
           }
