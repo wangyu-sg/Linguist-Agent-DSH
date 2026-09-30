@@ -1,5 +1,30 @@
 # 当前进度与接续（2026-10-01）
 
+## 当前实机范围与接续（2026-10-01）
+
+- 实际安装仍为 **LA7678 / Browser .5**（`la-76789f203f48-5c93f36b`），已真实冷重开；候选 **LA3fe / Browser .5** 的同一安装确认卡尚待回复。产品源码提交 `0cd31b9`，此前文档提交 `1d4a00a`；候选没有借补验变成已安装。
+- 六个原生 Skill（D060–D065）实际加载，**22/22**；一个 General 只读回合看见3段 Source/current Target/revision1、required 完整正文和真实图像，并给出六类结果。仅中性UI短句范围，不代表六次独立专业Stage、丰富文化情境、TB批准或交付。`skills-native-v5/receipt.json` 和 index 保留原7678/.5身份；Provider正文为官方Session重建，非上游HTTP抓包。
+- HTTP实际 **54请求、30项通过**（LA29＋DSH跨源拒绝1）。另15项DSH业务检查收到预期401，分类 **NOT_REACHED_AUTH / NOT_VERIFIED_BY_THIS_UNAUTHENTICATED_RUN**；官方Desktop已正常登录，runner未带认证上下文，**不是外部凭据BLOCKED_ENV**。原exit1和FAILED原始收据保留，准确解释见 `http-boundaries-v5/classification.json`；后续从原生Files UI核对自己fixture。
+- Browser限定CLI真链已观察富文本叶节点、虚拟行身份、旧ref拒绝后新观察、服务器真实保存、自有HTTP断开后恢复和捕获后的下载取消。**意图捕获前仅取消仍为unknown效果**，确有自己合成默认下载迟到；**单触发多下载归属NOT_VERIFIED**，服务器实际只收到一个附件请求。`browser-v5-extra-boundaries/coverage.json` 保留七份原始收据及失败，不能推广为整个Browser门禁通过。
+- Browser owned-stop真实链：只取消自有 `pera` 请求，首次 `cleanup_failed`、同请求重试 `closed`；实际连接在8秒截止前关闭、`late-send-skipped`，指定out和自己的默认文件在截止后均不存在。三份其他试验的合成默认Downloads文件保留，没有全局stop或删除浏览器文件。
+- 当前维护补验 **6/6、43 HTTP**；旧LA完整合成项目迁移 **6/6、13 HTTP＋真实SSE**；委派控制 **16项**实际queue/steer/interrupt/冷child恢复通过。各receipt都保留7678/.5身份和限定范围，旧maintenance FAILED仍留档。
+- 正式 `verify:ready` 仍 **FAILED**：3fe尚未安装，正式acceptance身份及完整新Client/UI门禁未齐。飞书按用户决定暂不配置，真实投递 **BLOCKED_ENV**；上述401不新增环境阻塞。
+
+### 本轮已冻结的实际补验
+
+- 原生宿主 **8项**：自己的38字节文本附件进入未发送草稿，真实全文预览/刷新；权限仍为工作区内修改、模型MAX未变；两插件与组件已启用；官方创建 `synthetic-copy-v5` 工作区。附件没有发送，不推导为所有格式编辑/预览支持。
+- 会话复制/解绑 **31项**：在自己的同及跨Workspace中实际创建原生副本，完整历史/设置保留，原会话字节/mtime/绑定不变；不准入零新Session，仅副本解绑后历史仍在。API证据不替代Client点击、运行中拒绝或解绑后普通模型回复。
+- 外部合成备份 **21项**：真实导入、stable ID/修订/锁/原件保留；新schema/错误SQLite身份拒绝且零目标写；duplicate零写。未声称原生确认UI或富引用/TM/TB全部通过。
+- 跨批次一致性 **21项原生**：两批次15段真实模型检查共享Source；保留有语境差异的Go译法，只创建一个明确指定的pending建议，全部Target/revision不变。该15段证据冻结在加入大文件之前。
+- 5000段QA **19项原生＋35HTTP/39项只读**：两次真实worker自然完成，10000条QA没有重复，5000＋原15段逐值不变，pending不变。**取消未观察到**，两次都没有点Stop；不得采用模型虚构的Stop叙述，也不再扩大旧安装数据或重复QA。
+- 上述真实receipt在 `native-shell-v5/`、`session-copy-detach-v5/`、`backup-external-v5/` 和 `consistency-jobs-v5/`；后者167个文件全部SHA/bytes已核对，index SHA `1b429a50ff97465eba01e2dc91fa665e75065a855d07829243e0a109263e8f65`。均保持实际7678/.5身份，不是3fe验收或完整合同PASS。
+
+### 立即接续
+
+1. 在同一3fe确认获答后，由官方Desktop安装/启用，核对包字节和registry，再真实退出、Finder双击冷重开及fresh smoke；实际核对QA刷新GREEN、inventory改动。现有7678模型/领域证据按未改成员与当前readback限定承接，原日志身份不改。
+2. 继续新Client的8类视图、主题/窄短窗口、CAT编辑/CAS/IME/虚拟行、项目/会话与资源入口实测；Files接口业务从已授权的原生UI核对自己的fixture，不取Cookie/token或绕过认证。Browser未观察分支保持未验证；CLI scoped通过不能替代原生模型证明。
+3. 归集202合同和V门禁的实际caller/行为证据，更新正式acceptance再运行 `verify:ready`；不靠改hash或删除门禁通过。只有当前安装全部必需门禁通过才通知完成，私有GitHub推送仍按完成后授权执行。
+
 ## 最新边界更新（04:23）
 
 - 当前仍实际安装 **LA7678＋Browser .5**；新版 **LA3fe548dc2f09** 的同一当场确认卡尚未回复。Root 继续不依赖安装的核对，之后已回到该包官方“安装”按钮；未经这张卡回复不点击。
@@ -30,7 +55,7 @@
 - 冻结 LA 曾通过 267 Node、21 Bun、8 组类型及 6 项包资源检查，精确 diff Ponytail `Lean already. Ship.`，提交 `65a8e28`。当前 Browser 源码已改，不能把旧整树检查称为当前整树最新。
 - 源仓库只读，仅合成数据；不访问真实 Phrase、OSgame 或客户数据库。BrowserSkill 是唯一浏览器链。
 
-## 当前 7678／.4 的真实通过范围
+## 历史 7678／.4 的真实通过范围
 
 - 安装／启用／冷启动／9 smoke：`native-install-la-76789f203f48-7a6cfa1d.json`、对应 `-trace.json`、`native-status-76789f203f48.json`、`installed-smoke.json`，均在 `artifacts/evidence/`。
 - CAT 原生搜索保持焦点、连续上下键、确认第 200 段后筛选收缩并跳过锁定 201 聚焦 202；三个分隔条真实 pointer／键盘／复位、底栏 Source 13440／Target 4620／进度 1/420。`ui-7678/navigation-and-splitters.json` 和两张 PNG。只覆盖观察范围，8 类视图／暗色／完整编辑交互尚未齐。
@@ -44,16 +69,13 @@
 ## 保留的失败与阻塞
 
 - `maintenance-7678/receipt.json` **FAILED** 原样保留：旧 runner 要求普通备份列表列出内部 pre-restore 安全快照。独立 `restore-readback-verification.json` 确认已实际恢复前后 CAT／TM／TB／6 引用字节严格相等；这个部分成功不能改写整份 runner 的失败。
-- `browser-native-7678/native-edges/observation.json` 记录 `.4` 真实 idempotency defect；`.5` 的源码修复回归和实际安装均已有记录，但冷 Host／原生修复运行仍需重验。借还／DSH 取消／重载／peer 保留还需实际完成。
+- `browser-native-7678/native-edges/observation.json` 记录 `.4` 真实 idempotency defect，原样保留。后续 `.5` 冷Host固定字段、同序重试、借还／DSH取消／重载及peer保留已有限定实证，见首节和03:36更新；原生等价key重排仍未验证，不改旧失败身份。
 - 飞书用户选择暂不配置，真实投递 **BLOCKED_ENV**。最新只读 ScheduleList 的目标为空；不要求用户在聊天发凭据，不伪造投递通过。
 
-## Root 接续顺序
+## 历史验收草稿
 
-1. 完成当前 LA7678／BrowserSkill `.5` 的完整退出冷重开、registry／status／fresh smoke；最新 LAad2 候选的源码 review／安装／冷重开与受影响 proof 由 Root 处理。重跑受影响幂等请求和借还／取消／重载／peer 原生边界，保留 `.4` 失败。
-2. 补齐原生 8 类 UI、明暗及窄短窗口、CAT 编辑／CAS／IME／虚拟行、项目／会话管理身份；当前两图和导航分隔条只作为已有真证据。
-3. `delegation-7678/native-delegation-audit.json` 已记录历史 `.4` 原生委派：T 完整 scope1/1 文图2/2；R 首轮 required1/2 阻塞，原生父 message＋resume 第二轮 full3／正文／图像2/2完成。首轮缺口和 inventory error 保留，parent ask／child never 是实际 DSH 差异。继续完成 queue／steer／中断及剩余 schedule 边界；已有专业／长 Context／working-copy／due／manual 回合不重复当未做，也不推导未观察分支。
-4. 独立草稿 `artifacts/evidence/acceptance-7678-draft.json` 和 `capability-proof-7678-draft.json` 已归一实际 evidencePath／SHA。202 个必需 ID 已分清：23 个声明范围真实通过、2 个外部阻塞、177 个尚待完整合同／界面证据；这不是迁移完成率。草稿 **FAILED** 且对当前 `.5` 安装过时，未运行正式 ready；其顶层保留原 `.4` 证据身份，另列当前安装与 LAad2 候选，不能整份直接用作新安装验收。
-5. 补 formal 字段：V-ID 的真实断言映射、当前 source/candidate/installed 一致性、desktop 真 open／quit／reopen 时间 trace、8 UI／暗色、全部 capability caller＋行为门禁。不能通过删检查把草稿提升 READY。Root 最终更新 FEATURE_MAP／HTML 和正式 acceptance，运行 `verify:ready`；旧 READY／acceptance 已过时。
+- `artifacts/evidence/acceptance-7678-draft.json` 与 `capability-proof-7678-draft.json` 保留原 `.4` 身份及当时范围：202项中23项声明范围通过、2项外部阻塞、177项待完整合同/界面证据。这不是迁移完成率，也不是当前7678/.5或3fe的最终核定；后续实际补验见首节，原草稿不改身份。
+- 全部capability caller/行为、V-ID断言映射、当前源码/候选/安装一致性及真实桌面时间trace最终由Root归集到正式acceptance；旧READY/acceptance已过时，不能删检查提升READY。
 
 ## 用户决定与交付
 
@@ -62,7 +84,7 @@
 - 私有 GitHub `wangyu-sg/Linguist-Agent-DSH` 已创建，尚未推送。完成后按授权推送；每次 commit／push 精确 diff 须 Ponytail `Lean already. Ship.`。
 - 只有当前安装全部必需门禁真实通过才能通知“完整迁移完成”。现在状态仍是未完成，Feishu BLOCKED_ENV 保留。
 
-## 新修复候选（2026-10-01 01:40）
+## 历史修复候选（2026-10-01 01:40，已被3fe取代）
 
 - 产品源码提交 `002dd80`；精确六文件 diff 的 Ponytail 为 `Lean already. Ship.`（SHA `f444b0f8…`）。
 - 修复 Browser 文件幂等 key 顺序，以及原生审校续接实际发现的项目盘点重复 Gap 错误。新增 inventory 回归先失败后通过；当前 267 Node／22 Bun／8 types／383 Browser／6 真实包资源检查通过。

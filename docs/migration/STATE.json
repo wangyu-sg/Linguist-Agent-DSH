@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IMPLEMENTING",
-  "updatedAt": "2026-09-30T20:27:07.204178+00:00",
+  "updatedAt": "2026-09-30T21:55:28.193037+00:00",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -112,8 +112,9 @@
     "packagePolicy": "Latest grouped LA3fe548dc2f09 plus installed Browser .5 remains candidate only. Historical .4/.5 raw proofs retain original identity; final native install and affected UI verification must use current actual package.",
     "knownEngineeringGaps": [
       "Latest LA3fe grouped live-panel/history fix awaits its current native install confirmation and actual QA GREEN; no new candidate native PASS yet.",
-      "Full final native UI/IME, bounded delegation queue/steer/interrupt and complete current capability coverage remain unverified. Native Browser .5 borrow/return,130s wait,cancel/late output and reload with foreign peer were observed under actual7678/.5; native equivalent key reorder remains NOT_VERIFIED.",
-      "maintenance-7678 original FAILED retained: old runner required internal pre-restore snapshots in public list. Corrected real contract runner is prepared but not yet executed on final installed candidate."
+      "Full final native UI/IME and complete current capability coverage remain unverified. Current7678/.5 actual native delegation queue/steer/interrupt/cold child resume completed (16 assertions). Native Browser .5 borrow/return,130s wait,cancel/late output and reload with foreign peer observed; native equivalent key reorder remains NOT_VERIFIED.",
+      "maintenance-7678 original FAILED retained. Corrected actual contract runner executed successfully on7678/.5 (6 checks/43 HTTP); exact CAT/TM/TB/6 originals restored, internal changed-state safety snapshot read back and excluded from public list. Final new-candidate installed acceptance remains pending.",
+      "Native QA cancellation not observed: both5000-segment workers naturally completed before a Stop control was available to click. Final installed Client/UI and actual cancellation remain unverified; no third old-install QA attempt."
     ],
     "publicApiAudit": "artifacts/evidence/native-composer-rc2-public-api-reaudit.json",
     "installedAcceptanceStatus": "NOT_READY: current7678/.5 actual cold restart, browser130s and native cancellation observed; whole final candidate/UI/capability gates still incomplete. Feishu BLOCKED_ENV.",
@@ -164,7 +165,7 @@
         "acceptedBehavior": "2026-09-30 用户明确接受：由 Linguist 项目列表和原生会话顶部承载项目身份提示；不要求 Workspace 侧栏行内徽标。身份关联与隔离行为仍须在当前安装包验证。"
       }
     ],
-    "candidateStatus": "3fe548dc2f09/.5 grouped live UI candidate built, 6 real package resource checks, staged and selected in official Install dialog; awaiting current action-time confirmation. Old ad2 confirmation superseded.",
+    "candidateStatus": "LA3fe548dc2f09/.5 grouped live-panel/history candidate packaged and staged; the same action-time confirmation remains unanswered. Browser.5 already installed; LA3fe not installed.",
     "candidatePluginSha256": "3fe548dc2f094bc2d2a496ef1d00caa50f1f2ad0004a12ecd24cc9dda30a4fc3",
     "lastInstalledBrowserSkillSha256": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006",
     "installedSmokeEvidence": "artifacts/evidence/installed-smoke.json",
@@ -284,19 +285,19 @@
       "limits": "Public installed API evidence only: no native UI or genuine model-stage coverage inferred."
     },
     "candidateNotInstalled": {
-      "installationId": "la-ad2a792259d3-5c93f36b",
+      "installationId": "la-3fe548dc2f09-5c93f36b",
       "pluginHashes": {
-        "linguist": "ad2a792259d3cae67a6dd3c7a038fe9a7b66b39a438ac15cb7eb585208d7d5c4",
+        "linguist": "3fe548dc2f094bc2d2a496ef1d00caa50f1f2ad0004a12ecd24cc9dda30a4fc3",
         "browserSkill": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006"
       },
-      "createdAt": "2026-09-30T17:34:20.396Z",
-      "observedAt": "2026-09-30T17:38:21.465797+00:00",
+      "createdAt": "2026-09-30T19:25:21.930Z",
+      "observedAt": "2026-09-30T21:55:28.193037+00:00",
       "status": "PACKAGED_NOT_INSTALLED",
       "linguistArtifactUnchanged": false,
       "packPath": "artifacts/pack.json",
-      "capturedPackSha256": "22627915e19007a8182824b84c5bb350d8773f85b3452617c1733cc8551aec08",
-      "sourceReviewPending": true,
-      "scope": "New LAad2 candidate packaged after additional source edit, not installed. Actual installed remains LA7678/Browser.5; original .4 model/UI receipts remain historical and immutable."
+      "capturedPackSha256": "b64334b05fcb59efc018598c061d83e747fa8fba3cc8e9cedf2c289b8c60ac09",
+      "sourceReviewPending": false,
+      "scope": "Current frozen LA3fe candidate only; actual installed remains7678/.5. Product diff reviewed and committed0cd31b9. Previous raw evidence retains its original identity."
     },
     "professionalRolesAcceptance": {
       "installationId": "la-76789f203f48-7a6cfa1d",
@@ -371,7 +372,7 @@
       },
       "currentJsonSha256": "9ffbd3b97819f2f46fd1181b7a3719faf40b06156948a771c040823e0f9dc97b",
       "observedAt": "2026-09-30T17:38:21.465797+00:00",
-      "status": "NATIVE_INSTALLED_ENABLED_COLD_REOPEN_PENDING",
+      "status": "NATIVE_INSTALLED_ENABLED_COLD_REOPEN_OBSERVED",
       "installProof": {
         "path": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b.json",
         "sha256": "507cbae75bf0c88c2fccc2ed0733a537863e38ccb6c68d5e2c86ee6cd82dfe1a"
@@ -380,7 +381,9 @@
         "path": "artifacts/evidence/native-install-la-76789f203f48-5c93f36b-trace.json",
         "sha256": "e8cabfcb5161b840b0a1b31359e86b11f8b7c4d7d9388748683147658d368448"
       },
-      "scope": "Actual Browser .5 installed/enabled and17 lib files byte-checked. LA remains7678. Current cold Host reload and fresh affected runtime proof pending; old .4 evidence identities unchanged."
+      "scope": "Browser.5 installed and enabled; LA remains7678. Official menu Quit18:31:42.415Z and Finder double click18:33:13.887Z were actually observed; cold Host uses fixed Browser fingerprint. Historical .4 evidence identities unchanged.",
+      "currentRegistryReadAt": "2026-09-30T21:55:28.193037+00:00",
+      "coldRuntimeEvidence": "artifacts/evidence/browser-native-7678/edges-cold/observation.json"
     },
     "nativeDelegationHistorical": {
       "installationId": "la-76789f203f48-7a6cfa1d",
@@ -442,6 +445,180 @@
       "receiptSha256": "091cb77378af3cb4b3113e25d19fec9b089db4fd78104180d5e1824c66736156",
       "indexPath": "artifacts/evidence/context-compaction-native-7678-v5/index.json",
       "providerBodyProof": "Official Session fold reconstruction, not upstream HTTP capture. Pre-page has no exact missing page; post-page contains exact800 plus actual compaction summary. Main MAX; auxiliary compaction effort unrecorded."
+    },
+    "nativeDelegationControls": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PASS_NATIVE_QUEUE_STEER_INTERRUPT_AND_COLD_CHILD_RESUME",
+      "receipt": "artifacts/evidence/delegation-controls-v5/receipt.json",
+      "sha256": "5d63e5d5d47956eb6e276300ae96d4d92087e061204e27b9d549e38073c818f7",
+      "assertions": 16,
+      "limitations": "Cold parent must first be opened natively; same child cold-resumed. No professional Stage, final-candidate install or whole delegation contract pass inferred."
+    },
+    "actualMaintenanceContract": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PASS_INSTALLED_BACKUP_RESTORE",
+      "receipt": "artifacts/evidence/maintenance-v5-contract/receipt.json",
+      "sha256": "98c0a4e95578312db189064f0ee945ddd8f1157acae53ed6848a162f8c3e6522",
+      "checks": 6,
+      "publicHttpRequests": 43,
+      "originalFailedReceiptPreserved": true,
+      "finalCandidateNotYetVerified": true
+    },
+    "actualLegacyImport": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PASS_INSTALLED_SYNTHETIC_LEGACY_MIGRATION",
+      "receipt": "artifacts/evidence/legacy-installed-v5/receipt.json",
+      "sha256": "99981197f98bca48121c809957808ebfca741f6a2871a9f377de613201a7f07c",
+      "checks": 6,
+      "publicHttpRequests": 13,
+      "actualSse": true,
+      "scope": "One complete synthetic predecessor project; stable IDs, XLIFF content/original, readonly chat archive and duplicate zero-write. No orphan/salvage/schema rejection/UI/final-candidate pass inferred."
+    },
+    "latestDocumentCommit": "1d4a00a",
+    "nativeSixSkillAcceptance": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PASS_NATIVE_SIX_SKILL_READONLY_SYNTHETIC_SCOPE",
+      "observedAt": "2026-09-30T21:09:53.739Z",
+      "receipt": "artifacts/evidence/skills-native-v5/receipt.json",
+      "sha256": "2f04dc5c8c26a6a6b02548987286a1548f224b9734c691a6f9104244f41431e9",
+      "index": "artifacts/evidence/skills-native-v5/index.json",
+      "indexSha256": "7dac3503d00092cf565b5efb29d24c9c68c6e9898896b9c603342374c0406d43",
+      "assertions": 22,
+      "failed": 0,
+      "featureIds": [
+        "D060",
+        "D061",
+        "D062",
+        "D063",
+        "D064",
+        "D065"
+      ],
+      "skills": [
+        "game-localization",
+        "cultural-lqa",
+        "localization-readiness",
+        "release-lqa",
+        "terminology-candidate-mining",
+        "translator-brief"
+      ],
+      "sessionId": "session-11694728-b956-40ad-b0b4-4f97ee44cf89",
+      "scope": "One actual General readonly turn loaded all six native Skills and produced six responsibility-specific outputs from three Source/current Target segments at revision1 and model-visible required full text/image. No mutation or new professional Stage.",
+      "providerIdentityLimit": "Observed native event/message identities and official Session reconstruction; inherited effective MAX. No new turn7 upstream HTTP/request-header capture.",
+      "limitations": "Three neutral UI labels only; no richer cultural scenarios, optional Skill reference reads, TB approval, export or platform delivery. Existing professional T/R/P history is separate. Candidate3fe remains uninstalled."
+    },
+    "httpBoundaryObservation": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PARTIAL_PASS_WITH_AUTHENTICATED_DSH_BUSINESS_NOT_VERIFIED",
+      "classification": "artifacts/evidence/http-boundaries-v5/classification.json",
+      "classificationSha256": "0f69a93459339da306f45f5637903f1bbd09cad828927bb2d43a1b2282efee7d",
+      "rawReceipt": "artifacts/evidence/http-boundaries-v5/receipt.json",
+      "rawReceiptSha256": "bc13fe5a840e718b16081b3a17706a683023c357be46929eb251e441cd9490cd",
+      "rawReceiptStatus": "FAILED_OBSERVED_BOUNDARY",
+      "rawExitCode": 1,
+      "publicHttpRequests": 54,
+      "actualPassedAssertions": 30,
+      "LARepresentativeAssertionsPassed": 29,
+      "DSHCrossOriginAssertionPassed": 1,
+      "unauthenticatedDenialStatus": "EXPECTED_UNAUTHENTICATED_DENIAL_PASS",
+      "actual401Responses": 15,
+      "DSHBusinessAssertionStatus": "NOT_VERIFIED_BY_THIS_UNAUTHENTICATED_RUN",
+      "DSHBusinessAssertionReason": "NOT_REACHED_AUTH",
+      "externalCredentialBlock": false,
+      "scope": "Official Desktop is normally logged in; this runner carries no authenticated Desktop context. Actual401 proves unauthenticated denial, not the15 business assertions. LA managed resource GET bytes/security headers observed; Range returns full200 and HEAD unsupported404. Own synthetic fixtures and negative validation only; no mutation observed.",
+      "followup": "Root uses official native Files UI for the own fixture; no Cookie/token extraction, login request or evaluate-fetch bypass. Original exit1/raw failures preserved; no final-candidate/UI/READY claim."
+    },
+    "browserExtraBoundaryObservation": {
+      "installationId": "la-76789f203f48-5c93f36b",
+      "status": "PARTIAL_CLI_BOUNDARIES_OBSERVED",
+      "frozenAt": "2026-09-30T21:12:05.084Z",
+      "coverage": "artifacts/evidence/browser-v5-extra-boundaries/coverage.json",
+      "coverageSha256": "1fc5702028d57a3e40fa5982ffc4efa7d431ac863497e2bccf674217c37913c7",
+      "evidenceType": "Actual pinned CLI, daemon and Chrome extension; own sessions and localhost fixtures. Not native model exposure or final-candidate verification.",
+      "observedScopedPass": [
+        "V22 richText leaf replacement with surrounding DOM preserved",
+        "V22 virtual row and exact job/language identity",
+        "V22 stale ref rejection and fresh observation recovery",
+        "V22 server-observed save effect",
+        "V23 own HTTP response socket disconnection and same-session recovery",
+        "V23 cancellation after captured download with no late specified/default output",
+        "V23 pre-intent cancellation followed by exact owned-stop cleanup",
+        "V24 exact owned managed request cleanup"
+      ],
+      "preIntentCancellationOnly": {
+        "status": "UNKNOWN_EFFECT_BOUNDARY_OBSERVED",
+        "scope": "CLI reports unknown/attribution and specified out remains absent, but late own synthetic default Downloads files actually appeared. No rollback guarantee or thin-adapter contract violation inferred."
+      },
+      "singleTriggerMultipleDownloads": {
+        "status": "NOT_VERIFIED",
+        "scope": "One handler attempted two activations; server observed one attachment request in both anchor and popup variants. Browser blocking is an inference, not observed authorization state or proof of two-download attribution."
+      },
+      "ownedStop": {
+        "receipt": "artifacts/evidence/browser-v5-extra-boundaries/runs/ded8c965-ecc6-4611-b578-6ddd9bc26a3d/receipt.json",
+        "sha256": "fd4672021ee5c8ab567d5aa0e80286da57078f824ac6671f19d16e7e340681ad",
+        "status": "CLI_EXTRA_BOUNDARIES_PASS",
+        "ownedSession": "pera",
+        "requestId": "1790802870477:b2e030f3-364b-48b8-8185-f2aa530b89d3",
+        "cleanupStates": [
+          "cleanup_failed",
+          "closed"
+        ],
+        "scope": "Immediately cancelled exact own managed request; first timeout retained, same request retry closed. Actual HTTP connection closed before eight-second deadline, late-send-skipped, specified out and own default file absent after deadline. Final same-request cleanup remains closed; no global stop or foreign-window changes."
+      },
+      "limitations": "Seven original receipts and all failed branches preserved; three own synthetic default Downloads files retained. No global daemon/extension disconnect, arbitrary rich-container safety, native equivalent-key reordering or full Browser gate pass inferred. Candidate3fe remains uninstalled."
+    },
+    "latestScopedNativeAcceptance": {
+      "hostShell": {
+        "installationId": "la-76789f203f48-5c93f36b",
+        "status": "PASS_NATIVE_HOST_SHELL_OBSERVED_SUBSCOPE",
+        "receipt": "artifacts/evidence/native-shell-v5/receipt.json",
+        "sha256": "aaf0daf744060b32d803a3992ef3e25fc9e634f4406708f08ac608f1e57040ae",
+        "observedAssertions": 8,
+        "scope": "Eight actual native observations: synthetic text attachment admitted to unsent draft, full text preview/reload, existing permission and MAX unchanged, both plugins and Linguist components, own Workspace creation, staged candidate. No model file transmission, native terminal, instruction editing or all-format editor claim.",
+        "finalCandidateVerified": false
+      },
+      "sessionCopyDetach": {
+        "installationId": "la-76789f203f48-5c93f36b",
+        "status": "PASS_INSTALLED_NATIVE_SESSION_COPY_DETACH_SCOPED",
+        "receipt": "artifacts/evidence/session-copy-detach-v5/receipt.json",
+        "sha256": "fcb3b9d93b7f9ae99106653c21af537e288ade3b1fda98b6ec822306513368de",
+        "observedAssertions": 31,
+        "scope": "31 real public-Host API checks: same/cross own Workspace native Session copy, history/settings retained, source bytes/mtime/binding unchanged, rejected admission zero new Sessions, detach copies only with history preserved. No Client button, active-source refusal or ordinary post-detach model reply claim.",
+        "finalCandidateVerified": false
+      },
+      "externalBackup": {
+        "installationId": "la-76789f203f48-5c93f36b",
+        "status": "PASS_INSTALLED_EXTERNAL_BACKUP_SCOPED",
+        "receipt": "artifacts/evidence/backup-external-v5/receipt.json",
+        "sha256": "da9db82bb3ecc1c5beaca94157d6c08ec53ddb38e38d38f5540323a4a05c2891",
+        "observedAssertions": 21,
+        "scope": "21 installed public API checks: synthetic external backup import with stable IDs/revisions/locks/original bytes, newer schema and wrong SQLite identity refused with no target writes, duplicate zero-write, original unchanged. No native import/confirmation UI or rich-reference/TM/TB claim.",
+        "finalCandidateVerified": false
+      },
+      "crossBatchConsistency": {
+        "installationId": "la-76789f203f48-5c93f36b",
+        "status": "PASS_NATIVE_CROSS_BATCH_CONSISTENCY_EXPLICIT_PENDING_SCOPE",
+        "receipt": "artifacts/evidence/consistency-jobs-v5/short-native-receipt.json",
+        "sha256": "b7af59a5c7eb4735a826345272db7783a296bc967db7202a1fc229cd8cf277cc",
+        "observedAssertions": 21,
+        "scope": "21 actual native checks over two batches15 segments before large asset import. Three shared-source segments examined; context-dependent Go variants kept; only one explicitly requested pending proposal, no Target/revision changes or acceptance. Source/current Target and required tool text actually in native model context.",
+        "finalCandidateVerified": false
+      },
+      "largeQaProgress": {
+        "installationId": "la-76789f203f48-5c93f36b",
+        "status": "PARTIAL_NATIVE_QA_5000_PROGRESS_COMPLETED_CANCEL_NOT_OBSERVED",
+        "receipt": "artifacts/evidence/consistency-jobs-v5/qa-native-receipt.json",
+        "sha256": "b8a22f46099a8d18d465a691920c9a5e8661442b2098768e4a1b18750799c750",
+        "observedAssertions": 19,
+        "scope": "19 native checks: same5000 asset completed twice with actual worker progress; no Stop click. Cancellation NOT_OBSERVED_NATIVE_QA_CANCELLATION. No artificial delay, enlarged third fixture, Target edits or extra old-install QA attempt.",
+        "finalCandidateVerified": false,
+        "index": "artifacts/evidence/consistency-jobs-v5/index.json",
+        "indexSha256": "1b429a50ff97465eba01e2dc91fa665e75065a855d07829243e0a109263e8f65",
+        "readonlyReceipt": "artifacts/evidence/consistency-jobs-v5/qa-readback.json",
+        "readonlySha256": "6a70121139587f9121add0c0768cac78d029b7eee4bec8bfc3c0d02ce38c1f0a",
+        "readonlyHttpRequests": 35,
+        "readonlyAssertions": 39,
+        "readonlyScope": "All5000 plus old15 exact Source/Target/ID/revision/lock invariant, one pending proposal unchanged, persisted10000 findings not duplicated. Original two failed runner attempts and native model unsupported Stop wording retained."
+      }
     }
   },
   "externalPrerequisites": [
