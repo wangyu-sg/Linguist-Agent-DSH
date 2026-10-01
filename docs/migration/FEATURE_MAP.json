@@ -2362,6 +2362,7 @@
         "sourcePath": "apps/electron/src/main/lib/linguist/evidence-workflow-v1.nodetest.ts",
         "kind": "test",
         "targetPath": "tests/copied-host/evidence-observer.nodetest.ts",
+        "targetEntry": "tests/copied-host/evidence-observer.nodetest.ts",
         "featureIds": [],
         "status": "host-replaced",
         "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
@@ -2858,6 +2859,7 @@
         "sourcePath": "apps/electron/src/main/lib/linguist/session-availability.nodetest.ts",
         "kind": "test",
         "targetPath": "tests/copied-host/prompt-and-session-http.nodetest.ts",
+        "targetEntry": "tests/copied-host/prompt-and-session-http.nodetest.ts",
         "featureIds": [],
         "status": "host-replaced",
         "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
@@ -3631,6 +3633,7 @@
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/cat-editor.browser.test.ts",
         "kind": "test",
         "targetPath": "tests/required/cat-editor-remount.nodetest.mjs",
+        "targetEntry": "tests/required/cat-editor-remount.nodetest.mjs",
         "featureIds": [
           "FEATURE-05"
         ],
@@ -3714,6 +3717,7 @@
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/open-linguist-session.test.ts",
         "kind": "test",
         "targetPath": "tests/copied-renderer/session-navigation.nodetest.mjs",
+        "targetEntry": "tests/copied-renderer/session-navigation.nodetest.mjs",
         "featureIds": [],
         "status": "host-replaced",
         "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",
@@ -3870,6 +3874,7 @@
         "sourcePath": "apps/electron/src/renderer/features/linguist/projects/project-tab-navigation.test.ts",
         "kind": "test",
         "targetPath": "tests/copied-renderer/session-navigation.nodetest.mjs",
+        "targetEntry": "tests/copied-renderer/session-navigation.nodetest.mjs",
         "featureIds": [
           "FEATURE-04"
         ],
@@ -4070,6 +4075,7 @@
         "sourcePath": "apps/electron/src/renderer/features/linguist/sidebar/linguist-sidebar-data.test.ts",
         "kind": "test",
         "targetPath": "packages/dsh-linguist/src/client/ProjectSessions.tsx",
+        "targetEntry": "packages/dsh-linguist/src/client/ProjectSessions.tsx",
         "featureIds": [],
         "status": "host-replaced",
         "auditNote": "Implementation mapping resolved against actual production consumers and executed target tests. Final installed native verification remains separately pending.",

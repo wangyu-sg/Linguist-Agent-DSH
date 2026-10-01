@@ -216,6 +216,8 @@ const english: Record<string, string> = {
   'TM 与术语库': 'TM and termbase', '参考库': 'Reference library', '参考类别': 'Reference type',
   '术语 TB': 'Termbase', '翻译记忆 TM': 'Translation memory', '搜索参考': 'Search references', '搜索': 'Search',
   '术语状态筛选': 'Term status filter', '导入文件': 'Import file', '参考文件候选确认': 'Confirm reference import',
+  '选择工作表和项目语言对应的源文、译文列，然后预览候选。': 'Choose the sheet and the source and target columns for the project languages, then preview the candidates.',
+  '源文列': 'Source column', '译文列': 'Target column', '工作表样本': 'Sheet samples', '预览参考候选': 'Preview reference candidates',
   '· 待确认': '· pending confirmation', '条': 'items', '候选样本仅展示前': 'Showing only the first',
   '条。': 'items.', '查看原文件': 'View original', '确认导入': 'Confirm import', '取消': 'Cancel',
   '编辑术语': 'Edit term', '新增术语': 'Add term', '译法': 'Translation', '术语约束': 'Term constraint',

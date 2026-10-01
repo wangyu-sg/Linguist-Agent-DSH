@@ -670,6 +670,16 @@ export type LinguistReferenceImportResult =
   | {
       cancelled: false
       requiresConfirmation: true
+      requiresXlsxMapping: true
+      filename: string
+      candidateId: string
+      sourceSha256: string
+      preview: LinguistXlsxMappingPreview
+    }
+  | {
+      cancelled: false
+      requiresConfirmation: true
+      requiresXlsxMapping: false
       filename: string
       candidateId: string
       sourceSha256: string

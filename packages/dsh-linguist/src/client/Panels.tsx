@@ -274,6 +274,9 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   const [list, setList] = React.useState<LinguistReferenceQueryResult<LinguistTermInfo | LinguistTmReferenceInfo>>()
   const [conflicts, setConflicts] = React.useState<LinguistTermConflictsResult>()
   const [candidate, setCandidate] = React.useState<Extract<LinguistReferenceImportResult, {requiresConfirmation:true}>>()
+  const [sheetName, setSheetName] = React.useState('')
+  const [columns, setColumns] = React.useState({ source: '', target: '' })
+  const [importing, setImporting] = React.useState(false)
   const [preview, setPreview] = React.useState<PreviewRequest>()
   const [editingTermId, setEditingTermId] = React.useState<string>()
   const [term, setTerm] = React.useState('')
@@ -323,16 +326,29 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   }
   const importFile = async (file: File) => {
     if (archived) return
+    setImporting(true)
     try {
       const tokens = await stageFiles([file])
       const result = await required<LinguistReferenceImportResult>('linguistReferencesImport', { projectId, kind, fileTokens: tokens })
-      if (!result.cancelled && result.requiresConfirmation) setCandidate(result)
+      if (!result.cancelled && result.requiresConfirmation) { setCandidate(result); setSheetName(''); setColumns({ source: '', target: '' }) }
       else { setRefresh((value) => value + 1); onChanged() }
     } catch (error) { setMessage(describeProjectError(error, t)) }
+    finally { setImporting(false) }
+  }
+  const previewMapping = async () => {
+    if (!candidate || !candidate.requiresXlsxMapping || archived) return
+    setImporting(true)
+    try {
+      const result = await required<Extract<LinguistReferenceImportResult, { requiresConfirmation: true; requiresXlsxMapping: false }>>('linguistReferencesMapXlsxCandidate', { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256, sheetName, columns })
+      setCandidate(result)
+    } catch (error) { setMessage(describeProjectError(error, t)) }
+    finally { setImporting(false) }
   }
   const finishCandidate = async (operation: string) => {
     if (!candidate) return
-    if (await mutate(operation, { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 })) setCandidate(undefined)
+    setImporting(true)
+    try { if (await mutate(operation, { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 })) setCandidate(undefined) }
+    finally { setImporting(false) }
   }
   const saveTerm = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -377,13 +393,15 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     } catch (cause) { setMessage(String(cause)) }
     finally { setAgentSending(false) }
   }
+  const sheet = candidate?.requiresXlsxMapping ? candidate.preview.sheets.find(entry => entry.name === sheetName) : undefined
+  const mappingValid = sheet !== undefined && columns.source !== '' && columns.target !== '' && columns.source !== columns.target
   return <section className={styles.panel} aria-label={t("TM 与术语库")}>
     <div className={styles.toolbar}>
       <strong>{t("参考库")}</strong>
-      <select aria-label={t("参考类别")} value={kind} onChange={(event) => { setKind(event.target.value as 'tm' | 'terms'); setPage(0); setCandidate(undefined) }}><option value="terms">{t("术语 TB")}</option><option value="tm">{t("翻译记忆 TM")}</option></select>
+      <select aria-label={t("参考类别")} value={kind} disabled={importing || candidate !== undefined} onChange={(event) => { setKind(event.target.value as 'tm' | 'terms'); setPage(0) }}><option value="terms">{t("术语 TB")}</option><option value="tm">{t("翻译记忆 TM")}</option></select>
       <Input aria-label={t("搜索参考")} placeholder={t("搜索")} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} />
       {kind === 'terms' && <select aria-label={t("术语状态筛选")} value={termFilter} onChange={(event) => { setTermFilter(event.target.value as typeof termFilter); setPage(0) }}><option value="">{t("全部状态")}</option>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>}
-      <label>{t("导入文件")} <input type="file" disabled={archived} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
+      <label>{t("导入文件")} <input type="file" disabled={archived || importing || candidate !== undefined} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
       {kind === 'terms' && <><Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : t('让 Agent 整理本批术语')}</Button><Button variant="outline" size="sm" disabled={archived || selectedTermIds.size === 0} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button><Button variant="outline" size="sm" disabled={segmentIds.length === 0 || segmentIds.length > 200} onClick={() => void validateSelectedSegments()}>{t('校验所选句段术语 {count} 段', { count: segmentIds.length })}</Button></>}
     </div>
     {kind === 'terms' && segmentIds.length === 0 && <p>{t('先在 CAT 网格选择句段，再校验术语。')}</p>}
@@ -395,11 +413,25 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
       {validation.missingRequired.length + validation.forbiddenHits.length + validation.preferredNotUsed.length + validation.unresolvedConflicts.length === 0 && <p>{t('所选句段没有术语校验问题。')}</p>}
     </details>}
     {candidate && <div className={styles.callout} aria-label={t("参考文件候选确认")}>
-      <strong>{candidate.filename} {t("· 待确认")} {candidate.summary.entryCount} {t("条")}</strong>
-      {candidate.summary.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
-      <ul>{candidate.summary.samples.map((sample, index) => <li key={index}>{sample.kind === 'tm' ? `${sample.source} → ${sample.target}` : `${sample.term} → ${sample.translation} · ${t(TERM_STATUS_LABELS[sample.status])}`}</li>)}</ul>
-      {candidate.summary.samplesTruncated && <p>{t("候选样本仅展示前")} {candidate.summary.samples.length} {t("条。")}</p>}
-      <div className={styles.toolbar}><Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistReferencesPreviewCandidate', input: { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 } })}>{t("查看原文件")}</Button><Button variant="outline" size="sm" disabled={archived} onClick={() => void finishCandidate('linguistReferencesConfirmImport')}>{t("确认导入")}</Button><Button variant="outline" size="sm" onClick={() => { if (archived) setCandidate(undefined); else void finishCandidate('linguistReferencesCancelImport') }}>{t("取消")}</Button></div>
+      <strong>{candidate.filename} {candidate.requiresXlsxMapping ? t("需要映射列") : `${t("· 待确认")} ${candidate.summary.entryCount} ${t("条")}`}</strong>
+      {candidate.requiresXlsxMapping ? <>
+        <p>{t('选择工作表和项目语言对应的源文、译文列，然后预览候选。')}</p>
+        <div className={styles.toolbar}>
+          <label>{t('工作表')} <select aria-label={t('工作表')} value={sheetName} disabled={importing} onChange={event => { setSheetName(event.target.value); setColumns({ source: '', target: '' }) }}><option value="">{t('未指定')}</option>{candidate.preview.sheets.map(entry => <option key={entry.name} value={entry.name}>{entry.name}{entry.state === 'visible' ? '' : ` (${entry.state})`}</option>)}</select></label>
+          {(['source', 'target'] as const).map(field => <label key={field}>{t(field === 'source' ? '源文列' : '译文列')} <select aria-label={t(field === 'source' ? '源文列' : '译文列')} disabled={importing || !sheet} value={columns[field]} onChange={event => setColumns(current => ({ ...current, [field]: event.target.value }))}><option value="">{t('未指定')}</option>{sheet?.columns.filter(entry => entry.selectable).map(entry => <option key={entry.index} value={entry.header}>{entry.header}</option>)}</select></label>)}
+        </div>
+        {sheet && <details><summary>{t('工作表样本')}</summary>{sheet.sampleRows.map(row => <p key={row.rowNo}>{t('第 {row} 行', { row: row.rowNo })}：{row.cells.map(cell => `${sheet.columns.find(column => column.index === cell.columnIndex)?.header ?? `#${cell.columnIndex + 1}`}=${cell.value}${cell.truncated ? '…' : ''}`).join(' · ')}</p>)}</details>}
+        {!mappingValid && <p role="note">{t('Source、Target 必选，且每列只能用于一个字段。')}</p>}
+      </> : <>
+        {candidate.summary.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
+        <ul>{candidate.summary.samples.map((sample, index) => <li key={index}>{sample.kind === 'tm' ? `${sample.source} → ${sample.target}` : `${sample.term} → ${sample.translation} · ${t(TERM_STATUS_LABELS[sample.status])}`}</li>)}</ul>
+        {candidate.summary.samplesTruncated && <p>{t("候选样本仅展示前")} {candidate.summary.samples.length} {t("条。")}</p>}
+      </>}
+      <div className={styles.toolbar}>
+        <Button variant="outline" size="sm" disabled={importing} onClick={() => setPreview({ operation: 'linguistReferencesPreviewCandidate', input: { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 } })}>{t("查看原文件")}</Button>
+        {candidate.requiresXlsxMapping ? <Button variant="outline" size="sm" disabled={archived || importing || !mappingValid} onClick={() => void previewMapping()}>{t('预览参考候选')}</Button> : <Button variant="primary" size="sm" disabled={archived || importing} onClick={() => void finishCandidate('linguistReferencesConfirmImport')}>{t("确认导入")}</Button>}
+        <Button variant="ghost" size="sm" disabled={importing} onClick={() => { if (archived) setCandidate(undefined); else void finishCandidate('linguistReferencesCancelImport') }}>{t("取消")}</Button>
+      </div>
     </div>}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
     {kind === 'terms' && <fieldset disabled={archived} className={styles.formFields}><form className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>

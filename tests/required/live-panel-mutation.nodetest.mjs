@@ -26,7 +26,7 @@ function mount(symbol, props, required, fetch) {
       useCallback(callback, deps) { const i = callbackCursor++; if (!callbacks[i] || deps.some((value, j) => value !== callbacks[i].deps[j])) callbacks[i] = { deps, value: callback }; return callbacks[i].value },
     }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Input: 'input', Checkbox: 'checkbox', Modal: 'modal' }
-    if (name === './api') return { required, fileUrl: token => `/la/v1/files/${token}` }
+    if (name === './api') return { required, stageFiles: async () => ['synthetic-staged-token'], fileUrl: token => `/la/v1/files/${token}` }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './project-errors') return { describeProjectError: String }
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
@@ -166,5 +166,48 @@ test('Settings mutation scans unknown tags while preserving dirty fields and nat
   assert.equal(panel.nodes().find(node => node.type === 'locale-select' && node.props.label === '目标语言').props.value, 'zh-CN')
   for (const label of ['QA 历史', '建议历史']) { assert.equal(panel.button(label).variant, 'outline'); assert.equal(panel.button(label).size, 'sm'); panel.click(label) }
   assert.deepEqual(tabs, ['qa', 'proposals'])
+  panel.dispose()
+})
+
+
+test('Reference XLSX import requires explicit sheet and distinct columns before preview and confirmation', async () => {
+  const requests = []
+  const bound = { cancelled: false, requiresConfirmation: true, filename: 'synthetic.xlsx', candidateId: 'synthetic-staged-token', sourceSha256: 'a'.repeat(64) }
+  const sheet = { name: 'Synthetic references', state: 'visible', columns: [{ index: 0, header: 'English', selectable: true }, { index: 1, header: 'Chinese', selectable: true }, { index: 2, header: 'French', selectable: true }], sampleRows: [{ rowNo: 2, cells: [{ columnIndex: 0, value: 'Open' }, { columnIndex: 1, value: '打开' }, { columnIndex: 2, value: 'Ouvrir' }] }] }
+  const panel = mount('ReferencePanel', { ...common, segmentIds: [] }, async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistReferencesListTermConflicts') return { conflicts: [], count: 0 }
+    if (operation === 'linguistReferencesImport') return { ...bound, requiresXlsxMapping: true, preview: { sheets: [sheet] } }
+    if (operation === 'linguistReferencesMapXlsxCandidate') return { ...bound, requiresXlsxMapping: false, summary: { entryCount: 1, warnings: [], samples: [{ kind: 'terms', term: 'Open', translation: '打开', status: 'preferred' }] } }
+    if (operation === 'linguistReferencesConfirmImport') return { imported: 1 }
+    return { items: [] }
+  })
+  panel.render(); await tick(); panel.render()
+  panel.nodes().find(node => node.type === 'input' && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'synthetic.xlsx' }], value: 'synthetic.xlsx' } })
+  await tick(); panel.render()
+  assert(panel.button('预览参考候选').disabled)
+  assert(!panel.nodes().some(node => node.type === 'button' && node.props.children === '确认导入'))
+  const field = label => panel.nodes().find(node => node.type === 'select' && node.props['aria-label'] === label).props
+  for (const label of ['工作表', '源文列', '译文列']) assert.equal(field(label).value, '', 'never guess a sheet or language column')
+  assert(field('参考类别').disabled)
+  field('工作表').onChange({ target: { value: sheet.name } }); panel.render()
+  field('源文列').onChange({ target: { value: 'English' } }); panel.render()
+  field('译文列').onChange({ target: { value: 'English' } }); panel.render()
+  assert(panel.button('预览参考候选').disabled)
+  field('译文列').onChange({ target: { value: 'Chinese' } }); panel.render()
+  assert.equal(panel.button('预览参考候选').variant, 'outline')
+  assert.equal(panel.button('预览参考候选').size, 'sm')
+  await panel.click('预览参考候选'); await tick(); panel.render()
+  const request = requests.find(item => item.operation === 'linguistReferencesMapXlsxCandidate')
+  assert.equal(request.input.projectId, common.projectId)
+  assert.equal(request.input.kind, 'terms')
+  assert.equal(request.input.candidateId, bound.candidateId)
+  assert.equal(request.input.sourceSha256, bound.sourceSha256)
+  assert.equal(request.input.sheetName, sheet.name)
+  assert.deepEqual(JSON.parse(JSON.stringify(request.input.columns)), { source: 'English', target: 'Chinese' })
+  assert.equal(panel.button('确认导入').variant, 'primary')
+  await panel.click('确认导入'); await tick(); panel.render()
+  assert(requests.some(item => item.operation === 'linguistReferencesConfirmImport' && item.input.candidateId === bound.candidateId))
+  assert(!panel.nodes().some(node => node.type === 'button' && node.props.children === '预览参考候选'))
   panel.dispose()
 })
