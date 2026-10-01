@@ -32,7 +32,7 @@
 - 当前b62固定 BrowserSkill CLI **12/12检查、14次实际命令**，14个已安装Browser包成员精确一致；自有jvwv窗口与54460合成服务均已关闭。`native-final-b62/browser-cli/receipt.json`；不是原生Skill/模型暴露或完整G08证明。
 - 当前b62 **13条完整声明范围领域桥接：50只读HTTP、464检查通过**（421读回＋43历史原生正文保留），范围仅D007–009、D016–023、D053、D056；旧请求/模型/actor/时间身份不改，不能推广到其他合同或202项全PASS。`native-final-b62/domain-current-bridge/receipt.json`。
 - 源335文件映射 complete277/host-replaced57/excluded1，只证明来源落点。202合同=68领域＋134UI，V验证族与20功能面仍需按实际调用/完整范围核定，不能把源码映射或单个成功当完整PASS。
-- 正式READY仍是旧 **FAILED** 收据；不再适合当前安装，已注明fresh=false。必须归集当前完整acceptance后真实重跑 `verify:ready`。
+- 新候选安装前已真实运行 `verify:ready`：**FAILED**，当前运行b62与固定1649包不一致，正式acceptance／功能面／验证族尚未归集。冻结 `native-final-1649/READY-preinstall.json` SHA `dc26ab09f4b9956fba751b5d984aaf1c15ecdf520e0ebda0dd8fe16b12fdfa36`；这是安装前身份与验收缺失，不是已安装1649的功能失败。安装并完整归集后再真实重跑。
 - 飞书用户决定暂不配置，真实投递保持 **BLOCKED_ENV**；先完成不受阻工作，不删除或伪造该门禁。
 
 ## 立即接续

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IN_PROGRESS",
-  "updatedAt": "2026-10-01T09:39:31.490102+00:00",
+  "updatedAt": "2026-10-01T09:57:51.370Z",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -1192,11 +1192,12 @@
   "customerDataTouched": false,
   "remotePublished": false,
   "readyReceipt": {
-    "path": "artifacts/READY.json",
     "status": "FAILED",
-    "freshForCurrentState": false,
-    "evidencePath": "artifacts/evidence/qa-live-panel-fix/verify-ready-preinstall.log",
-    "reason": "Prior FAILED receipt is historical and not fresh for installed b62/.5 or the uninstalled1649 candidate. Complete actual candidate install/cold/native Browser+Image/UI/required contracts and lawful bounded evidence bridges before rerunning verify:ready; Feishu real delivery remains user-deferred BLOCKED_ENV."
+    "freshForCurrentState": true,
+    "evidencePath": "artifacts/evidence/native-final-1649/READY-preinstall.json",
+    "evidenceSha256": "dc26ab09f4b9956fba751b5d984aaf1c15ecdf520e0ebda0dd8fe16b12fdfa36",
+    "evaluatedAt": "2026-10-01T09:57:51.370Z",
+    "reason": "Actual pre-install verify:ready failed: installed b62 differs from frozen1649 pack; current complete acceptance/feature/validation aggregation is missing. This is not an installed1649 functional failure or READY; Feishu remains user-deferred and cannot mask unfinished required gates."
   },
   "historyArchive": "docs/migration/history/2026-09-29-before-rc2-full-audit.json",
   "hostCapabilityBoundary": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。",
