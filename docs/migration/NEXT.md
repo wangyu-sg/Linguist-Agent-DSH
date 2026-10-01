@@ -3,19 +3,18 @@
 ## 当前真实安装与冻结源码
 
 - 官方 DSH：`/Applications/DeepSeek Harness.app`，固定 `0.2.0-rc.2`，默认 desktop profile。
-- 实际插件：**LA b62e45d3cc2d＋BrowserSkill .5 / 5c93f36b**；身份 `la-b62e45d3cc2d-5c93f36b`。官方依赖、own registry、冷启动 Host 身份一致；registry SHA `efae27cd62bffb921598a265841cb922a607c63f999213281eb1662c35f5772d`。
-- **36 LA＋14 Browser** 包成员逐字节匹配，两插件原生启用开关均已观察。安装动作由谁、何时执行未知，Root未点击 Install；manifest mtime只作元数据，不作点击时间。证据 `native-final-b62/installed-members.json`、native-enabled-observation.json及 `native-install-la-b62e45d3cc2d-5c93f36b.json`/`-trace.json`。
-- Root真实 Quit：`06:56:12.822484Z` 核实所有官方进程不存在、Host19387拒绝连接；`06:57:46.802Z` Finder真实双击官方 App，新 Host运行身份b62，**9/9 installed smoke** 通过。`native-final-b62/cold-start-receipt.json`与固定 installed-smoke.json；仅证明这段冷启动/安装检查，不代表完整G04/G10/G13或READY。
-- **已安装 b62 的历史源码**为 `e34f282418d0d3ebc91cc58c1197100bccd389e6`；301 Node＋22 Bun＋8类型检查＋6实际tarball资源检查通过。18项Client、3项异步错误、PDF预览及排队取消修复在此包；这组旧源码/包/检查身份保留，不冒作新候选检查。
-- `native-final-b62/candidate.json`/checks-followup.json是**b62安装前历史收据**，其“待安装”描述保留当时事实。当前运行状态以b62安装/冷启动收据为准；旧018c源码与277项检查、原生证据保留原ID。当前任务 **IN_PROGRESS / NOT_READY**，飞书仍BLOCKED_ENV。
+- 实际插件：**LA 1649404c5456＋BrowserSkill .5 / 5c93f36b**；身份 `la-1649404c5456-5c93f36b`。官方依赖、own registry、冷启动 Host 一致；冻结 own-current SHA `ce584b528980bd0f5b9365bc4f759c9d76c6f60f61012ffba7f690a3e3425a77`。
+- 用户告知手动点击安装；Root未点击 Install，实际点击时间未知，manifest mtime仅作元数据。**36 LA＋14 Browser**精确包成员核对通过，冷启动后两插件原生启用开关均为on；`native-final-1649/installed-members.json`与cold-native-plugins.json。原生安装收据在 own root `receipts/native-install-la-1649404c5456-5c93f36b.json`，具体路径／SHA见 STATE。
+- Root真实原生 Quit `10:24:21.304Z`；`10:24:33.709268Z`核所有官方进程消失、Host19387拒绝连接；`10:25:11.692Z` Finder双击官方 App，`10:25:30.526421Z`冷 Host 身份1649；**9/9 installed smoke**通过。`native-final-1649/cold-start-receipt.json` SHA `0622f4a01b84e1de9c635a207020469b9966a1514316433e21102198829365fb`；desktop-observation SHA `40fda9f70582df4aaba2a3d2678a133b7566eb04880255e336306c39dc3ba076`。这只证明实际安装／停止重开范围，不代表完整G04/G10/G13或READY。
+- 源码提交 **`23299b4b22e3404120fd115f0c7f11906d059f9d`**，21文件；exact source-only Ponytail v3 diff SHA `12b5299717fa76df25109817718abca20ac79ecf376885b37bd04faab2a1985a`，结论 **Lean already. Ship.**，收据 `native-final-b62/grouped-attachment-followup/ponytail-review-12b5299717fa.json`。后续接续文档另行审查提交。
+- 最新完整 `required-03` **302 Node＋24 Bun＋8类型检查**、`build-03`及**6实际tarball资源检查**通过。旧b62／e34的301／22检查、旧018c证据及失败尝试保留原身份，不冒作当前检查。当前任务 **IN_PROGRESS / NOT_READY**，飞书仍BLOCKED_ENV。
 
-## 新候选包：已提交、已检查、尚未安装
+## 当前固定包与已观察的修改
 
-- 目标仓库源码提交 **`23299b4b22e3404120fd115f0c7f11906d059f9d`**，21文件；exact source-only Ponytail v3 diff SHA `12b5299717fa76df25109817718abca20ac79ecf376885b37bd04faab2a1985a`，结论 **Lean already. Ship.**。收据 `native-final-b62/grouped-attachment-followup/ponytail-review-12b5299717fa.json`；本次接续文档尚未提交。
-- 最新完整 `required-03`：**302 Node＋24 Bun＋8类型检查**，`build-03`及**6实际tarball资源检查**通过。对应原始命令、日志及SHA在 STATE.json；保留此前301/22和失败尝试，不以较早的检查收据替代03。
-- 固定包于 **2026-10-01T09:27:22.590Z** 构建：Linguist SHA **`1649404c5456c0855c0b3560a6b6f829b8dd30f9c198ba5e26666b6f56ba7f81`**；BrowserSkill `.5` SHA **`5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006`**不变。候选身份 `la-1649404c5456-5c93f36b`，`native-final-1649/candidate.json` SHA `231bbbdc29f4f51ececc32eaec1bb7c185857d853fabcef725bce212d9de45be`，状态 **PACKED_CHECKED_NOT_INSTALLED**；当前Host仍是b62。
-- 已修复当前用户原生 `FileBlock`/`ImageBlock` 的公开路径准入、无扩展名图像filename/mediaType传播、`image.xlf/.xliff`图像免同批Phrase master误判，以及scope hash图像元数据身份。**D043原生未重验**；此前“图像已进入scope”实际引用Workspace旧图像，不能证明当次选取附件进入盘点，该结论已更正。Workspace暂存件导入/资源预览的有限证据继续保留。
-- 恢复旧LA默认 **zh-CN→en-US**，初始化/重置四处literal一致；locale下拉框30项值、标签、顺序精确源对齐，并保留已有未知当前值的单个选项。源只提供纯下拉框，删除无来源的自定义Input；未改已有项目语言。`default-language-fix/locale-select-source-parity.json` SHA `e9d603d1ca5c8eeeb6b717d49d5cd5f9f9394d846751fd6f134aa1dd2251c798`；新默认与下拉框尚需候选包原生核验，旧b62的en-US→zh-CN观察不改写。
+- 固定包于 **2026-10-01T09:27:22.590Z** 构建：Linguist SHA **`1649404c5456c0855c0b3560a6b6f829b8dd30f9c198ba5e26666b6f56ba7f81`**；BrowserSkill `.5` SHA **`5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006`**不变。`native-final-1649/candidate.json` SHA `231bbbdc29f4f51ececc32eaec1bb7c185857d853fabcef725bce212d9de45be`仍保留打包当时 **PACKED_CHECKED_NOT_INSTALLED**；当前实际安装以新安装／冷启动收据为准。
+- 已修复并安装当前用户原生 `FileBlock`/`ImageBlock`公开路径准入、无扩展名图像filename/mediaType、`image.xlf/.xliff`免同批Phrase master误判，以及scope hash元数据身份。**D043当前原生模型内容链未重验**；此前“图像已进入scope”引用Workspace旧图像，不能证明当次附件来源，该结论已更正。Workspace导入／资源预览的有限历史证据保留。
+- 新包已原生观察新建对话框默认 **zh-CN→en-US**、翻译／通用场景，Source纯下拉框完整30项，值／标签／顺序与来源对齐，无自定义Input。证据 `native-final-1649/new-project-defaults.ax.txt` SHA `626768533a131f7fbbdbf17800cb555eecdc5d15001585446ec08fb49b5e29fc`、source-locale-menu.ax.txt SHA `2a47b50db937a071959b72f2aa19596602ee498071bd6ad91559753be3d34e84`。本次观察是初始默认与Source菜单，不推导成功创建后重置；旧b62的en-US→zh-CN实测不改写，已有项目语言未改。
+- 四处默认literal及已有未知当前值的单个选项仍按源码／工程证据记录；`default-language-fix/locale-select-source-parity.json` SHA `e9d603d1ca5c8eeeb6b717d49d5cd5f9f9394d846751fd6f134aa1dd2251c798`。初始默认与Source菜单无需重复演示。
 
 ## 本轮新发现及修复
 
@@ -29,19 +28,25 @@
 - 历史3fe只读实际 **83HTTP/501断言：500通过、1旧Long整体日志SHA失败**，原FAILED保留。独立24项prefix补证证明原51记录逐字保留，新24记录来自真实压缩与后续回合。`current-invariance-3fe-v5/index.json`。
 - 018c新增50HTTP427/427和Long独立24/24真实桥接；完整既有范围为 D007–009、D016–D023、D053。后续桥接完整新增D056；其余合同的局部证据与待原生动作保持区分。`current-invariance-018c/receipt.json` 与 index.json。
 - 历史018c Browser CLI **11/11**、正式原生50921 Browser＋Provider请求/响应链和7/7网页作用已PASS；`browser-native-7678/native-final-018c/final-receipt-summary.json`。SID2b94冻结；同一请求真实MAX/30230tokens和唯一owned eklb保存/上传/下载/关闭。旧3fe SID5667保持原身份。
-- 当前b62固定 BrowserSkill CLI **12/12检查、14次实际命令**，14个已安装Browser包成员精确一致；自有jvwv窗口与54460合成服务均已关闭。`native-final-b62/browser-cli/receipt.json`；不是原生Skill/模型暴露或完整G08证明。
-- 当前b62 **13条完整声明范围领域桥接：50只读HTTP、464检查通过**（421读回＋43历史原生正文保留），范围仅D007–009、D016–023、D053、D056；旧请求/模型/actor/时间身份不改，不能推广到其他合同或202项全PASS。`native-final-b62/domain-current-bridge/receipt.json`。
+- 历史b62固定 BrowserSkill CLI **12/12检查、14次实际命令**，14个已安装Browser包成员精确一致；自有jvwv窗口与54460合成服务均已关闭。`native-final-b62/browser-cli/receipt.json`；不是原生Skill/模型暴露或完整G08证明。
+- 历史b62 **13条完整声明范围领域桥接：50只读HTTP、464检查通过**（421读回＋43历史原生正文保留），范围仅D007–009、D016–023、D053、D056；旧请求/模型/actor/时间身份不改，不能推广到其他合同或202项全PASS。`native-final-b62/domain-current-bridge/receipt.json`。
 - 源335文件映射 complete277/host-replaced57/excluded1，只证明来源落点。202合同=68领域＋134UI，V验证族与20功能面仍需按实际调用/完整范围核定，不能把源码映射或单个成功当完整PASS。
-- 新候选安装前已真实运行 `verify:ready`：**FAILED**，当前运行b62与固定1649包不一致，正式acceptance／功能面／验证族尚未归集。冻结 `native-final-1649/READY-preinstall.json` SHA `dc26ab09f4b9956fba751b5d984aaf1c15ecdf520e0ebda0dd8fe16b12fdfa36`；这是安装前身份与验收缺失，不是已安装1649的功能失败。安装并完整归集后再真实重跑。
+- 1649安装前已真实运行 `verify:ready`：**FAILED**，当时运行b62与固定1649不一致，正式acceptance／功能面／验证族尚未归集。冻结 `native-final-1649/READY-preinstall.json` SHA `dc26ab09f4b9956fba751b5d984aaf1c15ecdf520e0ebda0dd8fe16b12fdfa36`保留原结果；安装状态已改变，STATE标记 `freshForCurrentState=false`。没有新verify结果，也不将它解释为已安装1649的功能失败；完整归集后再真实重跑。
 - 飞书用户决定暂不配置，真实投递保持 **BLOCKED_ENV**；先完成不受阻工作，不删除或伪造该门禁。
+
+## 本轮证据归集收口
+
+- 唯一总索引 `artifacts/evidence/native-final-b62/acceptance-binding/FINAL-INDEX.json`，SHA `c6386b990c1d358d399e905c7a8908746432b0ec0ce42f8dd244e0754b7ef012`：完整有限绑定 **128/202**（领域57、UI71），剩余74逐项列明；未更新正式 acceptance／FEATURE_MAP。这是b62证据归集，既不是1649验收通过，也不表示剩余74个产品故障。
+- 当前1649已安装；沿原索引及正在建立的1649合法范围桥完成最少实际调用：既定8视图／17动作、General/MAX与当前图片来源、原生Browser localhost链，以及合法排序持久化和真实verified成功导出；已完成有限分支不重复。
+- 1649打包后，旧LA隔离快照与目标同组 **151／151** 领域测试通过，零失败、零跳过；冻结 `native-final-1649/copied-domain-tests.json`。只证明工程基线，源仓库未修改。
+- 10:15时安装确认尚未到达的 `native-final-1649/install-pending-current-turn.json`保留历史事实；随后用户手动安装已核实、50成员及原生停止重开9项smoke完成。它不是当前阻塞；Root不再重复安装或冷启动。
 
 ## 立即接续
 
-1. 在官方DSH原生插件管理安装固定 **1649/.5** 候选，保持真实操作/包身份；再真实Quit、Finder双击、停止重开，核精确安装成员、Host runtime和smoke。当前b62不能改名为1649，未安装候选不能宣布可用。
-2. 在新安装上核D043当前用户FileBlock/ImageBlock发现和原件准入、无扩展名元数据/同批图像排除与实际模型可见文图request/response链；原生Browser以小范围MAX/General localhost合成链完成freshness。CLI12/12、旧Workspace图像或旧模型链不替代新的来源证明；Root独占native/model。
-3. 收集**8类真实PNG＋17个UI动作**，按 `native-final-018c/final-proof-collection.json` / `acceptance-gap-018c/缺口矩阵.md` 归集尚未覆盖的20surface、30V与完整合同。新默认语言/精确locale下拉框是本次修改，应核候选实际表现；已有projects/cat JPEG保留原件/转换来源，不充当未观察的PNG或动作。
-4. 对已完整声明范围的历史及b62有限证据建立**合法canonical范围桥**，保留原请求/响应/actor/时间/安装ID；仅重验修改所影响或原本未覆盖的范围。下方bulk50/CAS/SSE冲突/201扫描、StyleVoice、TM来源、rename/未来任务创建暂停恢复保留取消、Exemplar/PDF/自然QAStop已有限实测，不再重复要求同场景；局部通过仍不自动变成整项合同PASS。
-5. 完整归集202合同后运行正式 `verify:ready`。旧FAILED/NOT_OBSERVED保留；飞书用户暂不配置，真实投递仍 **BLOCKED_ENV**，不删门禁。只有当前安装产物全部必需门禁通过才通知“完整迁移完成，可以直接使用”。私有GitHub已创建未push；完成后按授权推送，每次commit/push先对精确diff运行Ponytail并得到 **Lean already. Ship.**。
+1. 在当前1649上核D043当前用户FileBlock/ImageBlock准入、无扩展名元数据／同批图像排除及实际模型可见文图request/response链；原生Browser以小范围MAX／General localhost合成链核freshness。旧CLI／Workspace图像／模型链不替代当前来源证明；Root独占native／model。
+2. 收集**8类真实PNG＋17个UI动作**，按 `native-final-018c/final-proof-collection.json`／`acceptance-gap-018c/缺口矩阵.md`归集尚未覆盖的20surface、30V及完整合同。已完成1649安装／冷启动、初始默认与Source30下拉框不重复；未观察的完整生命周期仍按实际范围核定。既有JPEG保留来源，不冒作未观察的PNG／动作。
+3. mapagent正在为已完整声明范围的历史及b62有限证据建立**合法1649 canonical范围桥**，保留原请求／响应／actor／时间／安装ID。总索引128／202仍是b62有限完整绑定，剩余74是未绑定合同，不是74个代码故障。下方bulk50／CAS／SSE／201、StyleVoice、TM、rename／未来任务生命周期、Exemplar／PDF／自然QAStop等有限实测不重复演示；只重验修改影响或原本未覆盖的范围。
+4. 完整归集202合同及功能面／验证族后运行正式 `verify:ready`。旧FAILED／NOT_OBSERVED保持；飞书由用户延后，真实投递仍 **BLOCKED_ENV**，不删门禁。只有当前安装产物全部必需门禁通过才通知“完整迁移完成，可以直接使用”。私有GitHub已创建未push；完成后按授权推送，每次commit／push先对精确diff运行Ponytail并得到 **Lean already. Ship.**。
 
 ## 冻结历史证据（保留原身份）
 
@@ -68,7 +73,7 @@
 
 ## 历史检查点（以下安装等待已解除）
 
-以下记录保留当时身份与结论；其中018c为旧安装，b62待安装状态已被上方当前安装/冷启动证据取代，不作为当前接续指令。
+以下记录保留当时身份与结论；其中018c／b62为旧安装；b62和1649当时的待安装记录均已被后续真实安装／冷启动证据取代，不作为当前接续指令。
 
 ### 2026-10-01 13:11 集中修复边界
 
@@ -101,12 +106,12 @@
 - 已连续三轮遇到同一缺失确认；本轮再读官方原生安装对话框、真实 desktop dependency 与 Host identity，仍018c，b62未安装。无当前运行任务可等；不受阻的候选/Worker和合成前置已完成。目标状态设blocked，保存接续，不宣READY、不推送。
 - 原阻塞收据 `native-final-b62/blocked-install-confirmation.json` 保留不改。随后外部实际安装已观察，安装操作者/动作时间未知；Root已完成真实冷启动及9/9 smoke，目标恢复active，接续以本文顶部为准。
 
-## 已安装 b62 的有限实测（范围与身份保留）
+## 历史 b62 的有限实测（范围与身份保留）
 
 - 译例公共读回53项通过，仅B的Guide/tutorial被保存，A草稿未保存；两段ID/正文/revision0/锁/原件SHA不变。`native-final-b62/exemplar-readback/receipt.json`。
 - 官方DSH内PDF三页真实画布/前后翻页，原生下载1522B与导入前SHA一致；公开原件/Worker安全头及确切单行三页提取正文38项通过。Markdown标题/正文实际可见，合成图像行内可见。截图为实际JPEG原始数据，尚未正式归集8PNG/17动作；未声明Worker生命周期、完整Preview或模型审阅。`native-final-b62/preview-readback/pdf-receipt.json`。
 
-- 新建项目五字段：取消后重开保留名称/en-GB/zh-TW/编辑审校/字幕对白；b62成功创建后重置为空名/en-US/zh-CN/翻译/general。旧LA源码默认语言为zh-CN→en-US，这段b62实测存在真实差异；新1649候选已修复四处默认值，尚未原生核验，历史观察不改写。`native-final-b62/create-cancel-reopen.ax.txt`、create-success-reset.ax.txt；源 `projects-atoms.ts:26`。
+- 新建项目五字段：取消后重开保留名称/en-GB/zh-TW/编辑审校/字幕对白；b62成功创建后重置为空名/en-US/zh-CN/翻译/general。旧LA源码默认语言为zh-CN→en-US，这段b62实测存在真实差异；1649已安装并原生观察初始默认zh-CN→en-US／Source30菜单；四处默认值源码已修复，未把初始对话框观察当作成功创建后重置，历史b62观察不改写。`native-final-b62/create-cancel-reopen.ax.txt`、create-success-reset.ax.txt；源 `projects-atoms.ts:26`。
 - 自有自然QA第二轮运行中Stop：`native-final-b62/qa-natural-stop/retry-current/receipt.json` **52项有限通过**；持久Job cancelled、cursor0，零checkpoint、零新增更新，5000句段与20000旧QA全字段不变。首次Stop晚于QA完成8.171秒，`late-attempt-receipt.json`保留 **NOT_OBSERVED / 56检查**，没有将它记为新产品失败；不推导所有专业作业/Worker退出遥测或READY。
 
 下列收据已逐一读回并核SHA；完整SHA见 STATE.json `groupedContractRepair.nativeScopedReadbacks`，均保留b62实际范围，不声明整个D族、全部UI或READY通过。
