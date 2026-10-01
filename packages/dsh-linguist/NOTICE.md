@@ -51,3 +51,9 @@ Note: the Apache-2.0 `openai/codex` open-source repository is **not** the
 same thing as OpenAI's closed-source desktop client. No code, asset, copy
 text, logo, font, or file name from any closed-source client may enter
 this repository. See `docs/attribution/PRIVATE_RESEARCH_POLICY.md`.
+
+## PDF.js
+
+PDF.js 4.10.38, Copyright Mozilla Foundation and contributors, is used for
+original PDF previews. Its unmodified Apache License 2.0 is included in
+`resources/third-party/pdfjs-dist-LICENSE`. Source: https://github.com/mozilla/pdf.js.

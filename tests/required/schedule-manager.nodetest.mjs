@@ -34,6 +34,7 @@ function harness(required, overrides = {}) {
     render() { cursor = 0; effectCursor = 0; tree = exports.ScheduleManager(props); pending.splice(0).forEach(run => run()); return renderToStaticMarkup(tree) },
     button(label) { const value = button(label); assert(value, label); return value.props },
     click(label) { const value = button(label); assert(value, label); assert(!value.props.disabled, `${label} is disabled`); return value.props.onClick() },
+    nodes: () => nodes(tree),
     dispose() { effects.forEach(effect => effect.cleanup?.()) },
   }
 }
@@ -185,5 +186,62 @@ test('history opens the actual execution Session and reports deleted Sessions wi
   await tick()
   component.render()
   assert.equal(component.button('打开执行会话').disabled, true)
+  component.dispose()
+})
+
+test('native schedule states form ordered active, paused and ended groups while retaining API order', async () => {
+  let items = [
+    { ...schedule, scheduleId: 'max', title: 'Reached maximum', status: 'inactive', limitReached: true },
+    { ...schedule, scheduleId: 'active-b', title: 'Active B' },
+    { ...schedule, scheduleId: 'failed', title: 'Failure pause', status: 'inactive', pausedAfterFailures: true },
+    { ...schedule, scheduleId: 'active-a', title: 'Active A' },
+    { ...schedule, scheduleId: 'manual', title: 'Manual pause', status: 'inactive', pausedByUser: true },
+    { ...schedule, scheduleId: 'once', title: 'Once ended', status: 'inactive' },
+  ]
+  const component = harness(async operation => {
+    assert.equal(operation, 'linguistScheduleList')
+    return { items, notificationDestinations: [] }
+  })
+  const groups = () => component.nodes().filter(node => node.type === 'section' && ['启用中', '已暂停', '调度已结束'].includes(node.props['aria-label']))
+  const titles = group => React.Children.toArray(group.props.children).flatMap(node => node.type === 'article' ? React.Children.toArray(node.props.children).flatMap(child => React.Children.toArray(child.props?.children).filter(item => item.type === 'strong').map(item => item.props.children)) : [])
+  component.render(); await tick(); component.render()
+  assert.deepEqual(groups().map(group => group.props['aria-label']), ['启用中', '已暂停', '调度已结束'])
+  assert.deepEqual(groups().map(titles), [['Active B', 'Active A'], ['Failure pause', 'Manual pause'], ['Reached maximum', 'Once ended']])
+  items = items.map(item => item.scheduleId === 'active-b' ? { ...item, status: 'inactive', pausedByUser: true } : item)
+  component.click('刷新'); component.render(); await tick(); component.render()
+  assert.deepEqual(groups().map(titles), [['Active A'], ['Active B', 'Failure pause', 'Manual pause'], ['Reached maximum', 'Once ended']])
+  component.dispose()
+})
+
+for (const stopped of [
+  { limitReached: true },
+  { pausedAfterFailures: true },
+  { pausedByUser: true },
+  {},
+]) test(`stopped own schedule remains explicitly cancellable: ${JSON.stringify(stopped)}`, async () => {
+  const current = { ...schedule, ...stopped, status: 'inactive' }
+  let resolveCancel, removed = false
+  const requests = []
+  const component = harness(async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistScheduleList') return { items: removed ? [] : [current], notificationDestinations: [] }
+    assert.equal(operation, 'linguistScheduleCancel')
+    await new Promise(resolve => { resolveCancel = resolve })
+    removed = true
+    return { cancelled: true }
+  }, { editable: false })
+  component.render(); await tick(); component.render()
+  assert.equal(component.button('立即运行').disabled, true)
+  component.click('取消任务'); component.render()
+  assert.match(component.render(), /删除原生调度历史/)
+  assert(!requests.some(item => item.operation === 'linguistScheduleCancel'))
+  component.click('保留任务'); component.render()
+  assert(!requests.some(item => item.operation === 'linguistScheduleCancel'))
+  component.click('取消任务'); component.render(); component.click('确认取消任务'); component.render()
+  assert.equal(component.button('取消任务').disabled, true)
+  assert.equal(component.button('确认取消任务').disabled, true)
+  resolveCancel(); await tick(); component.render(); await tick()
+  assert.match(component.render(), /此会话没有 Linguist 专用定时任务/)
+  assert.deepEqual(JSON.parse(JSON.stringify(requests.filter(item => item.operation === 'linguistScheduleCancel'))), [{ operation: 'linguistScheduleCancel', input: { sessionId: 'source-session', scheduleId: schedule.scheduleId } }])
   component.dispose()
 })

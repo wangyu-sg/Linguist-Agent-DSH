@@ -25,7 +25,7 @@ function load(name) {
   const code = ts.transpileModule(readFileSync(new URL(name, client), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
   }).outputText
-  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows; exports.testWorkbench = WorkbenchBody;' : ''), { exports, document, window: { innerHeight: 800, setTimeout, clearTimeout },
+  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows; exports.testWorkbench = WorkbenchBody; exports.testInline = ProposalInlineReview;' : ''), { exports, document, crypto: { randomUUID: () => 'synthetic-key' }, window: { innerHeight: 800, setTimeout, clearTimeout },
     ResizeObserver: class { constructor(callback) { this.callback = callback; resizeObservers.push(this) } observe(target) { this.target = target } disconnect() { this.disconnected = true } },
     requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId }, cancelAnimationFrame: id => frames.delete(id),
     require: name => {
@@ -35,6 +35,7 @@ function load(name) {
     if (name === './TargetEditor') return load('TargetEditor.tsx')
     if (name === './cat-edit-utils') return load('cat-edit-utils.ts')
     if (name === './cat-virtual-utils') return load('cat-virtual-utils.ts')
+    if (name === './proposal-view') return load('proposal-view.ts')
     if (name === './tag-atomic-utils') return load('tag-atomic-utils.ts')
     if (name === './workflow-ui') return { stageActionLabel: () => '确认', stageProgressLabel: () => '翻译', segmentStatusBadgeTitle: () => '翻译', stageName: () => '翻译', stageCompletionLabel: () => '已确认', nextStageItemLabel: () => '下一待处理', stageFilterOptions: () => [] }
     if (name === '@tanstack/react-virtual') return { useVirtualizer: ({ count }) => ({ getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 94 })), getTotalSize: () => count * 94, scrollToIndex() {}, measureElement() {} }) }
@@ -44,7 +45,7 @@ function load(name) {
     if (name === './cat-navigation') return { useCatNavigation: () => navigation, requestCatNavigation: input => { navigation = { ...input, revision: (navigation?.revision ?? 0) + 1 } } }
     if (name === './workbench-location') return { readWorkbenchLocation: () => ({ value: { assetId: 'asset-A', segmentId: 'row-199', assetNavigatorOpen: true, assetNavigatorWidth: 240, inspectorWidth: 320, dockOpen: true, dock: 'qa', dockHeight: 240 } }), writeWorkbenchLocation() {} }
     if (name === './composer-context') return { publishWorkbenchComposerContext() {} }
-    if (name === './Panels') return Object.fromEntries(['QaPanel', 'ProposalPanel', 'ReferencePanel', 'AssetsPanel', 'DeliveryPanel', 'ProjectSettingsPanel'].map(name => [name, name]))
+    if (name === './Panels') return { ...Object.fromEntries(['QaPanel', 'ProposalPanel', 'ReferencePanel', 'AssetsPanel', 'DeliveryPanel', 'ProjectSettingsPanel', 'BatchExportButton', 'ProposalReviewConfirmation'].map(name => [name, name])), loadProposalReviewPlan: (...args) => load('Panels.tsx').loadProposalReviewPlan(...args) }
     if (name === './UnknownTagNotice') return { UnknownTagNotice: 'UnknownTagNotice' }
     if (name === './CatStatusBar') return { CatStatusBar: 'CatStatusBar' }
     if (name === './Splitter') return { Splitter: 'Splitter' }
@@ -379,6 +380,150 @@ async function workbenchFixture(id, queryPage, { filter = '', deferredQuery, mov
   const rows = () => workbench.nodes().find(node => node.type?.name === 'SegmentRows').props
   return { workbench, rows, segments, calls, async settle() { workbench.render(); await tick(); workbench.render(); await tick(); workbench.render() } }
 }
+
+test('grid proposal review keeps failed and excluded selections and uses the shared fresh CAS plan', async () => {
+  const fixture = await workbenchFixture('grid-proposal-review', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  const ordinary = apiRequired, calls = []
+  let refuse = true
+  fixture.segments[2].locked = true
+  apiRequired = async (operation, input) => {
+    if (operation === 'linguistCatGetContext') {
+      const segment = fixture.segments[Number(input.segmentId.slice(4))]
+      return { segment, qaFindings: [], ...(segment.ordinal === 1 ? {} : { pendingProposal: { id: `proposal-${segment.ordinal}` } }) }
+    }
+    if (operation === 'linguistProposalsGetDiff') {
+      const segment = fixture.segments[Number(input.proposalId.slice(9))]
+      return { proposal: { id: input.proposalId, segmentId: segment.id, status: 'pending' }, originalOrdinal: segment.ordinal + 1, currentRevision: segment.revision, baseRevision: segment.revision, locked: segment.locked }
+    }
+    if (operation === 'linguistProposalsAcceptSelected') {
+      calls.push(input)
+      if (refuse) throw new Error('Synthetic current revision conflict')
+      return []
+    }
+    return ordinary(operation, input)
+  }
+  for (const id of ['row-0', 'row-1', 'row-2']) fixture.rows().onToggleSelected(id)
+  await fixture.settle()
+  fixture.workbench.click('接受所选建议'); await fixture.settle()
+  const confirmation = () => fixture.workbench.nodes().find(node => node.type === 'ProposalReviewConfirmation').props
+  assert.equal(confirmation().plan.items.length, 1)
+  assert.equal(confirmation().plan.excluded.length, 2)
+  assert.equal(confirmation().plan.items[0].expectedRevision, 1)
+  fixture.segments[0].revision = 2
+  confirmation().onConfirm(); await fixture.settle()
+  assert.equal(calls[0].items[0].expectedRevision, 1, 'confirmation does not silently replace its captured CAS snapshot')
+  assert.match(confirmation().error, /revision conflict/)
+  assert.deepEqual([...fixture.rows().selectedIds], ['row-0', 'row-1', 'row-2'])
+  confirmation().onClose(); fixture.workbench.render()
+  refuse = false
+  fixture.workbench.click('接受所选建议'); await fixture.settle()
+  assert.equal(confirmation().plan.items[0].expectedRevision, 2)
+  confirmation().onConfirm(); await fixture.settle()
+  assert.deepEqual([...fixture.rows().selectedIds], ['row-1', 'row-2'], 'only successfully reviewed items leave the selection')
+  assert.equal(confirmation().plan, undefined)
+  assert(fixture.workbench.nodes().some(node => node.type === 'BatchExportButton' && node.props.asset.assetId === 'asset-A'))
+  fixture.workbench.unmount()
+})
+
+test('next untouched remains inside the current search and the header changes only the workflow stage', async () => {
+  const fixture = await workbenchFixture('search-and-stage', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  fixture.segments[2].source = 'Synthetic needle'; fixture.segments[5].source = 'Synthetic needle'
+  const ordinary = apiRequired, writes = []
+  apiRequired = async (operation, input) => {
+    if (operation === 'linguistProjectsSetWorkflowConfig') { writes.push(input); return {} }
+    if (operation === 'linguistProjectsGetSummary') { const summary = await ordinary(operation, input); return writes.length ? { ...summary, project: { ...summary.project, workflowStage: writes.at(-1).workflowStage } } : summary }
+    return ordinary(operation, input)
+  }
+  const search = () => fixture.workbench.nodes().find(node => node.props?.['aria-label'] === '搜索源文或译文').props
+  search().onChange({ target: { value: 'needle' } }); await fixture.settle()
+  fixture.rows().onSelect('row-2'); fixture.workbench.render()
+  fixture.workbench.click('下一待处理'); await fixture.settle()
+  assert.equal(fixture.rows().selectedId, 'row-5')
+  assert.equal(search().value, 'needle')
+  assert.deepEqual(Array.from(fixture.rows().data.ids), ['row-2', 'row-5'])
+  fixture.workbench.nodes().find(node => node.props?.['aria-label'] === '当前工作阶段').props.onChange({ target: { value: 'editing' } }); await fixture.settle()
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ projectId: 'project-synthetic', workflowStage: 'editing' }])
+  assert.equal(fixture.rows().workflowStage, 'editing')
+  assert.equal(search().value, 'needle')
+  fixture.workbench.unmount()
+})
+
+test('a committed proposal review keeps success true and makes its failed overview refresh visible', async () => {
+  const fixture = await workbenchFixture('proposal-overview-read-failure', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  const ordinary = apiRequired
+  let writes = 0, overviewReads = 0
+  apiRequired = async (operation, input) => {
+    if (operation === 'linguistCatGetContext') return { ...await ordinary(operation, input), ...(input.segmentId === 'row-0' ? { pendingProposal: { id: 'proposal-0' } } : {}) }
+    if (operation === 'linguistProposalsGetDiff') return { proposal: { id: 'proposal-0', segmentId: 'row-0', status: 'pending' }, originalOrdinal: 1, currentRevision: 1, baseRevision: 1, locked: false }
+    if (operation === 'linguistProposalsAcceptSelected') { writes++; return [] }
+    if (operation === 'linguistProjectsGetSummary' && writes && overviewReads++ === 0) throw new Error('Synthetic post-commit overview read failure')
+    return ordinary(operation, input)
+  }
+  fixture.rows().onToggleSelected('row-0'); await fixture.settle()
+  fixture.workbench.click('接受所选建议'); await fixture.settle()
+  fixture.workbench.nodes().find(node => node.type === 'ProposalReviewConfirmation').props.onConfirm()
+  await fixture.settle()
+  assert.equal(writes, 1)
+  assert.equal(fixture.rows().selectedIds.size, 0, 'a committed mutation is not offered as a failed retry')
+  assert.equal(fixture.workbench.nodes().find(node => node.type === 'ProposalReviewConfirmation').props.plan, undefined)
+  const statuses = fixture.workbench.nodes().filter(node => node.props?.role === 'status').flatMap(node => React.Children.toArray(node.props.children)).filter(value => typeof value === 'string').join(' ')
+  assert.match(statuses, /已接受 1 条建议/)
+  assert.match(statuses, /Synthetic post-commit overview read failure/, 'the closed confirmation cannot be the only place holding the read failure')
+  fixture.workbench.unmount()
+})
+
+test('a failed query after opening the project shows a retry while preserving editor drafts', async () => {
+  let fail = false
+  const fixture = await workbenchFixture('query-error-visible', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }), { deferredQuery(_input, page) { if (fail) throw new Error('Synthetic grid read failure'); return page } })
+  const draft = jotai.atom({ synthetic: 'unsaved' })
+  const state = load('cat-editor-state.ts').getCatEditorState('query-error-visible', 'project-synthetic')
+  state.drafts.set('row-199', draft)
+  fail = true; fixture.workbench.nodes().find(node => node.type === 'menu').props.onSelect('refresh'); await fixture.settle()
+  assert(fixture.workbench.nodes().some(node => node.props?.role === 'alert' && React.Children.toArray(node.props.children).some(child => typeof child === 'string' && child.includes('Synthetic grid read failure'))))
+  assert.equal(state.drafts.get('row-199'), draft)
+  fail = false; fixture.workbench.click('重试'); await fixture.settle()
+  assert(fixture.rows().data.total > 0)
+  assert(!fixture.workbench.nodes().some(node => node.props?.role === 'alert'))
+  assert.equal(state.drafts.get('row-199'), draft)
+  fixture.workbench.unmount()
+})
+
+test('late page failures cannot replace a newer search or refreshed index with an error', async () => {
+  for (const change of ['search', 'refresh']) {
+    let rejectPage
+    const fixture = await workbenchFixture(`late-page-error-${change}`, () => new Promise((_resolve, reject) => { rejectPage = reject }))
+    fixture.rows().onVisibleRange(200, 201)
+    const rejectOldPage = rejectPage
+    const oldIds = fixture.rows().data.ids
+    if (change === 'search') fixture.workbench.nodes().find(node => node.props?.['aria-label'] === '搜索源文或译文').props.onChange({ target: { value: 'Synthetic' } })
+    else fixture.workbench.nodes().find(node => node.type === 'menu').props.onSelect('refresh')
+    await fixture.settle()
+    assert.notEqual(fixture.rows().data.ids, oldIds)
+    rejectOldPage(new Error('Synthetic stale page failure'))
+    await fixture.settle()
+    assert(!fixture.workbench.nodes().some(node => node.props?.role === 'alert'), `${change} retains its newer grid`)
+    assert.equal(fixture.rows().selectedId, 'row-199')
+    fixture.rows().onVisibleRange(200, 201)
+    rejectPage(new Error('Synthetic current page failure'))
+    await fixture.settle()
+    assert(fixture.workbench.nodes().some(node => node.props?.role === 'alert' && React.Children.toArray(node.props.children).some(child => typeof child === 'string' && child.includes('Synthetic current page failure'))), 'current page failures remain visible')
+    fixture.workbench.unmount()
+  }
+})
+
+test('the active proposal row exposes a real current/proposed diff and keeps stale acceptance disabled', () => {
+  const fixture = editorFixture('inline-proposal')
+  const proposal = { id: 'proposal', baseRevision: 1, proposedTarget: 'proposed', evidenceRefs: ['context:synthetic'], termRefs: ['term:synthetic'], warnings: ['Synthetic warning'] }
+  const calls = []
+  const inline = mountEditor(fixture.state, { segment: { ...fixture.props.segment, revision: 2 }, proposal, archived: false, busy: false, onReview: operation => calls.push(operation) }, props => load('CatWorkbench.tsx').testInline(props))
+  inline.render()
+  assert(inline.nodes().some(node => node.type === 'del' && node.props.children === 'original'))
+  assert(inline.nodes().some(node => node.type === 'ins' && node.props.children === 'proposed'))
+  assert.equal(inline.nodes().find(node => node.type === 'button' && node.props.children === '接受').props.disabled, true)
+  inline.click('拒绝建议'); assert.deepEqual(calls, ['reject'])
+  assert(inline.nodes().some(node => node.props?.role === 'alert'))
+  inline.unmount()
+})
 
 test('confirm advance shares same-index page requests and refetches after confirmation', async () => {
   const releases = []

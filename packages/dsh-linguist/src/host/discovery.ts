@@ -2,7 +2,7 @@ import { lstat, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { resolveProjectDiscoveryScope, type LinguistProjectService, type ProjectDiscoveryScope } from '@linguist/domain-service'
 
-export function projectDiscoveryScope(service: LinguistProjectService, projectId: string, workspaceId: string, workspacePath: string): ProjectDiscoveryScope {
+export function projectDiscoveryScope(service: LinguistProjectService, projectId: string, workspaceId: string, workspacePath: string, attachedFiles: readonly string[] = []): ProjectDiscoveryScope {
   const db = service.openProject(projectId)
   const managedEvidence = [
     ...db.assets.listByProject().map(asset => ({ ref: { kind: 'asset' as const, id: asset.id as string }, version: asset.sourceSha256 })),
@@ -13,7 +13,7 @@ export function projectDiscoveryScope(service: LinguistProjectService, projectId
     ...db.voiceProfiles.list({ limit: db.voiceProfiles.count() }).map(item => ({ ref: { kind: 'voice-profile' as const, id: item.id }, version: item.updatedAt })),
   ]
   return resolveProjectDiscoveryScope({
-    session: { workspaceId, linguistProjectId: projectId },
+    session: { workspaceId, linguistProjectId: projectId, attachedFiles: [...attachedFiles] },
     dependencies: {
       getWorkspace: id => id === workspaceId ? { slug: workspaceId } : undefined,
       getProjectFilesPath: () => workspacePath,
@@ -29,11 +29,11 @@ function within(path: string, root: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel))
 }
 
-export async function authorizeWorkspaceRead(requested: string, workspacePath: string): Promise<string> {
+export async function authorizeWorkspaceRead(requested: string, workspacePath: string, attachedFiles: readonly string[] = []): Promise<string> {
   if (!isAbsolute(requested)) throw new Error('A workspace file path must be absolute')
   const root = await realpath(workspacePath)
   const file = await realpath(requested)
-  if (!within(file, root)) throw new Error('File is outside this DSH Workspace')
+  if (!within(file, root) && !attachedFiles.includes(requested)) throw new Error('File is outside this DSH Workspace')
   return file
 }
 

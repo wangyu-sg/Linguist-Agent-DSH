@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createElement, useEffect, useState } from 'react'
 import { Button, Menu, Modal, Tooltip, IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LinguistAssetInfo, LinguistProjectOpenResult, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
-import { bindSession, getBinding, required, type LinguistBinding } from './api'
+import { bindSession, getBinding, required, subscribeProject, type LinguistBinding } from './api'
 import { CatWorkbench } from './CatWorkbench'
 import { clearCatEditorStates } from './cat-editor-state'
 import { BatchPreview } from './BatchPreview'
@@ -133,10 +133,16 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
   useEffect(() => {
     if (!binding?.projectId) return
     let live = true
-    required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId: binding.projectId })
-      .then((summary) => { if (live) { setProjectName(summary.project.name); setProjectError('') } })
-      .catch((cause: unknown) => { if (live) setProjectError(String(cause)) })
-    return () => { live = false }
+    let request = 0
+    const refreshName = () => {
+      const current = ++request
+      required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId: binding.projectId })
+        .then((summary) => { if (live && current === request) { setProjectName(summary.project.name); setProjectError('') } })
+        .catch((cause: unknown) => { if (live && current === request) setProjectError(String(cause)) })
+    }
+    refreshName()
+    const unsubscribe = subscribeProject(binding.projectId, 0, (event) => { if (event.kind === 'project-updated') refreshName() }, refreshName)
+    return () => { live = false; unsubscribe() }
   }, [binding?.projectId])
   if (error) return createElement('span', { className: styles.error, title: error }, t('Linguist 绑定读取失败'))
   if (!binding) return detached ? createElement('span', { className: styles.badge, role: 'status' }, t('Linguist 绑定已解除；历史 CAT 证据保留。'), detached.cancelledScheduleIds.length ? ` ${t('已取消专用定时任务 {count} 项。', { count: detached.cancelledScheduleIds.length })}` : '') : null
@@ -192,8 +198,8 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
     createElement(Modal, { open: detachOpen, onClose: () => setDetachOpen(false), title: t('解除 Linguist 绑定'), closeLabel: t('关闭'),
       description: t('解除后此 Session 成为普通 Agent，会取消活跃的 Linguist 专用定时任务；历史专业证据保留。'),
       footer: createElement('div', { className: styles.actions },
-        createElement(Button, { variant: 'outline', disabled: detachBusy, onClick: () => setDetachOpen(false) }, t('取消')),
-        createElement(Button, { variant: 'primary', disabled: detachBusy, onClick: () => void detach() }, t('确认解除'))),
+        createElement(Button, { variant: 'ghost', size: 'sm', disabled: detachBusy, onClick: () => setDetachOpen(false) }, t('取消')),
+        createElement(Button, { variant: 'primary', size: 'sm', disabled: detachBusy, onClick: () => void detach() }, t('确认解除'))),
     }, actionError ? createElement('p', { className: styles.error, role: 'alert' }, actionError) : null),
     projectError ? createElement(Tooltip, { label: projectError, portal: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: styles.error, tabIndex: 0 }, t('项目名称读取失败')) }) : null,
     actionError && !detachOpen ? createElement('span', { className: styles.error, role: 'alert' }, actionError) : null,

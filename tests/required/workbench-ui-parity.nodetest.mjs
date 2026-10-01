@@ -9,10 +9,12 @@ const require = createRequire(new URL('../../packages/dsh-linguist/package.json'
 const React = require('react')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const t = (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, name) => String(params[name]))
-const primitives = { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Modal: 'modal', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
+const primitives = { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Modal: 'modal', Tooltip: 'tooltip', MarkdownText: 'markdown-text', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
 const client = new URL('../../packages/dsh-linguist/src/client/', import.meta.url)
 const workflow = {}
 runInNewContext(ts.transpileModule(readFileSync(new URL('workflow-ui.ts', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: workflow })
+const panelHelpers = {}
+runInNewContext(ts.transpileModule(readFileSync(new URL('Panels.tsx', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: panelHelpers, require: () => ({}) })
 
 // Execute each production component and its hooks; only external I/O and native primitives are substituted.
 function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard } = {}) {
@@ -36,8 +38,10 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
     if (name === './proposal-view') return { groupProposalRuns: () => [], textDiffParts: () => [] }
     if (name === './workflow-ui') return workflow
+    if (name === './Panels') return { groupStyleGuideRules: panelHelpers.groupStyleGuideRules }
     if (name === './format-labels') return { describeLinguistFormat: value => value }
     if (name === './ProjectSessions') return { ProjectSessions: 'project-sessions' }
+    if (name === './PdfPreview') return { PdfPreview: 'pdf-preview' }
     if (name === './ProjectLocaleSelect') return { ProjectLocaleSelect: 'locale-select' }
     if (name === './LegacyMigrationPanel') return { LegacyMigrationPanel: 'legacy-migration' }
     if (name === './ScheduleManager') return { ScheduleManager: 'schedule-manager' }
@@ -48,15 +52,18 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
   function nodes(node) {
     if (typeof node !== 'object' || node === null) return []
     if (node.type === 'modal' && !node.props.open) return []
+    if (['ProposalReviewConfirmation', 'DeliveryPreparation'].includes(node.type?.name)) return nodes(node.type(node.props))
     return [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
   }
   function text(node) {
     if (node === null || node === undefined || typeof node === 'boolean') return ''
     if (typeof node !== 'object') return String(node)
     if (node.type === 'modal' && !node.props.open) return ''
+    if (['ProposalReviewConfirmation', 'DeliveryPreparation'].includes(node.type?.name)) return text(node.type(node.props))
     return React.Children.toArray(node.props?.children).map(text).join('') + React.Children.toArray(node.props?.footer).map(text).join('')
   }
   return {
+    exports,
     render(next = {}) { Object.assign(props, next); cursor = memoCursor = effectCursor = 0; tree = exports.testComponent(props); pending.splice(0).forEach(run => run()); return text(tree) },
     nodes: () => nodes(tree),
     button(label) { const node = nodes(tree).find(node => node.type === 'button' && text(node) === label); assert(node, `Missing button ${label}`); return node.props },
@@ -64,6 +71,120 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
     dispose() { effects.forEach(effect => effect.cleanup?.()) },
   }
 }
+
+test('both proposal selection paths prepare one fresh bounded CAS plan without truncation', async () => {
+  const requests = []
+  const diffs = Array.from({ length: 51 }, (_, index) => ({ proposal: { id: `p${index}`, segmentId: `s${index}`, status: 'pending' }, originalOrdinal: index + 1, currentRevision: 4, baseRevision: 4, locked: false }))
+  const component = mount('Panels.tsx', 'ProposalPanel', {}, { required: async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistCatGetContext') return { segment: { id: input.segmentId, ordinal: Number(input.segmentId.slice(1)), revision: 2 }, pendingProposal: { id: `p${input.segmentId.slice(1)}` } }
+    if (operation === 'linguistProposalsGetDiff') return diffs[Number(input.proposalId.slice(1))]
+    throw new Error('Unexpected write while preparing')
+  } })
+  const prepare = component.exports.loadProposalReviewPlan
+  assert.equal(typeof prepare, 'function')
+  await assert.rejects(prepare('project', { kind: 'proposals', ids: diffs.map(row => row.proposal.id) }, 'accept', t), /51.*50/)
+  assert.equal(requests.length, 51, 'full actual collection is read, never silently truncated')
+  diffs[50].locked = true
+  const plan = await prepare('project', { kind: 'segments', ids: diffs.map(row => row.proposal.segmentId) }, 'accept', t)
+  assert.equal(plan.items.length, 50)
+  assert.equal(plan.items[0].expectedRevision, 4, 'fresh diff, rather than earlier context revision, is authoritative')
+  assert.equal(plan.excluded[0].segmentId, 's50')
+  assert.match(plan.excluded[0].reason, /锁/)
+  const before = requests.length
+  await assert.rejects(prepare('project', { kind: 'segments', ids: Array(201).fill('s0') }, 'accept', t), /200/)
+  assert.equal(requests.length, before, 'over-limit segment scans do not issue reads or writes')
+})
+
+test('Voice marker parsing and stable Style grouping preserve the original LA semantics', () => {
+  const component = mount('Panels.tsx', 'AssetsPanel', {})
+  assert.deepEqual(Array.from(component.exports.parseMarkerList('活泼、活泼，认真,认真')), ['活泼', '认真'])
+  const groups = component.exports.groupStyleGuideRules([{ id: 'u' }, { id: 'a', groupKey: ' UI ' }, { id: 'b', groupKey: 'UI' }, { id: 'c', groupKey: 'Story' }])
+  assert.deepEqual(Array.from(groups, group => [group.groupKey, Array.from(group.rules, item => item.id)]), [['UI', ['a', 'b']], ['Story', ['c']], ['', ['u']]])
+})
+
+test('reference evidence opens the actual category while exemplar metadata resets only when changing segment', async () => {
+  let terms = 0
+  const a = { ...segment, id: 'a', currentStageState: 'confirmed', context: { meta: { speaker: 'A', text_type: 'Dialogue' } } }
+  const b = { ...a, id: 'b', context: { meta: { speaker: 'B', stringType: 'Menu' } } }
+  const component = mount('CatWorkbench.tsx', 'ContextPanel', { projectId: 'project', segmentId: 'a', archived: false, mutation: 0, onOpenTerms: () => terms++ }, { required: async (operation, input) => operation === 'linguistCatGetContext' ? {
+    segment: input.segmentId === 'a' ? a : b,
+    tm: [{ id: 'tm', matchedSource: 'Synthetic', target: '合成', matchClass: 'exact', score: 100, sourceLabel: 'Synthetic TM', safety: 'compatible', provenanceCount: 3, variantCount: 2, badges: [], warnings: [], differences: [] }],
+    termMatches: [], approvedExemplars: [],
+    pendingProposal: { evidenceRefs: ['tm:one', 'style-guide:two', 'voice:three', 'context-doc:four', 'opaque:five'], termRefs: ['term:six'] },
+  } : { items: [] } })
+  component.render(); await tick(); assert.match(component.render(), /3 个来源.*2 个译文变体/)
+  const input = label => component.nodes().find(node => node.type === 'input' && node.props['aria-label'] === label).props
+  assert.equal(input('角色译例说话人').value, 'A')
+  assert.equal(input('角色译例文本类型').value, 'Dialogue')
+  input('角色译例说话人').onChange({ target: { value: 'Unsaved A' } })
+  component.render({ mutation: 1 }); await tick(); component.render()
+  assert.equal(input('角色译例说话人').value, 'Unsaved A', 'same-segment live refresh preserves the user draft')
+  const anchors = []
+  component.nodes().filter(node => node.ref && ['section', 'details'].includes(node.type)).forEach(node => {
+    const anchor = { tagName: node.type.toUpperCase(), open: false, focus() { this.focused = true }, scrollIntoView() { this.scrolled = true } }
+    anchors.push(anchor); node.ref(anchor)
+  })
+  assert.equal(anchors.length, 4)
+  for (const source of ['TM', 'Style', 'Voice', 'Context']) assert.doesNotThrow(() => component.click(`查看 ${source} 来源`), source)
+  assert.equal(anchors.filter(anchor => anchor.focused && anchor.scrolled).length, 4)
+  assert.equal(anchors.filter(anchor => anchor.tagName === 'DETAILS' && anchor.open).length, 3)
+  component.click('查看 术语 来源'); assert.equal(terms, 1)
+  assert.match(component.render(), /opaque:five\s*来源类型未识别/)
+  component.render({ segmentId: 'b' }); await tick(); component.render()
+  assert.equal(input('角色译例说话人').value, 'B')
+  assert.equal(input('角色译例文本类型').value, 'Menu')
+  assert.equal(input('角色译例备注').value, '')
+  component.dispose()
+})
+
+test('saving a prior segment exemplar cannot clear the new segment form and freezes its submitted fields', async () => {
+  const a = { ...segment, id: 'a', currentStageState: 'confirmed', context: { meta: { speaker: 'A', textType: 'Dialogue' } } }
+  const b = { ...a, id: 'b', context: { meta: { speaker: 'B', textType: 'Menu' } } }
+  const writes = []
+  let finishSave
+  const component = mount('CatWorkbench.tsx', 'ContextPanel', { projectId: 'project', segmentId: 'a', archived: false, mutation: 0, onOpenTerms() {} }, { required: async (operation, input) => {
+    if (operation === 'linguistCatGetContext') return { ...context, segment: input.segmentId === 'a' ? a : b }
+    if (operation === 'linguistCatAddApprovedExemplar') { writes.push(input); return new Promise(resolve => { finishSave = resolve }) }
+    return { items: [] }
+  } })
+  const inputs = () => component.nodes().filter(node => node.type === 'input')
+  const input = label => inputs().find(node => node.props['aria-label'] === label).props
+  component.render(); await tick(); component.render()
+  input('角色译例备注').onChange({ target: { value: 'A note' } }); component.render()
+  component.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); component.render()
+  const submittedFieldsFrozen = inputs().every(node => node.props.disabled)
+  component.render({ segmentId: 'b' }); await tick(); component.render()
+  assert.equal(input('角色译例说话人').value, 'B')
+  finishSave({}); await tick(); component.render(); await tick(); component.render()
+  assert.equal(input('角色译例说话人').value, 'B', 'the response for A cannot clear B metadata')
+  assert.equal(input('角色译例文本类型').value, 'Menu')
+  assert.equal(input('角色译例备注').value, '')
+  assert.equal(submittedFieldsFrozen, true, 'a submitted form cannot be edited while its old response may clear it')
+  assert(inputs().every(node => !node.props.disabled))
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ projectId: 'project', segmentId: 'a', speaker: 'A', textType: 'Dialogue', note: 'A note' }])
+  component.dispose()
+})
+
+test('batch export and Delivery use the same export endpoint and refuse a blocked preflight without issuing a download', async () => {
+  const requests = [], http = []
+  let ready = false
+  const preparation = () => ({ reportMarkdown: '# Synthetic report', preflight: { ready, stageCounts: {}, qa: {}, blockers: ready ? [] : [{ code: 'synthetic', message: 'Synthetic blocker', count: 1 }] } })
+  const component = mount('Panels.tsx', 'BatchExportButton', { projectId: 'project', asset: { assetId: 'asset', filename: 'synthetic.json' }, archived: false }, { required: async (operation, input) => { requests.push({ operation, input }); return preparation() }, fetch: async (url, input) => { http.push({ url, input }); return { ok: true, json: async () => ({ token: 'synthetic-token', filename: 'synthetic.json', preparation: preparation() }) } } })
+  component.render(); component.click('导出'); await tick()
+  assert.match(component.render(), /Synthetic blocker/)
+  assert.equal(http.length, 0)
+  assert.equal(component.nodes().some(node => node.type === 'a' && node.props.download), false)
+  component.click('关闭'); ready = true; component.render(); component.click('导出'); await tick(); component.render()
+  assert.equal(http.length, 1)
+  assert.equal(http[0].url, '/la/v1/files/export')
+  assert.deepEqual(JSON.parse(http[0].input.body), { projectId: 'project', assetId: 'asset', validation: 'verified' })
+  assert.equal(http[0].input.credentials, 'same-origin')
+  assert.deepEqual(requests.map(row => row.operation), ['linguistExportsPrepareAsset', 'linguistExportsPrepareAsset'])
+  assert.equal(component.nodes().find(node => node.type === 'a' && node.props.download).props.href, '/la/v1/files/synthetic-token')
+  assert.match(component.render(), /下载本身不代表专业任务完成/)
+  component.dispose()
+})
 
 const segment = { id: 'segment-synthetic', ordinal: 7, source: 'Synthetic source', target: 'Synthetic current target', revision: 3, locked: false, sourceLocale: 'en-US', targetLocale: 'ja-JP' }
 const context = { segment, tm: [], qaFindings: [], approvedExemplars: [], termMatches: [{ id: 'term-1', term: 'Synthetic', translation: '用語', status: 'required', matchType: 'contains', caseSensitive: true, conflict: true, module: 'UI', category: 'menu', note: 'Synthetic term note' }] }
@@ -319,6 +440,115 @@ test('empty batch preview explains the absence of segments instead of rendering 
   const component = mount('BatchPreview.tsx', 'BatchPreview', { projectId: 'p', asset, onClose() {} }, { required: async operation => operation === 'linguistProjectsGetSummary' ? { project: {}, assets: [asset] } : { total: 0, segments: [], hasMore: false } })
   component.render(); await tick(); assert.match(component.render(), /当前批次没有可预览的句段/)
   assert(!component.nodes().some(node => node.props?.role === 'table'))
+  component.dispose()
+})
+
+test('create success resets all five fields while cancel and request failure retain the draft and Workspace', async () => {
+  const workspace = { workspaceId: 'workspace-create', title: 'Synthetic create', path: '/synthetic/create' }
+  const requests = [], opened = []
+  let fail = true
+  const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
+    workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: [workspace] } } } }, sessions: {},
+    onEnter() {}, onOpenProject: async id => opened.push(id), onOpenSession() {}, onPickDirectory() {},
+  }, { required: async (operation, input) => {
+    if (operation === 'linguistProjectsList' || operation === 'linguistProjectsListFormatQualifications') return []
+    assert.equal(operation, 'linguistProjectsCreate')
+    requests.push(input)
+    if (fail) throw new Error('Synthetic create refused')
+    return { ...input, id: 'project-created', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }
+  } })
+  const name = () => component.nodes().find(node => node.type === 'input' && node.props['data-modal-autofocus']).props
+  const locale = label => component.nodes().find(node => node.type === 'locale-select' && node.props.label === label).props
+  const stage = () => component.nodes().find(node => node.type === 'select' && ['translation', 'editing', 'proofreading'].includes(node.props.value)).props
+  const profile = () => component.nodes().find(node => node.type === 'select' && !node.props['aria-label'] && ['general', 'subtitle'].includes(node.props.value)).props
+  const assertDraft = values => assert.deepEqual([name().value, locale('源语言').value, locale('目标语言').value, stage().value, profile().value], values)
+  const submit = () => component.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  component.render(); await tick(); component.render()
+  component.click('新建项目'); component.render()
+  name().onChange({ target: { value: 'Synthetic retained draft' } })
+  locale('源语言').onValueChange('fr-FR'); locale('目标语言').onValueChange('ja-JP')
+  stage().onChange({ target: { value: 'editing' } }); profile().onChange({ target: { value: 'subtitle' } })
+  component.render()
+  const draft = ['Synthetic retained draft', 'fr-FR', 'ja-JP', 'editing', 'subtitle']
+  assertDraft(draft)
+  component.nodes().find(node => node.type === 'modal' && node.props.title === '新建项目').props.onClose()
+  component.render(); component.click('新建项目'); component.render()
+  assertDraft(draft); assert.equal(requests.length, 0)
+  submit(); await tick(); assert.match(component.render(), /Synthetic create refused/); assertDraft(draft)
+  fail = false; submit(); await tick(); component.render()
+  assert.deepEqual(opened, ['project-created'])
+  component.click('新建项目'); component.render()
+  assertDraft(['', 'en-US', 'zh-CN', 'translation', 'general'])
+  assert.equal(component.nodes().find(node => node.type === 'select' && node.props['aria-label'] === '工作区').props.value, workspace.workspaceId)
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [0, 1].map(() => ({ name: draft[0], sourceLocale: draft[1], targetLocale: draft[2], workflowStage: draft[3], qaProfile: draft[4], workspaceId: workspace.workspaceId })))
+  component.dispose()
+})
+
+test('original Markdown delegates unmodified text to the public safe renderer while plain text and truncation remain explicit', async () => {
+  const text = '# Synthetic heading\n<script>unsafe()</script>\n[unsafe](javascript:unsafe())\n```ts\nconst n = 1\n```'
+  let preview = { kind: 'text', text, truncated: true, filename: 'synthetic.md' }
+  const request = filename => ({ operation: 'linguistProjectsPreviewAssetSource', input: { projectId: 'p', filename } })
+  const component = mount('PreviewView.tsx', 'PreviewView', { request: request('md'), onClose() {} }, { required: async () => preview })
+  component.render(); await tick(); component.render()
+  const markdown = component.nodes().find(node => node.type === 'markdown-text')
+  assert.equal(markdown.props.text, text)
+  assert.equal(markdown.props.variant, 'body')
+  assert.deepEqual(JSON.parse(JSON.stringify(markdown.props.labels)), { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' })
+  assert(!component.nodes().some(node => node.props.dangerouslySetInnerHTML || node.type === 'pre'))
+  assert.match(component.render(), /文本预览已截断；原文件没有改动/)
+  preview = { ...preview, filename: 'synthetic.markdown' }
+  component.render({ request: request('markdown') }); await tick(); component.render()
+  assert(component.nodes().some(node => node.type === 'markdown-text'))
+  preview = { ...preview, filename: 'synthetic.txt' }
+  component.render({ request: request('txt') }); await tick(); component.render()
+  assert(!component.nodes().some(node => node.type === 'markdown-text'))
+  assert.equal(component.nodes().find(node => node.type === 'pre').props.children, text)
+  component.dispose()
+})
+
+test('managed original previews use confirmed media types, reject foreign URLs and recover real failures', async () => {
+  const url = '/la/v1/files/' + 'p'.repeat(32)
+  let preview = { kind: 'url', filename: 'synthetic.pdf', url, ext: 'pdf' }, contentType = 'image/png', status = 200, cancelled = 0
+  const fetches = []
+  const request = id => ({ operation: 'linguistProjectsPreviewAssetSource', input: { projectId: 'p', id } })
+  const component = mount('PreviewView.tsx', 'PreviewView', { request: request(0), onClose() {} }, {
+    required: async () => preview,
+    fetch: async (actualUrl, options) => { fetches.push({ url: actualUrl, options }); return { ok: status === 200, status, headers: { get: key => { assert.equal(key, 'content-type'); return contentType } }, body: { cancel: async () => { cancelled++ } } } },
+  })
+  component.render(); await tick(); component.render()
+  let image = component.nodes().find(node => node.type === 'img')
+  assert.equal(image.props.src, url); assert.equal(image.props.alt, 'synthetic.pdf')
+  assert(!component.nodes().some(node => node.type === 'iframe'))
+  assert.deepEqual(JSON.parse(JSON.stringify(fetches[0])), { url, options: { credentials: 'same-origin' } })
+  assert.equal(cancelled, 1)
+  const original = component.nodes().find(node => node.type === 'a')
+  assert.equal(original.props.download, preview.filename)
+  assert.equal(original.props.target, undefined)
+  assert.match(component.render(), /下载原件/)
+  image.props.onError(); assert.match(component.render(), /图片预览失败/)
+  assert(!component.nodes().some(node => node.type === 'img'))
+  component.click('重试'); component.render(); await tick(); component.render()
+  assert(component.nodes().some(node => node.type === 'img'))
+  preview = { ...preview, filename: 'synthetic.jpg', ext: 'jpg' }; contentType = 'application/pdf; charset=binary'
+  component.render({ request: request(1) }); await tick(); component.render()
+  const pdf = component.nodes().find(node => node.type === 'pdf-preview')
+  assert.equal(pdf.props.url, url); assert.equal(pdf.props.filename, preview.filename)
+  assert(!component.nodes().some(node => node.type === 'iframe'), 'PDF bytes render in the owned canvas component')
+  assert(!component.nodes().some(node => node.type === 'img'))
+  contentType = 'application/octet-stream'
+  component.render({ request: request(2) }); await tick(); component.render()
+  assert(!component.nodes().some(node => node.type === 'img' || node.type === 'iframe' || node.type === 'pdf-preview'))
+  assert.equal(component.nodes().find(node => node.type === 'a').props.href, url)
+  status = 403
+  component.render({ request: request(3) }); await tick(); assert.match(component.render(), /HTTP 403/)
+  status = 200; contentType = 'image/png'
+  component.click('重试'); component.render(); await tick(); component.render()
+  assert(component.nodes().some(node => node.type === 'img'))
+  const fetched = fetches.length
+  preview = { ...preview, url: 'https://invalid.example/synthetic.png' }
+  component.render({ request: request(4) }); await tick(); assert.match(component.render(), /Host 未返回受管的本地预览 URL/)
+  assert.equal(fetches.length, fetched)
+  assert(!component.nodes().some(node => node.type === 'img' || node.type === 'iframe' || node.type === 'a'))
   component.dispose()
 })
 

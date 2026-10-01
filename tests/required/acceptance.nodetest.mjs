@@ -8,7 +8,9 @@ import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import test from 'node:test'
+import test, { mock } from 'node:test'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { LinguistProjectService, convertOfficePreviewToHtml } from '../../packages/linguist-domain-service/src/index.ts'
 import { createDefaultCatFormatRegistry } from '../../packages/linguist-domain-service/src/format-registry.ts'
 import { createAsset, createProject, createStageEvidenceBaseline } from '../../packages/linguist-cat-core/src/index.ts'
@@ -356,6 +358,40 @@ test('local HTTP rejects cross-site access and unsafe files while SSE replays on
     mutations.publish('synthetic-project', { kind: 'late' })
     assert.equal(sse.chunks.length, 3)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('PDF worker route serves only the fixed packaged module through the existing origin fence', async () => {
+  const workerBytes = readFileSync(requireDsh.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs'))
+  const expectedUrl = new URL('../../packages/dsh-linguist/src/host/pdf.worker.mjs', import.meta.url)
+  let reads = 0, handler
+  const read = mock.method(fsPromises, 'readFile', async (url) => {
+    assert.equal(url.href, expectedUrl.href)
+    reads++
+    return workerBytes
+  })
+  syncBuiltinESMExports()
+  registerHttpRoutes({ ctx: { webServer: { register: route => { handler = route.handler; return () => {} } } } })
+  const send = async (url, headers = { host: '127.0.0.1:19387' }, method = 'GET') => {
+    const response = { headersSent: false, writeHead(status, headers) { this.status = status; this.headers = headers; this.headersSent = true }, end(bytes) { this.bytes = bytes } }
+    await handler({ url, headers, method }, response)
+    return response
+  }
+  try {
+    assert.equal((await send('/la/v1/pdf-worker.mjs', { host: '127.0.0.1:19387', origin: 'https://other.example' })).status, 403)
+    assert.equal((await send('/la/v1/pdf-worker.mjs', { host: '127.0.0.1:19387', 'sec-fetch-site': 'cross-site' })).status, 403)
+    assert.equal((await send('/la/v1/pdf-worker.mjs/../../synthetic-boundary')).status, 404)
+    assert.equal((await send('/la/v1/pdf-worker.mjs', undefined, 'HEAD')).status, 404)
+    assert.equal(reads, 0)
+    for (const url of ['/la/v1/pdf-worker.mjs', '/la/v1/pdf-worker.mjs?path=../synthetic-boundary']) {
+      const response = await send(url)
+      assert.equal(response.status, 200)
+      assert.equal(response.headers['Content-Type'], 'text/javascript; charset=utf-8')
+      assert.equal(response.headers['Content-Length'], workerBytes.length)
+      assert.equal(response.headers['X-Content-Type-Options'], 'nosniff')
+      assert.deepEqual(response.bytes, workerBytes)
+    }
+    assert.equal(reads, 2, 'query input cannot select a different worker path')
+  } finally { read.mock.restore(); syncBuiltinESMExports() }
 })
 
 test('packaged role resources fail with stable path-free errors when missing or oversized', () => {

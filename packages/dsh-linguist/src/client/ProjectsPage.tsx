@@ -99,6 +99,10 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     try {
       const created = await required<Project>('linguistProjectsCreate', { name: name.trim(), sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim(), workflowStage, qaProfile, workspaceId })
       setName('')
+      setSourceLocale('en-US')
+      setTargetLocale('zh-CN')
+      setWorkflowStage('translation')
+      setQaProfile('general')
       setDialog(undefined)
       setRefresh((value) => value + 1)
       showMessage(t('已创建 {name}', { name: created.name }))

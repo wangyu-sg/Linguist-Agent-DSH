@@ -9,6 +9,7 @@ import type {
 import { required } from './api'
 import { useT } from './ui-locale'
 import styles from './Panels.module.css'
+import workbenchStyles from './Workbench.module.css'
 
 export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestinations, onOpenSession }: { sessionId: string; refresh: number; editable: boolean; onDestinations: (destinations: LinguistScheduleListResult['notificationDestinations']) => void; onEdit: (schedule: LinguistScheduleInfo) => void; onOpenSession: (sessionId: string) => Promise<void> }): React.ReactElement {
   const t = useT()
@@ -92,6 +93,12 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
     finally { setHistoryBusy(false) }
   }
 
+  const groups = [
+    { key: 'active', label: '启用中', items: list?.items.filter((schedule) => schedule.status === 'active') ?? [] },
+    { key: 'paused', label: '已暂停', items: list?.items.filter((schedule) => schedule.pausedByUser || schedule.pausedAfterFailures) ?? [] },
+    { key: 'ended', label: '调度已结束', items: list?.items.filter((schedule) => schedule.status === 'inactive' && !schedule.pausedByUser && !schedule.pausedAfterFailures) ?? [] },
+  ]
+
   return <section className={styles.scheduleManager} aria-label={t('Linguist 专用定时任务')}>
     <div className={styles.toolbar}><h3>{t('Linguist 专用定时任务')}</h3><Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t('刷新')}</Button></div>
     <p>{t('下方到期和历史仅是 DSH 原生投递记录，不代表专业任务完成或外部平台已确认。')}</p>
@@ -99,8 +106,10 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
     {!list && !error && <p role="status">{t('正在读取定时任务…')}</p>}
     {list?.items.length === 0 && <p>{t('此会话没有 Linguist 专用定时任务。')}</p>}
     <Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={cancelId !== undefined} onClose={() => { if (!busyId) setCancelId(undefined) }} title={t('确认取消任务')} closeLabel={t('保留任务')} footer={<><Button variant="ghost" size="sm" disabled={!!busyId} onClick={() => setCancelId(undefined)}>{t('保留任务')}</Button><Button variant="primary" size="sm" disabled={!!busyId} onClick={() => cancelId && void cancel(cancelId)}>{t('确认取消任务')}</Button></>}><p>{list?.items.find((item) => item.scheduleId === cancelId)?.title}</p><p>{t('取消将停止后续投递，并删除原生调度历史。')}</p>{error && <p role="alert">{error}</p>}</Modal>
-    {list?.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
-      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedByUser ? '已手动暂停' : schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '未激活')}</span><span>{t(schedule.authorizationStatus === 'recreate-required' ? (schedule.status === 'active' ? '请取消并重新创建此旧版任务。' : '此旧版任务已停止，请重新创建。') : schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
+    {groups.filter((group) => group.items.length > 0).map((group) => <section key={group.key} className={workbenchStyles.scheduleGroup} aria-label={t(group.label)}>
+      <h4 className={workbenchStyles.scheduleGroupHeading}>{t(group.label)}<span>{group.items.length}</span></h4>
+      {group.items.map((schedule) => <article key={schedule.scheduleId} className={styles.item}>
+      <div className={styles.toolbar}><strong>{schedule.title}</strong><span>{t(schedule.pausedByUser ? '已手动暂停' : schedule.pausedAfterFailures ? '连续失败已暂停' : schedule.limitReached ? '已达到执行次数上限' : schedule.status === 'active' ? '运行中' : '调度已结束')}</span><span>{t(schedule.authorizationStatus === 'recreate-required' ? (schedule.status === 'active' ? '请取消并重新创建此旧版任务。' : '此旧版任务已停止，请重新创建。') : schedule.authorizationStatus === 'ready' ? '授权快照有效' : schedule.authorizationStatus === 'changed' ? '授权范围已变化，需编辑重验' : '更新待确认')}</span></div>
       <details><summary>{t("任务描述")}</summary><p>{schedule.prompt}</p></details>
       <p>{t(schedule.sessionMode === 'daily' ? '每日新会话，同日复用' : '持续复用任务会话')}{schedule.executionSessionId && <> · <code>{schedule.executionSessionId}</code></>}</p>
       <p>{t('已结束的执行次数')}：{schedule.runCount}{schedule.maxRuns !== undefined && ` / ${schedule.maxRuns}`}</p>
@@ -112,7 +121,7 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
         <Button variant="outline" size="sm" disabled={!editable || schedule.status !== 'active' || schedule.authorizationStatus !== 'ready' || busyId === schedule.scheduleId} onClick={() => void runNow(schedule)}>{t('立即运行')}</Button>
         {schedule.status === 'active' && <Button variant="outline" size="sm" disabled={!editable || busyId === schedule.scheduleId || schedule.authorizationStatus === 'recreate-required'} onClick={() => void pause(schedule)}>{t('暂停任务')}</Button>}
         <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId)}>{t('执行与投递历史')}</Button>
-        {!schedule.limitReached && !schedule.pausedAfterFailures && <Button variant="outline" size="sm" onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>}
+        <Button variant="outline" size="sm" disabled={!!busyId} onClick={() => setCancelId(schedule.scheduleId)}>{t('取消任务')}</Button>
       </div>
       {accepted?.scheduleId === schedule.scheduleId && <p role="status">{t('已受理立即运行请求，消息 {id} 已交给 DSH Session；专业任务是否完成需查看实际结果。', { id: accepted.messageId })}</p>}
       {schedule.pausedByUser && <p role="status">{t('已暂停后续执行，当前已开始的回合不会自动中止。')}</p>}
@@ -129,6 +138,6 @@ export function ScheduleManager({ sessionId, refresh, editable, onEdit, onDestin
         {history.earlierRecordsUnavailable && <p>{t('更早的原生投递记录无法读取。')}</p>}
         {history.nextBefore && <Button variant="outline" size="sm" disabled={historyBusy} onClick={() => void loadHistory(schedule.scheduleId, history.nextBefore)}>{t('读取更早记录')}</Button>}
       </div>}
-    </article>)}
+    </article>)}</section>)}
   </section>
 }

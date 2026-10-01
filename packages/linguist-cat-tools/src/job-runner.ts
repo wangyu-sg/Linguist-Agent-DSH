@@ -5,6 +5,7 @@ import type {
   TranslationJobStrategy,
 } from '@linguist/cat-store'
 import { StoreJobStateError } from '@linguist/cat-store'
+import { setImmediate } from 'node:timers/promises'
 
 export interface WorkerJobProgress {
   jobId: string
@@ -160,6 +161,8 @@ export async function runCheckpointedWorkerJob<TWorkerResult, TResult>(
 
   try {
     const computation = await input.compute(job, input.signal)
+    // Let queued cancellation run before checkpointing and the atomic commit.
+    await setImmediate()
     if (input.signal?.aborted) throw abortError()
 
     if (job.status !== 'completed' && job.cursor < job.segmentIds.length) {

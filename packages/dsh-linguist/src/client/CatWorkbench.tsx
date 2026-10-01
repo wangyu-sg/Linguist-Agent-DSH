@@ -20,12 +20,14 @@ import type {
   LinguistStyleGuideRuleInfo,
   LinguistTurnContextV1,
   LinguistVoiceProfileInfo,
+  LinguistWorkflowStage,
 } from '@linguist/domain-service/contracts'
 import { invoke, required, subscribeProject } from './api'
 import { TargetEditor, createTargetDraftState, splitProtectedText, type TargetEditorDraft, type TargetEditorHandle } from './TargetEditor'
 import { findNextEditableRow, mergeIndexedPage, pageOffsetsForRange, virtualRowKey, gridRowKeyAction } from './cat-virtual-utils'
 import type { TargetSaveResult } from './cat-edit-utils'
-import { QaPanel, ProposalPanel, ReferencePanel, AssetsPanel, DeliveryPanel, ProjectSettingsPanel } from './Panels'
+import { QaPanel, ProposalPanel, ReferencePanel, AssetsPanel, DeliveryPanel, ProjectSettingsPanel, BatchExportButton, ProposalReviewConfirmation, loadProposalReviewPlan, groupStyleGuideRules, type ProposalReviewPlan } from './Panels'
+import { textDiffParts } from './proposal-view'
 import { RunPanel } from './RunPanel'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { UnknownTagNotice } from './UnknownTagNotice'
@@ -65,6 +67,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [project, setProject] = React.useState<LinguistProjectInfo>()
   const [summary, setSummary] = React.useState<LinguistProjectSummary>()
   const [loadError, setLoadError] = React.useState('')
+  const [queryError, setQueryError] = React.useState('')
   const [openRetry, setOpenRetry] = React.useState(0)
   const [notice, setNotice] = React.useState('')
   const [assetId, setAssetId] = React.useState<string | undefined>(storedLocation.value.assetId)
@@ -94,6 +97,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const navigationTrigger = React.useRef<HTMLButtonElement>(null)
   const displayTrigger = React.useRef<HTMLButtonElement>(null)
   const [dataset, setDataset] = React.useState<Dataset>()
+  const currentDataset = React.useRef(dataset)
+  currentDataset.current = dataset
   const [loading, setLoading] = React.useState(true)
   const [reload, setReload] = React.useState(0)
   const [mutation, setMutation] = React.useState(0)
@@ -110,6 +115,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const reviewingProposals = React.useRef(new Set<string>())
   const [reviewingIds, setReviewingIds] = React.useState<ReadonlySet<string>>(new Set())
   const [bulkBusy, setBulkBusy] = React.useState(false)
+  const [proposalReview, setProposalReview] = React.useState<ProposalReviewPlan>()
+  const [proposalReviewError, setProposalReviewError] = React.useState('')
+  const [workflowBusy, setWorkflowBusy] = React.useState(false)
   const [editor, setEditor] = React.useState<{segmentId:string;handle:TargetEditorHandle}>()
   const handleEditorChange = React.useCallback((segmentId: string, handle: TargetEditorHandle | undefined) => {
     setEditor((current) => handle ? { segmentId, handle } : current?.segmentId === segmentId ? undefined : current)
@@ -170,7 +178,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     return () => { live = false }
   }, [projectId, dataset?.ids, visibleRange.start, visibleRange.end, mutation, reload, rowSignalRefresh])
 
-  React.useEffect(() => { setSelectedIds(new Set()) }, [assetId])
+  React.useEffect(() => { setSelectedIds(new Set()); setProposalReview(undefined) }, [assetId])
   React.useLayoutEffect(() => { uiRevision.current += 1 }, [assetId, selectedId, selectedIds, agentReference, dock, search, stageFilter])
   React.useLayoutEffect(() => {
     if (!project) return
@@ -271,6 +279,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const datasetRevision = confirmedDatasetRevision.current
     const requested = pendingNavigation.current
     setLoading(true)
+    setQueryError('')
     required<LinguistCatQueryResult>('linguistCatQuery', {
       projectId, assetId, currentStageState: stageFilter || undefined,
       search: search || undefined, limit: PAGE_SIZE, offset: 0, includeIndex: true,
@@ -286,7 +295,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         else setNotice(t('句段 {id} 不在当前项目范围内', { id: requested.id }))
       } else if (selectedId !== undefined && !page.segmentIds.includes(selectedId)) setSelectedId(undefined)
     }).catch((error: unknown) => {
-      if (live) { setLoadError(String(error)); setLoading(false) }
+      if (live) { setQueryError(String(error)); setLoading(false) }
     })
     return () => { live = false }
   }, [project, projectId, assetId, stageFilter, search, reload])
@@ -404,6 +413,41 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     finally { setBulkBusy(false) }
   }
 
+  const prepareSelectedProposals = async (operation: 'accept' | 'reject') => {
+    if (!selectedIds.size || bulkBusy || reviewingIds.size || project?.archivedAt !== undefined) return
+    const requestRevision = uiRevision.current
+    setBulkBusy(true); setProposalReviewError('')
+    try {
+      const plan = await loadProposalReviewPlan(projectId, { kind: 'segments', ids: [...selectedIds] }, operation, t)
+      if (uiRevision.current === requestRevision) setProposalReview(plan)
+    } catch (cause) { if (uiRevision.current === requestRevision) setNotice(String(cause)) }
+    finally { setBulkBusy(false) }
+  }
+  const confirmSelectedProposals = async () => {
+    if (!proposalReview?.items.length || bulkBusy || project?.archivedAt !== undefined) return
+    const plan = proposalReview
+    setBulkBusy(true); setProposalReviewError('')
+    try {
+      await required(plan.operation === 'accept' ? 'linguistProposalsAcceptSelected' : 'linguistProposalsRejectSelected', { projectId, items: plan.items, idempotencyKey: plan.idempotencyKey })
+      const completed = new Set(plan.actionableSegmentIds)
+      setSelectedIds((current) => new Set([...current].filter((id) => !completed.has(id))))
+      setProposalReview(undefined); setMutation((value) => value + 1)
+      const message = t('已{action} {count} 条建议。', { action: t(plan.operation === 'accept' ? '接受' : '拒绝'), count: plan.items.length })
+      setNotice(message)
+      await refreshSummary().catch((cause: unknown) => setNotice(`${message} ${String(cause)}`))
+    } catch (cause) { setProposalReviewError(String(cause)); setRowSignalRefresh((value) => value + 1) }
+    finally { setBulkBusy(false) }
+  }
+  const changeWorkflowStage = async (next: LinguistWorkflowStage) => {
+    if (workflowBusy || bulkBusy || next === workflowStage || project?.archivedAt !== undefined) return
+    setWorkflowBusy(true)
+    try {
+      await required('linguistProjectsSetWorkflowConfig', { projectId, workflowStage: next })
+      setStageFilter(''); await refreshSummary(); setMutation((value) => value + 1)
+    } catch (cause) { setNotice(String(cause)) }
+    finally { setWorkflowBusy(false) }
+  }
+
   const navigateToSegment = (id: string) => {
     navigationRevision.current += 1
     pendingNavigation.current = undefined
@@ -422,17 +466,16 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const requestRevision = navigationRevision.current
     try {
       const [all, untouched] = await Promise.all([
-        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, limit: 1, includeIndex: true }),
-        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, currentStageState: 'untouched', limit: 1, includeIndex: true }),
+        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, search: search || undefined, limit: 1, includeIndex: true }),
+        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, search: search || undefined, currentStageState: 'untouched', limit: 1, includeIndex: true }),
       ])
       if (navigationRevision.current !== requestRevision) return
       const available = new Set(untouched.segmentIds)
       const current = all.segmentIds.indexOf(selectedId ?? '')
       const next = [...all.segmentIds.slice(current + 1), ...all.segmentIds.slice(0, current + 1)].find((id) => available.has(id))
       if (!next) { setNotice(t('当前范围没有待处理句段。')); return }
-      pendingNavigation.current = { id: next, signature: `${projectId}\0${assetId ?? ''}\0\0` }
+      pendingNavigation.current = { id: next, signature: `${projectId}\0${assetId ?? ''}\0\0${search}` }
       setStageFilter('')
-      setSearch('')
       setReload((value) => value + 1)
     } catch (cause) { setNotice(String(cause)) }
     finally { setJumpBusy(false) }
@@ -474,7 +517,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     navigateToSegment(proposal.segmentId)
   }
   const reviewProposalForRow = async (segment: LinguistSegmentInfo, proposal: LinguistProposalInfo, action: 'accept' | 'reject') => {
-    if (reviewingProposals.current.has(proposal.id)) return
+    if (bulkBusy || reviewingProposals.current.has(proposal.id)) return
     reviewingProposals.current.add(proposal.id)
     setReviewingIds(new Set(reviewingProposals.current))
     try {
@@ -529,7 +572,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       <div className={styles.title}>
         <div className={styles.projectIdentity}><span className={styles.workbenchLabel}>{t('CAT 工作台')}</span><strong title={project.name}>{project.name}</strong></div>
         <span className={styles.languagePair}>{project.sourceLocale}<span aria-hidden="true">→</span>{project.targetLocale}</span>
-        <span className={styles.stageBadge} title={t('当前阶段')}>{t(stageName(workflowStage))}</span>
+        <select className={styles.stageBadge} aria-label={t('当前工作阶段')} disabled={project.archivedAt !== undefined || workflowBusy || bulkBusy} value={workflowStage} onChange={(event) => void changeWorkflowStage(event.target.value as LinguistWorkflowStage)}>{(['translation', 'editing', 'proofreading'] as const).map((stage) => <option key={stage} value={stage}>{t(stageName(stage))}</option>)}</select>
       </div>
       <div className={styles.controls}>
         <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
@@ -557,9 +600,11 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       </div>
       {(selectedIds.size > 0 || agentReference) && <div className={styles.selectionActions}>
         {selectedIds.size > 0 && <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>}
+        {selectedIds.size > 0 && <><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('accept')}>{t('接受所选建议')}</Button><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('reject')}>{t('拒绝所选建议')}</Button></>}
         <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>
       </div>}
     </header>
+    <ProposalReviewConfirmation plan={proposalReview} archived={project.archivedAt !== undefined} busy={bulkBusy} error={proposalReviewError} onConfirm={() => void confirmSelectedProposals()} onClose={() => setProposalReview(undefined)} />
     {agentReference && <div className={styles.agentReference} role="status" title={agentReference.segmentId}>{t('已为 Agent 引用句段')} {`#${agentReference.ordinal + 1}`}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
     <div ref={bodyRef} className={styles.body}>
@@ -570,29 +615,32 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <Input aria-label={t('搜索批次')} placeholder={t('搜索批次')} value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
         {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry} data-active={assetId === asset.assetId}><Button variant="ghost" size="sm" className={styles.asset} title={asset.filename} onClick={() => setAssetId(asset.assetId)}>
           <span>{asset.filename}</span>
-        </Button><div className={styles.assetDetails}><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small><Button variant="outline" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button></div></div>)}
+        </Button><div className={styles.assetDetails}><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small><Button variant="outline" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={project.archivedAt !== undefined} /></div></div>)}
         {summary?.assets.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
         {summary && summary.assets.length > 0 && !summary.assets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
         </div>
         <Splitter orientation="vertical" label={t('调整批次导航宽度')} controls={`linguist-batches-${sessionId}`} value={Math.min(assetNavigatorWidth, assetMaximum)} minimum={180} maximum={assetMaximum} defaultValue={240} onChange={setAssetNavigatorWidth} />
       </nav>}
       <div className={styles.gridColumn}>
-        {loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
+        {queryError ? <div role="alert" className={styles.center}>{queryError}<Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t('重试')}</Button></div> : loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
           : dataset?.total === 0 ? <div className={styles.center}>{summary?.assetCount === 0 ? <div>
             <p>{t('尚无批次。请在“资料”中导入文件。')}</p>
             {!project.archivedAt && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
           </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
-            : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
+            : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} proposalReviewBusy={bulkBusy} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
-              for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset, dataset).catch((error: unknown) => setNotice(String(error)))
+              for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset, dataset).catch((error: unknown) => {
+                if (currentSignature.current === dataset.signature && currentDataset.current?.ids === dataset.ids) setQueryError(String(error))
+              })
             }} onOpenQa={openQaForRow} onOpenProposal={openProposalForRow} onReviewProposal={reviewProposalForRow} onSelect={(id) => {
               navigationRevision.current += 1
               pendingNavigation.current = undefined
               setSelectedId(id)
               setFocusIndex((current) => current !== undefined && dataset.ids[current] === id ? current : undefined)
-            }} onToggleSelected={(id) => setSelectedIds((current) => {
-              const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next
-            })} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId, ordinal: segment.ordinal })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
+            }} onToggleSelected={(id) => {
+              setProposalReview(undefined)
+              setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
+            }} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId, ordinal: segment.ordinal })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
       {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={320} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
@@ -623,7 +671,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
 interface RowsProps {
   data: Dataset; workflowStage: NonNullable<LinguistProjectInfo['workflowStage']>; archived: boolean; tagProfile: LinguistProjectInfo['tagProfile'];
-  selectedId?: string; selectedIds: ReadonlySet<string>; signals: ReadonlyMap<string, RowSignal>; reviewingIds: ReadonlySet<string>; focusIndex?: number;
+  selectedId?: string; selectedIds: ReadonlySet<string>; signals: ReadonlyMap<string, RowSignal>; reviewingIds: ReadonlySet<string>; proposalReviewBusy: boolean; focusIndex?: number;
   drafts: Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>;
   editingIdAtom: PrimitiveAtom<string | undefined>;
   onVisibleRange: (start: number, end: number) => void; onSelect: (id: string) => void;
@@ -722,8 +770,8 @@ function SegmentRows(props: RowsProps): React.ReactElement {
                 { id: 'reference', label: t('为 Agent 引用') },
                 ...(signal?.proposal ? [
                   { id: 'open-proposal', label: t('待审建议') },
-                  { id: 'accept', label: t('接受'), disabled: props.archived || props.reviewingIds.has(signal.proposal.id) || segment.locked || signal.proposal.baseRevision !== segment.revision },
-                  { id: 'reject', label: t('拒绝建议'), disabled: props.archived || props.reviewingIds.has(signal.proposal.id) },
+                  { id: 'accept', label: t('接受'), disabled: props.archived || props.proposalReviewBusy || props.reviewingIds.has(signal.proposal.id) || segment.locked || signal.proposal.baseRevision !== segment.revision },
+                  { id: 'reject', label: t('拒绝建议'), disabled: props.archived || props.proposalReviewBusy || props.reviewingIds.has(signal.proposal.id) },
                 ] : []),
                 ...(segment.currentStageState === 'confirmed' ? [{ id: 'unconfirm', label: t('撤销确认'), disabled: props.archived }] : []),
               ]} onSelect={(action) => {
@@ -734,11 +782,32 @@ function SegmentRows(props: RowsProps): React.ReactElement {
                 else if (action === 'unconfirm') void props.onUnconfirm(segment)
               }} />
             </div>
+            {id === props.selectedId && signal?.proposal && <ProposalInlineReview segment={segment} proposal={signal.proposal} archived={props.archived} busy={props.proposalReviewBusy || props.reviewingIds.has(signal.proposal.id)} onReview={(action) => void props.onReviewProposal(segment, signal.proposal!, action)} />}
           </>}
         </div>
       })}
     </div>
   </div>
+}
+
+function ProposalInlineReview({ segment, proposal, archived, busy, onReview }: { segment: LinguistSegmentInfo; proposal: LinguistProposalInfo; archived: boolean; busy: boolean; onReview: (operation: 'accept' | 'reject') => void }): React.ReactElement {
+  const t = useT()
+  const blocked = archived ? t('项目已归档') : segment.locked ? t('片段已锁定') : proposal.baseRevision !== segment.revision ? t('建议基于旧版本') : ''
+  const parts = textDiffParts(segment.target, proposal.proposedTarget)
+  return <section className={styles.inlineProposal} aria-label={t('当前行翻译建议')}>
+    <div><strong>{t('待审建议')}</strong>{blocked && <span role="alert">{blocked} · r{proposal.baseRevision} → r{segment.revision}</span>}</div>
+    <div className={styles.inlineCompare}><div><small>{t('当前 Target')}</small><p>{parts.filter((part) => part.kind !== 'insert').map((part, index) => part.kind === 'remove' ? <del key={index} className={styles.removed}>{part.text}</del> : <React.Fragment key={index}>{part.text}</React.Fragment>)}</p></div><div><small>{t('建议 Target')}</small><p>{parts.filter((part) => part.kind !== 'remove').map((part, index) => part.kind === 'insert' ? <ins key={index} className={styles.added}>{part.text}</ins> : <React.Fragment key={index}>{part.text}</React.Fragment>)}</p></div></div>
+    <p><small>{t('证据')}：{[...proposal.evidenceRefs, ...proposal.termRefs].join(' · ') || t('无')}{proposal.warnings.length > 0 && ` · ${proposal.warnings.join(' · ')}`}</small></p>
+    <div><Button variant="primary" size="sm" disabled={!!blocked || busy} onClick={() => onReview('accept')}>{t('接受')}</Button><Button variant="outline" size="sm" disabled={archived || busy} onClick={() => onReview('reject')}>{t('拒绝建议')}</Button></div>
+  </section>
+}
+
+function evidenceCategory(reference: string): 'tm' | 'term' | 'style' | 'voice' | 'context' | 'other' {
+  const prefix = reference.split(':', 1)[0]?.trim().toLowerCase()
+  if (prefix === 'tm' || prefix === 'term' || prefix === 'voice') return prefix
+  if (prefix === 'style' || prefix === 'style-guide' || prefix === 'styleguide') return 'style'
+  if (prefix === 'context' || prefix === 'context-doc' || prefix === 'doc') return 'context'
+  return 'other'
 }
 
 function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, onOpenTerms }: { projectId: string; segmentId?: string; editorHandle?: TargetEditorHandle; archived: boolean; mutation: number; onOpenTerms: () => void }): React.ReactElement {
@@ -757,6 +826,8 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
   const [note, setNote] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [refresh, setRefresh] = React.useState(0)
+  const exemplarSegment = React.useRef<string>()
+  const evidenceSections = React.useRef(new Map<string, HTMLElement>())
   React.useEffect(() => {
     if (segmentId === undefined) { setData(undefined); return }
     let live = true
@@ -767,7 +838,15 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
       required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'contextDocs', limit: 200, offset: 0 }),
       required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'styleGuideRules', limit: 200, offset: 0 }),
       required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'voiceProfiles', limit: 200, offset: 0 }),
-    ]).then(([next, linked, contextDocs, style, voice]) => { if (live) { setData(next); setDocs(linked.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setAllDocs(contextDocs.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setStyleRules(style.items.filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)); setVoiceProfiles(voice.items.filter((item): item is LinguistVoiceProfileInfo => 'speaker' in item)); setError('') } }).catch((cause: unknown) => { if (live) setError(String(cause)) })
+    ]).then(([next, linked, contextDocs, style, voice]) => { if (live) {
+      const key = `${projectId}\0${next.segment.id}`
+      if (exemplarSegment.current !== key) {
+        const meta = next.segment.context?.meta
+        exemplarSegment.current = key
+        setSpeaker(meta?.speaker ?? ''); setTextType(meta?.textType ?? meta?.text_type ?? meta?.stringType ?? meta?.string_type ?? ''); setNote('')
+      }
+      setData(next); setDocs(linked.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setAllDocs(contextDocs.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setStyleRules(style.items.filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)); setVoiceProfiles(voice.items.filter((item): item is LinguistVoiceProfileInfo => 'speaker' in item)); setError('')
+    } }).catch((cause: unknown) => { if (live) setError(String(cause)) })
     return () => { live = false }
   }, [projectId, segmentId, mutation, refresh])
   const candidates = allDocs.filter((item) => !docs.some((doc) => doc.id === item.id))
@@ -782,13 +861,21 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
     if (applied) { editorHandle.focus(); setActionError('') }
     else setActionError(t('参考译文未写入草稿；请核对 Tag、锁和输入法状态。'))
   }
+  const openEvidence = (category: Exclude<ReturnType<typeof evidenceCategory>, 'other'>) => {
+    if (category === 'term') { onOpenTerms(); return }
+    const section = evidenceSections.current.get(category)!
+    if (section.tagName === 'DETAILS') (section as HTMLDetailsElement).open = true
+    section.focus({ preventScroll: true }); section.scrollIntoView({ block: 'start' })
+  }
   const addExemplar = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!segmentId || saving || archived) return
+    const key = `${projectId}\0${segmentId}`
     setSaving(true)
     try {
       await required('linguistCatAddApprovedExemplar', { projectId, segmentId, speaker: speaker.trim(), textType: textType.trim(), ...(note.trim() ? { note: note.trim() } : {}) })
-      setSpeaker(''); setTextType(''); setNote(''); setRefresh((value) => value + 1)
+      if (exemplarSegment.current === key) { setSpeaker(''); setTextType(''); setNote('') }
+      setRefresh((value) => value + 1)
     } catch (cause) { setActionError(String(cause)) }
     finally { setSaving(false) }
   }
@@ -799,20 +886,20 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
     {actionError && <p role="alert">{actionError}<Button variant="ghost" size="sm" onClick={() => setActionError('')}>{t('关闭提示')}</Button></p>}
     {!editorHandle && !archived && !data.segment.locked && <p className={styles.contextNotice}>{t('先打开当前句段的译文编辑器，再插入参考内容。')}</p>}
     {(archived || data.segment.locked) && <p className={styles.contextNotice}>{t(archived ? '项目已归档，仅可查看参考内容。' : '当前句段已锁定，仅可查看参考内容。')}</p>}
-    <section><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
+    <section tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('tm', node) }}><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.provenanceCount > 1 && <small>{t('{count} 个来源', { count: item.provenanceCount })}</small>}{item.variantCount > 1 && <small>{t('{count} 个译文变体', { count: item.variantCount })}</small>}{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
     <section><h3>{t("术语")}</h3>{data.termMatches.length === 0 ? <p>{t("没有匹配")}</p> : data.termMatches.map((item) => <article key={item.id}>
       <strong>{item.term} → {item.translation}</strong>
       <small>{t(TERM_STATUS_LABELS[item.status])} · {t(item.matchType === 'exact' ? '精确匹配' : '包含匹配')} · {t(item.caseSensitive ? '区分大小写' : '不区分大小写')}{item.conflict ? ` · ${t('译文冲突')}` : ''}</small>
       {(item.module || item.category) && <small>{[item.module, item.category].filter(Boolean).join(' · ')}</small>}{item.note && <p>{item.note}</p>}
       <Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.translation, 'insert')}>{t('插入草稿')}</Button>
     </article>)}</section>
-    <details className={styles.contextSection}><summary>Style Guide · {styleRules.length}</summary>{styleRules.length === 0 && <p>{t("尚无风格规则")}</p>}{styleRules.map((item) => <article key={item.id}><strong>{item.groupKey ?? t('未指定分组')}</strong><p>{item.ruleText}</p>{item.goodExample && <small>{t('正例')}：{item.goodExample}</small>}{item.badExample && <small>{t('反例')}：{item.badExample}</small>}</article>)}</details>
-    <details className={styles.contextSection}><summary>Voice · {voiceProfiles.length + data.approvedExemplars.length}</summary>{voiceProfiles.length + data.approvedExemplars.length === 0 && <p>{t("尚无角色声线或批准样例")}</p>}{voiceProfiles.map((item) => <article key={item.id}><strong>{item.speaker}</strong><p>{[item.register, item.textType, ...(item.toneMarkers ?? [])].filter(Boolean).join(' · ')}</p>{item.notes && <small>{item.notes}</small>}</article>)}{data.approvedExemplars.map((item) => <article key={item.id}><strong>{item.speaker} · {item.textType} · {t('批准样例')}</strong><p>{item.source} → {item.target}</p>{item.note && <small>{item.note}</small>}</article>)}</details>
-    <details className={styles.contextSection}><summary>{t("上下文与历史")}</summary>{data.segment.context?.origin && <p>{t('来源')}：{data.segment.context.origin}</p>}{data.segment.context?.note && <p>{data.segment.context.note}</p>}{Object.entries(data.segment.context?.meta ?? {}).map(([key, value]) => <p key={key}>{key}：{value}</p>)}{allDocs.map((doc) => <p key={doc.id}>{doc.originalFilename} · {doc.note ?? (doc.hasTextExtract ? t('可阅读') : t('无文本抽取'))}</p>)}{data.stageEvents?.map((event, index) => <p key={index}>{event.stage} · {event.action} · {event.actor ?? t("未知操作人")} · {event.createdAt}</p>)}</details>
-    <section><h3>{t('建议的证据来源')}</h3>{data.pendingProposal ? data.pendingProposal.evidenceRefs.length + data.pendingProposal.termRefs.length === 0 ? <p>{t('当前建议没有证据引用')}</p> : [...data.pendingProposal.evidenceRefs, ...data.pendingProposal.termRefs].map((reference, index) => <p key={`${reference}:${index}`}><code>{reference}</code> <Button variant="outline" size="sm" onClick={onOpenTerms}>{t('查看参考库')}</Button></p>) : <p>{t('当前句段没有待审建议')}</p>}</section>
+    <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('style', node) }}><summary>Style Guide · {styleRules.length}</summary>{styleRules.length === 0 && <p>{t("尚无风格规则")}</p>}{groupStyleGuideRules(styleRules).map((group) => <section key={group.groupKey}><h3>{group.groupKey || t('未分组')}</h3>{group.rules.map((item) => <article key={item.id}><p>{item.ruleText}</p>{item.goodExample && <small>{t('正例')}：{item.goodExample}</small>}{item.badExample && <small>{t('反例')}：{item.badExample}</small>}</article>)}</section>)}</details>
+    <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('voice', node) }}><summary>Voice · {voiceProfiles.length + data.approvedExemplars.length}</summary>{voiceProfiles.length + data.approvedExemplars.length === 0 && <p>{t("尚无角色声线或批准样例")}</p>}{voiceProfiles.map((item) => <article key={item.id}><strong>{item.speaker}</strong><p>{[item.register, item.textType, ...(item.toneMarkers ?? [])].filter(Boolean).join(' · ')}</p>{item.notes && <small>{item.notes}</small>}</article>)}{data.approvedExemplars.map((item) => <article key={item.id}><strong>{item.speaker} · {item.textType} · {t('批准样例')}</strong><p>{item.source} → {item.target}</p>{item.note && <small>{item.note}</small>}</article>)}</details>
+    <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('context', node) }}><summary>{t("上下文与历史")}</summary>{data.segment.context?.origin && <p>{t('来源')}：{data.segment.context.origin}</p>}{data.segment.context?.note && <p>{data.segment.context.note}</p>}{Object.entries(data.segment.context?.meta ?? {}).map(([key, value]) => <p key={key}>{key}：{value}</p>)}{allDocs.map((doc) => <p key={doc.id}>{doc.originalFilename} · {doc.note ?? (doc.hasTextExtract ? t('可阅读') : t('无文本抽取'))}</p>)}{data.stageEvents?.map((event, index) => <p key={index}>{event.stage} · {event.action} · {event.actor ?? t("未知操作人")} · {event.createdAt}</p>)}</details>
+    <section><h3>{t('建议的证据来源')}</h3>{data.pendingProposal ? data.pendingProposal.evidenceRefs.length + data.pendingProposal.termRefs.length === 0 ? <p>{t('当前建议没有证据引用')}</p> : [...data.pendingProposal.evidenceRefs, ...data.pendingProposal.termRefs].map((reference, index) => { const category = evidenceCategory(reference); return <p key={`${reference}:${index}`}><code>{reference}</code> {category === 'other' ? <small>{t('来源类型未识别')}</small> : <Button variant="outline" size="sm" onClick={() => openEvidence(category)}>{t('查看 {source} 来源', { source: ({ tm: 'TM', term: t('术语'), style: 'Style', voice: 'Voice', context: 'Context' })[category] })}</Button>}</p> }) : <p>{t('当前句段没有待审建议')}</p>}</section>
     <section><div className={styles.contextHeading}><h3>{t("关联文档与图像")}</h3><Button variant="outline" size="sm" disabled={archived} onClick={() => setPickerOpen((value) => !value)}>{pickerOpen ? t('收起候选') : t('关联资料')}</Button></div>{docs.length === 0 && <p>{t("当前句段没有显式关联的资料。")}</p>}{docs.map((doc) => <article key={doc.id}><strong>{doc.originalFilename}</strong>{doc.note && <p>{doc.note}</p>}{doc.kind === 'image' && doc.previewUrl?.startsWith('/la/v1/files/') && <img className={styles.contextImage} alt={doc.originalFilename} src={doc.previewUrl} />}<div><Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistAssetsPreviewContextDoc', input: { projectId, docId: doc.id } })}>{t("预览原件")}</Button><Button variant="outline" size="sm" disabled={archived} onClick={() => void setLink(doc.id, false)}>{t("取消关联")}</Button></div></article>)}
       {pickerOpen && <div className={styles.contextCandidates}>{candidates.length === 0 ? <p>{t('没有可关联的 Context Doc。')}</p> : candidates.map((doc) => <p key={doc.id}>{doc.originalFilename} <Button variant="outline" size="sm" onClick={() => void setLink(doc.id, true)}>{t('关联')}</Button></p>)}</div>}
       {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}</section>
-    {data.segment.currentStageState === 'confirmed' && <section><h3>{t("设为角色译例")}</h3><p>{t("使用当前已确认的 Source / Target。")}</p><form className={styles.exemplarForm} onSubmit={(event) => void addExemplar(event)}><Input required disabled={archived} aria-label={t("角色译例说话人")} placeholder={t("说话人")} value={speaker} onChange={(event) => setSpeaker(event.target.value)} /><Input required disabled={archived} aria-label={t("角色译例文本类型")} placeholder={t("文本类型")} value={textType} onChange={(event) => setTextType(event.target.value)} /><Input disabled={archived} aria-label={t("角色译例备注")} placeholder={t("备注")} value={note} onChange={(event) => setNote(event.target.value)} /><Button variant="outline" type="submit" size="sm" disabled={archived || saving || !speaker.trim() || !textType.trim()}>{t("保存译例")}</Button></form></section>}
+    {data.segment.currentStageState === 'confirmed' && <section><h3>{t("设为角色译例")}</h3><p>{t("使用当前已确认的 Source / Target。")}</p><form className={styles.exemplarForm} onSubmit={(event) => void addExemplar(event)}><Input required disabled={archived || saving} aria-label={t("角色译例说话人")} placeholder={t("说话人")} value={speaker} onChange={(event) => setSpeaker(event.target.value)} /><Input required disabled={archived || saving} aria-label={t("角色译例文本类型")} placeholder={t("文本类型")} value={textType} onChange={(event) => setTextType(event.target.value)} /><Input disabled={archived || saving} aria-label={t("角色译例备注")} placeholder={t("备注")} value={note} onChange={(event) => setNote(event.target.value)} /><Button variant="outline" type="submit" size="sm" disabled={archived || saving || !speaker.trim() || !textType.trim()}>{t("保存译例")}</Button></form></section>}
   </div>
 }

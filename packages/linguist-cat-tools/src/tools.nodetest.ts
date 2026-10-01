@@ -3191,6 +3191,56 @@ test('worker adapter cancellation is durable and never calls compute', async () 
   }
 })
 
+for (const { name, runJob, prefix } of [
+  { name: 'QA', runJob: runQaWorkerJob, prefix: 'qa' },
+  { name: 'consistency', runJob: runConsistencyPlanWorkerJob, prefix: 'consistency-plan' },
+]) {
+  test(`${name} worker drains queued cancellation before checkpoint or commit`, async () => {
+    const fixture = setup()
+    const controller = new AbortController()
+    const segmentIds = fixture.segmentsA.slice(0, 2).map((segment) => segment.id as string)
+    const before = segmentIds.map((id) => fixture.db.segments.getById(id))
+    const runId = `queued-${prefix}-cancel`
+    const sessionId = `session-queued-${prefix}-cancel`
+    let queuedCancellation: Promise<void> | undefined
+    let committed = false
+    try {
+      await assert.rejects(runJob({
+        db: fixture.db,
+        runId,
+        sessionId,
+        segmentIds,
+        signal: controller.signal,
+        compute: async () => {
+          queuedCancellation = new Promise<void>((resolve) => {
+            setImmediate(() => {
+              controller.abort()
+              resolve()
+            })
+          })
+          return { result: 'computed' }
+        },
+        commit: () => {
+          committed = true
+          fixture.db.segments.applyTargetEdit(segmentIds[0]!, 'must not commit', 0)
+          return 'committed'
+        },
+      }), { name: 'AbortError' })
+      await queuedCancellation
+      const job = fixture.db.runs.getJob(`job:${prefix}:${sessionId}:${runId}`, { sessionId })
+      assert.equal(committed, false)
+      assert.equal(job?.status, 'cancelled')
+      assert.equal(job?.cursor, 0)
+      assert.deepEqual(job?.completedSegmentIds, [])
+      assert.deepEqual(job?.failedSegmentIds, [])
+      assert.deepEqual(segmentIds.map((id) => fixture.db.segments.getById(id)), before)
+    } finally {
+      await queuedCancellation
+      fixture.db.close()
+    }
+  })
+}
+
 
 test('超大单句上下文以完整 JSON 分片续读，长文本无丢失且快照变化拒绝续页', async () => {
   const fixture = setup()

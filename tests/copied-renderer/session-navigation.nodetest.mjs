@@ -316,3 +316,59 @@ test('the native Linguist menu exposes project tasks and displays failures', asy
   menu = render().find(node => node.type === 'menu')
   assert(!menu.props.items.some(item => item.id === 'new-general' || item.id === 'continue'), 'non-project Sessions must not create a CAT project')
 })
+
+test('bound Session name follows same-project mutations and reconnect snapshots without stale responses', async () => {
+  const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
+  const React = require('react')
+  const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
+  const code = ts.transpileModule(source + '\nexport { SessionBadge }', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const state = [], effects = [], pending = [], subscriptions = [], reads = [], exports = {}
+  let cursor = 0, effectCursor = 0, tree
+  const bindings = { first: { sessionId: 'first', workspaceId: 'workspace-A', projectId: 'project-A', role: 'reviewer', workMode: 'cat' }, second: { sessionId: 'second', workspaceId: 'workspace-A', projectId: 'project-B', role: 'general', workMode: 'cat' } }
+  runInNewContext(code, { exports, require: name => {
+    if (name === 'react') return { ...React,
+      useState(initial) { const index = cursor++; if (!(index in state)) state[index] = initial; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }] },
+      useEffect(run, deps) { const index = effectCursor++; if (!effects[index] || deps.some((value, i) => value !== effects[index].deps[i])) pending.push(() => { effects[index]?.cleanup?.(); effects[index] = { deps, cleanup: run() } }) },
+    }
+    if (name === './api') return {
+      getBinding: async id => bindings[id],
+      required: (operation, input) => { assert.equal(operation, 'linguistProjectsGetSummary'); return new Promise((resolve, reject) => reads.push({ ...input, resolve, reject })) },
+      subscribeProject(projectId, afterSequence, mutation, snapshot) { assert.equal(afterSequence, 0); const subscription = { projectId, mutation, snapshot, closed: false }; subscriptions.push(subscription); return () => { subscription.closed = true } },
+    }
+    if (name === './ui-locale') return { useT: () => value => value }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Tooltip: 'tooltip', Modal: 'modal', Menu: 'menu' }
+    if (name.endsWith('.module.css')) return { default: {} }
+    return {}
+  } })
+  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes)]
+  const render = sessionId => { cursor = effectCursor = 0; tree = exports.SessionBadge({ sessionId }); pending.splice(0).forEach(run => run()); return nodes(tree) }
+  const identity = () => nodes(tree).find(node => node.type === 'tooltip').props.label
+  const tick = () => new Promise(resolve => setImmediate(resolve))
+  render('first'); await tick(); render('first')
+  assert.equal(subscriptions.length, 1)
+  assert.equal(subscriptions[0].projectId, 'project-A')
+  reads[0].resolve({ project: { name: 'Before rename' } }); await tick(); render('first')
+  assert.match(identity(), /Before rename/)
+  subscriptions[0].mutation({ kind: 'segment-updated', projectId: 'project-A' })
+  assert.equal(reads.length, 1, 'segment updates do not reread an unchanged project name')
+  subscriptions[0].mutation({ kind: 'project-updated', projectId: 'project-A' })
+  subscriptions[0].snapshot()
+  reads[2].resolve({ project: { name: 'Current rename' } }); await tick(); render('first')
+  reads[1].resolve({ project: { name: 'Outdated rename' } }); await tick(); render('first')
+  assert.match(identity(), /Current rename/)
+  assert(!identity().includes('Outdated rename'))
+  const modal = nodes(tree).find(node => node.type === 'modal')
+  const footerButtons = nodes(modal.props.footer).filter(node => node.type === 'button')
+  assert.deepEqual(footerButtons.map(node => node.props.size), ['sm', 'sm'])
+  assert.equal(footerButtons[0].props.variant, 'ghost')
+  subscriptions[0].mutation({ kind: 'project-updated', projectId: 'project-A' })
+  render('second'); await tick(); render('second')
+  assert.equal(subscriptions[0].closed, true)
+  assert.equal(subscriptions[1].projectId, 'project-B')
+  reads[3].resolve({ project: { name: 'Late old project' } })
+  reads[4].resolve({ project: { name: 'New bound project' } }); await tick(); render('second')
+  assert.match(identity(), /New bound project/)
+  assert(!identity().includes('Late old project'))
+  effects.forEach(effect => effect.cleanup?.())
+  assert.equal(subscriptions[1].closed, true)
+})

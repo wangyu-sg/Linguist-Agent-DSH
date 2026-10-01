@@ -183,7 +183,16 @@ export function apply(ctx: Context, config: Config): void {
           refreshStage(db)
           return { db, delegatedScope }
         }
-        const scope = () => projectDiscoveryScope(service, projectId, workspace.id, workspace.path)
+        const attachedFiles = () => agent.session.deriveMessages().flatMap(message => {
+          if (message.role !== 'user' || message.source.kind !== 'user') return []
+          return message.content.flatMap(block => {
+            if (block.type !== 'file') return []
+            const path = ctx.attachments.fileHostPath(block.attachment)
+            if (path === undefined) throw new Error('DSH Session attachment has no readable host file')
+            return [path]
+          })
+        })
+        const scope = () => projectDiscoveryScope(service, projectId, workspace.id, workspace.path, attachedFiles())
         const prepareStage = (segmentIds: readonly string[], task?: { scope?: 'segments' | 'assets' | 'project'; restart?: boolean; toolCallId: string }) => {
           const { db, delegatedScope } = resolveStage()
           if (binding.role === 'general' || db.readOnly) return
@@ -207,7 +216,7 @@ export function apply(ctx: Context, config: Config): void {
           service, projectId, sessionId, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
-          authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path),
+          authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles()),
           authorizeWritePath: (path, overwrite) => authorizeWorkspaceWrite(path, workspace.path, overwrite),
           discoveryScope: async () => scope(),
           onMutation: mutation => { mutations.publish(projectId, mutation) },

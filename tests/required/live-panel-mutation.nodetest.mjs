@@ -36,7 +36,10 @@ function mount(symbol, props, required, fetch) {
     if (name.endsWith('.module.css')) return { default: {} }
     return {}
   } })
-  const children = node => [...React.Children.toArray(node.props?.children), ...React.Children.toArray(node.props?.footer)]
+  const children = node => {
+    if (['ProposalReviewConfirmation', 'DeliveryPreparation'].includes(node.type?.name)) return [node.type(node.props)]
+    return [...React.Children.toArray(node.props?.children), ...React.Children.toArray(node.props?.footer)]
+  }
   const nodes = node => typeof node !== 'object' || node === null || (node.type === 'modal' && !node.props.open) ? [] : [node, ...children(node).flatMap(nodes)]
   const text = node => typeof node !== 'object' || node === null ? (typeof node === 'boolean' || node == null ? '' : String(node)) : node.type === 'modal' && !node.props.open ? '' : children(node).map(text).join('')
   return {
@@ -109,6 +112,32 @@ test('Proposal list and focused diff refresh while edited text and captured batc
   assert.equal(requests.find(request => request.operation === 'linguistProposalsApplyTranslations').input.edits[0].baseRevision, 2)
   panel.click('确认批量处理'); await tick()
   assert.equal(requests.find(request => request.operation === 'linguistProposalsAcceptSelected').input.items[0].expectedRevision, 2)
+  panel.dispose()
+})
+
+test('Proposal bulk failure retains selected history and the captured CAS error through a fresh list', async () => {
+  let fail = true
+  const requests = []
+  const diff = { proposal: { id: 'proposal-synthetic', segmentId: 'segment-synthetic', status: 'pending', createdAt: '2026-10-01T00:00:00Z', evidenceRefs: [], termRefs: [], warnings: [] }, originalOrdinal: 1, source: 'Synthetic source', currentTarget: 'Synthetic Target', proposedTarget: 'Synthetic proposal', currentRevision: 2, baseRevision: 2 }
+  const panel = mount('ProposalPanel', { ...common, segmentIds: [] }, async (operation, input) => {
+    requests.push({ operation, input })
+    if (operation === 'linguistProposalsList') return { items: [diff], total: 1 }
+    if (operation === 'linguistProposalsGetDiff') return diff
+    if (operation === 'linguistProposalsAcceptSelected' && fail) throw new Error('Synthetic CAS conflict')
+    return {}
+  })
+  panel.render(); await tick(); panel.render()
+  panel.nodes().find(node => node.type === 'checkbox').props.onChange(true)
+  panel.render(); panel.click('接受所选'); await tick(); panel.render()
+  panel.click('确认批量处理'); await tick(); panel.render(); await tick()
+  assert.match(panel.render(), /Synthetic CAS conflict/)
+  assert.equal(panel.nodes().find(node => node.type === 'checkbox').props.checked, true)
+  assert.equal(panel.nodes().find(node => node.type === 'modal').props.open, true)
+  fail = false
+  panel.click('确认批量处理'); await tick(); panel.render(); await tick(); panel.render()
+  assert.equal(panel.nodes().find(node => node.type === 'checkbox').props.checked, false)
+  const mutations = requests.filter(request => request.operation === 'linguistProposalsAcceptSelected')
+  assert.deepEqual(mutations[1].input, mutations[0].input)
   panel.dispose()
 })
 

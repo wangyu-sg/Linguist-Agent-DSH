@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,7 +19,8 @@ import { SystemPrompt, renderPrompt } from '../../packages/dsh-linguist/node_mod
 import { ToolRuntime } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
 import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-session/lib/index.js'
 import { WorkspaceId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-workspace/lib/index.js'
-import { createSystemMessage } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-llm/lib/index.js'
+import { createSystemMessage, createUserMessage } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-llm/lib/index.js'
+import { AttachmentId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-attachment/lib/index.js'
 import { ensureStageEvidenceForSession } from '../../packages/dsh-linguist/src/host/stage-evidence.ts'
 import { projectDiscoveryScope } from '../../packages/dsh-linguist/src/host/discovery.ts'
 
@@ -130,6 +132,9 @@ test('missing CAT database leaves Prompt diagnostic available and never recreate
 
 for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-scope'] as const) test(`real Host ${scenario} binding survives CAT replacement and keeps its first delegated scope`, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-dsh-host-availability-')))
+  const attachmentRoot = realpathSync(mkdtempSync(join(tmpdir(), 'la-dsh-session-files-')))
+  const attachedPaths = new Map<string, string>()
+  const resolvedAttachments: string[] = []
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
   service.init()
   const project = await service.createProject({ name: 'Synthetic Host availability', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
@@ -159,6 +164,10 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   let handler: ((request: unknown, response: unknown) => Promise<void>) | undefined
   const services = {
     agents: { list: () => [] },
+    attachments: { fileHostPath: (ref: { attachmentId: string }) => {
+      resolvedAttachments.push(ref.attachmentId)
+      return attachedPaths.get(ref.attachmentId)
+    } },
     skills: { registerProvider: () => () => {} },
     webServer: { register: (entry: { handler: typeof handler }) => { handler = entry.handler; return () => {} } },
     workspaceRegistry: { get: (id: string) => id === workspaceId ? { id: workspaceId, path: root } : undefined },
@@ -206,6 +215,61 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     await assert.rejects(cat.execute({}, exec as never), /ERR_SQLITE_ERROR|unhealthy/)
     renameSync(`${path}.held`, path)
     assert.ok(await cat.execute({}, exec as never))
+    if (scenario === 'general') {
+      const inventory = ctx.tools.get('cat_refresh_project_inventory')!
+      const intake = ctx.tools.get('cat_import_resources')!
+      const before = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string } }
+      const refs = ['first', 'second', 'foreign'].map(version => {
+        const bytes = Buffer.from(`Synthetic ${version} reference\n`)
+        const digest = createHash('sha256').update(bytes).digest('hex')
+        const directory = join(attachmentRoot, digest)
+        mkdirSync(directory)
+        const filename = join(directory, 'reference.txt')
+        writeFileSync(filename, bytes)
+        const attachment = { attachmentId: AttachmentId(`sha256:${digest}`), name: 'reference.txt', bytes: bytes.length }
+        attachedPaths.set(attachment.attachmentId, filename)
+        return { attachment, filename }
+      })
+      const foreign = Session.create(SessionId('session-foreign-attachments'))
+      foreign.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'file', attachment: refs[2]!.attachment }] }), { surfaceOp: 'append' })
+      const imageId = AttachmentId(`sha256:${'c'.repeat(64)}`)
+      session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [
+        { type: 'file', attachment: refs[0]!.attachment },
+        { type: 'image', attachment: { attachmentId: imageId, mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
+      ] }), { surfaceOp: 'append' })
+      const first = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; items: { filename: string; sourceSha256?: string }[] } }
+      assert.notEqual(first.details.discoveryScopeHash, before.details.discoveryScopeHash, 'A native admitted file changes the discovery scope')
+      assert.ok(first.details.items.some(item => item.filename === 'reference.txt' && item.sourceSha256 === refs[0]!.attachment.attachmentId.slice('sha256:'.length)))
+      assert.equal(resolvedAttachments.includes(refs[2]!.attachment.attachmentId), false, 'Another Session does not authorize its files')
+      assert.equal(resolvedAttachments.includes(imageId), false, 'Native image content is not reclassified as a file reference')
+      const imported = await intake.execute({ paths: [refs[0]!.filename], kind: 'context', dryRun: true }, exec as never) as { details: { ready: number } }
+      assert.equal(imported.details.ready, 1, 'The exact admitted reference is readable outside the Workspace')
+      await assert.rejects(intake.execute({ paths: [attachmentRoot], kind: 'context', recursive: true, dryRun: true }, exec as never), /outside this DSH Workspace/)
+      await assert.rejects(intake.execute({ paths: [refs[2]!.filename], kind: 'context', dryRun: true }, exec as never), /outside this DSH Workspace/)
+      session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'file', attachment: refs[1]!.attachment }] }), { surfaceOp: 'append' })
+      const second = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; items: { filename: string; sourceSha256?: string }[]; gaps: { code: string; summary: string }[] } }
+      assert.notEqual(second.details.discoveryScopeHash, first.details.discoveryScopeHash, 'A different admitted version changes the frozen scope')
+      assert.deepEqual(second.details.items.filter(item => item.filename === 'reference.txt').map(item => item.sourceSha256).sort(), refs.slice(0, 2).map(ref => ref.attachment.attachmentId.slice('sha256:'.length)).sort())
+      assert.equal(second.details.gaps.filter(gap => gap.code === 'VERSION_CONFLICT' && gap.summary.startsWith('reference.txt ')).length, 1)
+      const saved = await intake.execute({ paths: [refs[0]!.filename], kind: 'context' }, exec as never) as { details: { imported: number; items: { resourceId: string }[] } }
+      assert.equal(saved.details.imported, 1)
+      const db = service.openProject(project.id)
+      const doc = db.contextDocs.get(saved.details.items[0]!.resourceId)!
+      assert.equal(doc.sha256, refs[0]!.attachment.attachmentId.slice('sha256:'.length))
+      assert.deepEqual(readFileSync(service.resolveContextDocPreviewPath(project.id, doc.id).sourcePath), readFileSync(refs[0]!.filename))
+      assert.deepEqual(db.contextDocs.listAnchors(doc.id).map(anchor => anchor.text), ['Synthetic first reference'])
+      db.contextDocs.setEvidenceLink({ contextDocId: doc.id, relation: { kind: 'segment', segmentId: segmentIds[0]! }, requiredness: 'required', mappingRevision: 'synthetic-attachment-1' })
+      const response = await ctx.tools.get('cat_get_translation_context')!.execute({ segmentIds: [segmentIds[0]!], readOnly: true, tmLimit: 0, neighborCount: 0 }, exec as never) as { content: { type: string; text: string }[] }
+      const rendered = JSON.parse(response.content.find(item => item.type === 'text')!.text) as { shared: { context: Record<string, { docId: string; text: string }> }; contexts: { contextRefs: { ref: string; requiredness: string }[] }[] }
+      const required = rendered.contexts[0]!.contextRefs.find(item => rendered.shared.context[item.ref]!.docId === doc.id)!
+      assert.equal(required.requiredness, 'required')
+      assert.equal(rendered.shared.context[required.ref]!.text, doc.textExtract, 'Required Context carries the full content in actual tool rendering, not a path-only receipt')
+      const stage = ensureStageEvidenceForSession({ session: { id: 'session-attachment-review', linguistRole: 'reviewer' }, db,
+        discoveryScope: projectDiscoveryScope(service, project.id, workspaceId, root, [refs[0]!.filename, refs[1]!.filename]), fallbackSegmentIds: [segmentIds[0]!],
+      })!
+      assert.equal(stage.plan.requirements.find(item => item.evidence.ref.kind === 'context-doc' && item.evidence.ref.id === doc.id)?.requiredness, 'required')
+      assert.notEqual(db.stageEvidence.getCompletion(stage.stageRunId).status, 'complete', 'Tool output alone does not fabricate a model-visible response receipt')
+    }
     if (scenario !== 'general') {
       // These synthetic dispatch events exercise real Host provenance without a network or Provider response.
       await ctx.waterfall('llm/stream', {
@@ -257,5 +321,6 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     await native.dispose(); await host.dispose(); await providers.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
     service.closeAll()
     rmSync(root, { recursive: true, force: true })
+    rmSync(attachmentRoot, { recursive: true, force: true })
   }
 })

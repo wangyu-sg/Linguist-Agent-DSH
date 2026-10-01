@@ -1,4 +1,4 @@
-import { open as openFile } from 'node:fs/promises'
+import { open as openFile, readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { realpath } from 'node:fs/promises'
@@ -41,6 +41,10 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
   try {
     if (route === '/la/v1/status' && request.method === 'GET') {
       sendJson(response, 200, { appId: 'linguist-agent-dsh', installationId: deps.installationId, service: deps.service.getStatus(), mutationDeliveryError: deps.mutations.lastError ?? null })
+    } else if (route === '/la/v1/pdf-worker.mjs' && request.method === 'GET') {
+      const worker = await readFile(new URL('./pdf.worker.mjs', import.meta.url))
+      response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Content-Length': worker.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+      response.end(worker)
     } else if (route === '/la/v1/session-instructions' && request.method === 'GET') {
       const sessionId = url.searchParams.get('sessionId')
       if (!sessionId) throw new RequestError(400, 'sessionId is required')

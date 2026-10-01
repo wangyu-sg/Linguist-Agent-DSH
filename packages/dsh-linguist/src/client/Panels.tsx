@@ -45,6 +45,61 @@ import { TERM_STATUS_LABELS } from './workflow-ui'
 import { ProjectLocaleSelect } from './ProjectLocaleSelect'
 import styles from './Panels.module.css'
 
+export interface ProposalReviewPlan {
+  operation: 'accept' | 'reject'
+  idempotencyKey: string
+  selectedCount: number
+  items: Array<{ proposalId: string; expectedRevision: number }>
+  actionableSegmentIds: string[]
+  excluded: Array<{ segmentId: string; ordinal: number; reason: string }>
+}
+
+export async function loadProposalReviewPlan(projectId: string, selection: { kind: 'segments' | 'proposals'; ids: readonly string[] }, operation: ProposalReviewPlan['operation'], t: ReturnType<typeof useT>): Promise<ProposalReviewPlan> {
+  if (selection.kind === 'segments' && selection.ids.length > 200) throw new Error(t('单次最多核对 200 个所选句段，请缩小选择范围。'))
+  const plan: ProposalReviewPlan = { operation, idempotencyKey: crypto.randomUUID(), selectedCount: selection.ids.length, items: [], actionableSegmentIds: [], excluded: [] }
+  let proposalIds = selection.ids
+  if (selection.kind === 'segments') {
+    const contexts = await Promise.all(selection.ids.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
+    proposalIds = contexts.flatMap(({ segment, pendingProposal }) => {
+      if (pendingProposal) return [pendingProposal.id]
+      plan.excluded.push({ segmentId: segment.id, ordinal: segment.ordinal + 1, reason: t('没有待审建议') })
+      return []
+    })
+  }
+  const latest = await Promise.all(proposalIds.map((proposalId) => required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, proposalId })))
+  for (const diff of latest) {
+    const reason = diff.proposal.status !== 'pending' ? t('建议已处理') : operation === 'accept' && diff.locked ? t('片段已锁定') : operation === 'accept' && diff.currentRevision !== diff.baseRevision ? t('建议基于旧版本') : ''
+    if (reason) plan.excluded.push({ segmentId: diff.proposal.segmentId, ordinal: diff.originalOrdinal, reason })
+    else { plan.items.push({ proposalId: diff.proposal.id, expectedRevision: diff.currentRevision }); plan.actionableSegmentIds.push(diff.proposal.segmentId) }
+  }
+  if (plan.items.length > 50) throw new Error(t('实际可操作 {count} 条建议，单次最多执行 50 条，请缩小选择范围。', { count: plan.items.length }))
+  return plan
+}
+
+export function ProposalReviewConfirmation({ plan, archived, busy, error, onConfirm, onClose }: { plan?: ProposalReviewPlan; archived: boolean; busy: boolean; error?: string; onConfirm: () => void; onClose: () => void }): React.ReactElement {
+  const t = useT()
+  return <Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={plan !== undefined} onClose={() => { if (!busy) onClose() }} title={t('确认批量处理')} closeLabel={t('取消')} footer={<><Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>{t('取消')}</Button><Button variant="primary" size="sm" disabled={archived || busy || !plan?.items.length} onClick={onConfirm}>{t('确认批量处理')}</Button></>}>
+    {plan && <><p>{t('已选择 {selected} 项，实际可{action} {actionable} 条建议。', { selected: plan.selectedCount, action: t(plan.operation === 'accept' ? '接受' : '拒绝'), actionable: plan.items.length })}</p>{plan.excluded.length > 0 && <><p>{t('以下 {count} 项不会执行：', { count: plan.excluded.length })}</p><ul>{plan.excluded.map((item) => <li key={item.segmentId}>#{item.ordinal}：{item.reason}</li>)}</ul></>}</>}
+    {error && <p role="alert">{error}</p>}
+  </Modal>
+}
+
+export function groupStyleGuideRules(rules: readonly LinguistStyleGuideRuleInfo[]): Array<{ groupKey: string; rules: LinguistStyleGuideRuleInfo[] }> {
+  const groups = new Map<string, LinguistStyleGuideRuleInfo[]>()
+  const ungrouped: LinguistStyleGuideRuleInfo[] = []
+  for (const rule of rules) {
+    const key = rule.groupKey?.trim() ?? ''
+    if (!key) { ungrouped.push(rule); continue }
+    const items = groups.get(key) ?? []
+    items.push(rule); groups.set(key, items)
+  }
+  return [...groups].map(([groupKey, rules]) => ({ groupKey, rules })).concat(ungrouped.length ? [{ groupKey: '', rules: ungrouped }] : [])
+}
+
+export function parseMarkerList(text: string): string[] {
+  return [...new Set(text.split(/[,，、]/).map((part) => part.trim()).filter(Boolean))]
+}
+
 function QaFindingText({ projectId, finding }: { projectId: string; finding: LinguistQaFindingInfo }): React.ReactElement {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -143,7 +198,8 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   const [status, setStatus] = React.useState('pending')
   const [page, setPage] = React.useState(0)
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set())
-  const [bulkReview, setBulkReview] = React.useState<{ operation: 'accept' | 'reject'; idempotencyKey: string; selectedCount: number; items: Array<{ proposalId: string; expectedRevision: number }>; excluded: Array<{ ordinal: number; reason: string }> }>()
+  const [bulkReview, setBulkReview] = React.useState<ProposalReviewPlan>()
+  const [reviewBusy, setReviewBusy] = React.useState(false)
   const [edits, setEdits] = React.useState<Record<string,string>>({})
   const [message, setMessage] = React.useState('')
   const [loading, setLoading] = React.useState(true)
@@ -154,6 +210,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   const [batchBusy, setBatchBusy] = React.useState(false)
   const [refresh, setRefresh] = React.useState(0)
   const [focusedDiff, setFocusedDiff] = React.useState<LinguistProposalDiff>()
+  React.useEffect(() => { setSelected(new Set()); setBulkReview(undefined); setMessage('') }, [projectId, assetId, status, page])
   React.useEffect(() => {
     if (!focusProposalId) { setFocusedDiff(undefined); return }
     let live = true
@@ -168,31 +225,27 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
     setLoading(true)
     setLoadError('')
     required<LinguistProposalListResult>('linguistProposalsList', { projectId, assetId, status: status || undefined, limit: 100, offset: page * 100 })
-      .then((next) => { if (live) { setList(next); setSelected(new Set()); setMessage(''); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
+      .then((next) => { if (live) { setList(next); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
     return () => { live = false }
   }, [projectId, assetId, status, page, refresh, mutation])
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived) return false
-    try { await required(operation, input); setRefresh((value) => value + 1); onChanged(); setMessage(t("建议已处理")); return true }
+    try { await required(operation, input); setSelected(new Set()); setRefresh((value) => value + 1); onChanged(); setMessage(t("建议已处理")); return true }
     catch (error) { setMessage(describeProjectError(error, t)); setRefresh((value) => value + 1); return false }
   }
   const prepareBulk = async (operation: 'accept' | 'reject') => {
-    if (archived || selected.size === 0) return
+    if (archived || selected.size === 0 || reviewBusy) return
+    setReviewBusy(true); setMessage('')
     try {
-      const latest = await Promise.all([...selected].map((proposalId) => required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, proposalId })))
-      const items: Array<{ proposalId: string; expectedRevision: number }> = []
-      const excluded: Array<{ ordinal: number; reason: string }> = []
-      for (const diff of latest) {
-        const reason = diff.proposal.status !== 'pending' ? t('建议已处理') : operation === 'accept' && diff.locked ? t('片段已锁定') : operation === 'accept' && diff.currentRevision !== diff.baseRevision ? t('建议基于旧版本') : ''
-        if (reason) excluded.push({ ordinal: diff.originalOrdinal, reason })
-        else items.push({ proposalId: diff.proposal.id, expectedRevision: diff.currentRevision })
-      }
-      setBulkReview({ operation, idempotencyKey: crypto.randomUUID(), selectedCount: selected.size, items, excluded })
+      setBulkReview(await loadProposalReviewPlan(projectId, { kind: 'proposals', ids: [...selected] }, operation, t))
     } catch (cause) { setMessage(describeProjectError(cause, t)) }
+    finally { setReviewBusy(false) }
   }
   const confirmBulk = async () => {
-    if (!bulkReview?.items.length) return
-    if (await mutate(bulkReview.operation === 'accept' ? 'linguistProposalsAcceptSelected' : 'linguistProposalsRejectSelected', { projectId, items: bulkReview.items, idempotencyKey: bulkReview.idempotencyKey })) setBulkReview(undefined)
+    if (!bulkReview?.items.length || archived || reviewBusy) return
+    setReviewBusy(true)
+    try { if (await mutate(bulkReview.operation === 'accept' ? 'linguistProposalsAcceptSelected' : 'linguistProposalsRejectSelected', { projectId, items: bulkReview.items, idempotencyKey: bulkReview.idempotencyKey })) setBulkReview(undefined) }
+    finally { setReviewBusy(false) }
   }
   const loadBatch = async () => {
     setBatchBusy(true)
@@ -233,8 +286,8 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   const visibleProposals = focusedDiff && !list?.items.some((item) => item.proposal.id === focusedDiff.proposal.id)
     ? [focusedDiff, ...(list?.items ?? [])] : list?.items ?? []
   return <section className={styles.panel} aria-label="Proposal Inbox">
-    <div className={styles.toolbar}><strong>{t("建议")} {list?.total ?? ''}</strong><select aria-label={t("建议状态")} value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); setBulkReview(undefined) }}><option value="pending">{t("待审")}</option><option value="accepted">{t("已接受")}</option><option value="rejected">{t("已拒绝")}</option><option value="superseded">{t("已替代")}</option><option value="expired">{t("已过期")}</option><option value="">{t("全部")}</option></select><Button variant="outline" size="sm" disabled={archived || loading || selected.size === 0} onClick={() => void prepareBulk('accept')}>{t("接受所选")}</Button><Button variant="outline" size="sm" disabled={archived || loading || selected.size === 0} onClick={() => void prepareBulk('reject')}>{t("拒绝所选")}</Button></div>
-    {bulkReview && <div className={styles.callout} role="alert"><p>{t('已选择 {selected} 条建议，实际可{action} {actionable} 条。', { selected: bulkReview.selectedCount, action: t(bulkReview.operation === 'accept' ? '接受' : '拒绝'), actionable: bulkReview.items.length })}</p>{bulkReview.excluded.length > 0 && <><p>{t('以下 {count} 项不会执行：', { count: bulkReview.excluded.length })}</p><ul>{bulkReview.excluded.map((item, index) => <li key={index}>#{item.ordinal}：{item.reason}</li>)}</ul></>}<Button variant="outline" size="sm" disabled={archived || bulkReview.items.length === 0} onClick={() => void confirmBulk()}>{t('确认批量处理')}</Button><Button variant="outline" size="sm" onClick={() => setBulkReview(undefined)}>{t('取消')}</Button></div>}
+    <div className={styles.toolbar}><strong>{t("建议")} {list?.total ?? ''}</strong><select aria-label={t("建议状态")} value={status} disabled={reviewBusy} onChange={(event) => { setStatus(event.target.value); setPage(0); setBulkReview(undefined) }}><option value="pending">{t("待审")}</option><option value="accepted">{t("已接受")}</option><option value="rejected">{t("已拒绝")}</option><option value="superseded">{t("已替代")}</option><option value="expired">{t("已过期")}</option><option value="">{t("全部")}</option></select><Button variant="outline" size="sm" disabled={archived || loading || reviewBusy || selected.size === 0} onClick={() => void prepareBulk('accept')}>{t("接受所选")}</Button><Button variant="outline" size="sm" disabled={archived || loading || reviewBusy || selected.size === 0} onClick={() => void prepareBulk('reject')}>{t("拒绝所选")}</Button></div>
+    <ProposalReviewConfirmation plan={bulkReview} archived={archived} busy={reviewBusy} error={message} onConfirm={() => void confirmBulk()} onClose={() => setBulkReview(undefined)} />
     <details className={styles.callout}><summary>{t('对所选句段批量编辑译文')}</summary><p>{t('可先创建待审建议，或直接写入 Target；两种操作都逐段检查版本与标签。')}</p><div className={styles.toolbar}><Button variant="outline" size="sm" disabled={batchBusy || segmentIds.length === 0 || segmentIds.length > 200} onClick={() => void loadBatch()}>{t('读取所选句段 {count} 段', { count: segmentIds.length })}</Button></div>
       {batchRows && <div className={styles.batchTargets}>{batchRows.map((row) => <label key={row.segment.id}><span>#{row.segment.ordinal} · {row.segment.source}</span><textarea disabled={archived} value={batchTargets[row.segment.id] ?? ''} onChange={(event) => setBatchTargets((current) => ({ ...current, [row.segment.id]: event.target.value }))} /></label>)}</div>}
       {batchRows && <div className={styles.toolbar}><Button variant="outline" size="sm" disabled={archived || batchBusy || !batchRows.some((row) => batchTargets[row.segment.id] !== row.segment.target)} onClick={() => void applyBatch('proposal')}>{t('创建待审建议')}</Button><Button variant="outline" size="sm" disabled={archived || batchBusy || !batchRows.some((row) => batchTargets[row.segment.id] !== row.segment.target)} onClick={() => void applyBatch('apply')}>{t('立即应用到 Target')}</Button></div>}
@@ -251,17 +304,17 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
       const pending = diff.proposal.status === 'pending'
       const parts = textDiffParts(diff.currentTarget, diff.proposedTarget)
       return <article className={diff.proposal.id === focusProposalId ? styles.selected : styles.item} key={diff.proposal.id}>
-        <div className={styles.toolbar}><Checkbox label={`#${diff.originalOrdinal}`} title={t('选择建议 {id}', { id: diff.proposal.id })} checked={selected.has(diff.proposal.id)} disabled={archived || !pending} onChange={() => { setBulkReview(undefined); setSelected((current) => { const next = new Set(current); if (next.has(diff.proposal.id)) next.delete(diff.proposal.id); else next.add(diff.proposal.id); return next }) }} /><strong>{t(diff.proposal.status)}</strong>{pending && !valid && <span>{t("修订已变或锁定，不能直接接受")}</span>}<Button variant="ghost" size="sm" onClick={() => onNavigate(diff.proposal.segmentId)}>{t("定位")}</Button><Button variant="outline" size="sm" onClick={() => void refreshDiff(diff.proposal.id)}>{t('核对最新差异')}</Button></div>
+        <div className={styles.toolbar}><Checkbox label={`#${diff.originalOrdinal}`} title={t('选择建议 {id}', { id: diff.proposal.id })} checked={selected.has(diff.proposal.id)} disabled={archived || reviewBusy || !pending} onChange={() => { setBulkReview(undefined); setSelected((current) => { const next = new Set(current); if (next.has(diff.proposal.id)) next.delete(diff.proposal.id); else next.add(diff.proposal.id); return next }) }} /><strong>{t(diff.proposal.status)}</strong>{pending && !valid && <span>{t("修订已变或锁定，不能直接接受")}</span>}<Button variant="ghost" size="sm" onClick={() => onNavigate(diff.proposal.segmentId)}>{t("定位")}</Button><Button variant="outline" size="sm" onClick={() => void refreshDiff(diff.proposal.id)}>{t('核对最新差异')}</Button></div>
         <div className={styles.compare}><div><small>Source</small><p>{diff.source}</p></div><div><small>{t("当前 Target")}</small><p>{parts.filter((part) => part.kind !== 'insert').map((part, index) => <span key={index} className={part.kind === 'remove' ? styles.removed : undefined}>{part.text}</span>)}</p></div><div><small>{t("建议 Target")}</small><p>{parts.filter((part) => part.kind !== 'remove').map((part, index) => <span key={index} className={part.kind === 'insert' ? styles.added : undefined}>{part.text}</span>)}</p></div></div>
         <small>{t("证据")} {diff.proposal.evidenceRefs.join('、') || t("无")} {t("· 术语")} {diff.proposal.termRefs.join('、') || t("无")} · {diff.proposal.modelId ?? t("模型未记录")}</small>
         <small>{t('基础版本 {base} · 当前版本 {current}', { base: diff.baseRevision, current: diff.currentRevision })} · {t('创建于 {time}', { time: new Date(diff.proposal.createdAt).toLocaleString() })}</small>
         {diff.latestIssuance && <details><summary>{t('本次建议的生成依据')}</summary><p>Provider {diff.latestIssuance.modelProvider ?? t('未记录')} · Model {diff.latestIssuance.modelId ?? t('未记录')} · Runtime {diff.latestIssuance.runtime ?? t('未记录')}</p><p>Prompt {diff.latestIssuance.linguistPromptVersion ?? t('未记录')} · hash {diff.latestIssuance.promptHash ?? t('未记录')}</p><p>Project digest {diff.latestIssuance.projectDigestRevision ?? t('未记录')} · hash {diff.latestIssuance.projectDigestHash ?? t('未记录')}</p><p>Toolset hash {diff.latestIssuance.toolsetHash ?? t('未记录')} · Turn context hash {diff.latestIssuance.turnContextHash ?? t('未记录')}</p></details>}
         {diff.proposal.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
-        <details><summary>{t("编辑建议译文")}</summary><div className={styles.toolbar}><textarea className={styles.proposalTarget} disabled={archived} aria-label={t('编辑建议 {id}', { id: diff.proposal.id })} value={edits[diff.proposal.id] ?? diff.proposedTarget} onChange={(event) => setEdits((current) => ({ ...current, [diff.proposal.id]: event.target.value }))} /></div></details><div className={styles.toolbar}><Button variant="primary" size="sm" disabled={archived || !valid} onClick={() => void mutate('linguistProposalsAccept', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("接受")}</Button><Button variant="outline" size="sm" disabled={archived || !valid || !(edits[diff.proposal.id] ?? diff.proposedTarget).trim()} onClick={() => void mutate('linguistProposalsEditAndAccept', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, editedTarget: edits[diff.proposal.id] ?? diff.proposedTarget, idempotencyKey: crypto.randomUUID() })}>{t("编辑并接受")}</Button><Button variant="outline" size="sm" disabled={archived || !pending} onClick={() => void mutate('linguistProposalsReject', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("拒绝")}</Button>{diff.proposal.status !== 'pending' && <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistProposalsReissue', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("重新签发")}</Button>}</div>
+        <details><summary>{t("编辑建议译文")}</summary><div className={styles.toolbar}><textarea className={styles.proposalTarget} disabled={archived} aria-label={t('编辑建议 {id}', { id: diff.proposal.id })} value={edits[diff.proposal.id] ?? diff.proposedTarget} onChange={(event) => setEdits((current) => ({ ...current, [diff.proposal.id]: event.target.value }))} /></div></details><div className={styles.toolbar}><Button variant="primary" size="sm" disabled={archived || reviewBusy || !valid} onClick={() => void mutate('linguistProposalsAccept', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("接受")}</Button><Button variant="outline" size="sm" disabled={archived || reviewBusy || !valid || !(edits[diff.proposal.id] ?? diff.proposedTarget).trim()} onClick={() => void mutate('linguistProposalsEditAndAccept', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, editedTarget: edits[diff.proposal.id] ?? diff.proposedTarget, idempotencyKey: crypto.randomUUID() })}>{t("编辑并接受")}</Button><Button variant="outline" size="sm" disabled={archived || reviewBusy || !pending} onClick={() => void mutate('linguistProposalsReject', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("拒绝")}</Button>{diff.proposal.status !== 'pending' && <Button variant="outline" size="sm" disabled={archived || reviewBusy} onClick={() => void mutate('linguistProposalsReissue', { projectId, proposalId: diff.proposal.id, expectedRevision: diff.currentRevision, idempotencyKey: crypto.randomUUID() })}>{t("重新签发")}</Button>}</div>
       </article>
       })}
     </section>)}
-    <div className={styles.toolbar}><Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {page + 1} {t("页")}</span><Button variant="ghost" size="sm" disabled={!list?.hasMore} onClick={() => setPage((value) => value + 1)}>{t("下一页")}</Button></div>
+    <div className={styles.toolbar}><Button variant="ghost" size="sm" disabled={reviewBusy || page === 0} onClick={() => setPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {page + 1} {t("页")}</span><Button variant="ghost" size="sm" disabled={reviewBusy || !list?.hasMore} onClick={() => setPage((value) => value + 1)}>{t("下一页")}</Button></div>
   </section>
 }
 
@@ -563,7 +616,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     const id = editingId
     const item = kind === 'styleGuideRules' ? { id, groupKey: form.second || undefined, ruleText: form.first, sourceExample: extra.sourceExample || undefined, goodExample: form.third || undefined, badExample: form.fourth || undefined }
       : kind === 'sentencePatterns' ? { id, source: form.first, draftTarget: form.second || undefined, textType: form.third || undefined, status: form.fourth || 'pending', module: extra.module || undefined, suggestedTarget: extra.suggestedTarget || undefined, reviewer: extra.reviewer || undefined }
-      : kind === 'voiceProfiles' ? { id, speaker: form.first, textType: form.second || undefined, register: form.third || undefined, notes: form.fourth || undefined, person: extra.person || undefined, toneMarkers: extra.toneMarkers.split(/[,，]/).map((value) => value.trim()).filter(Boolean), taboos: extra.taboos.split(/[,，]/).map((value) => value.trim()).filter(Boolean) }
+      : kind === 'voiceProfiles' ? { id, speaker: form.first, textType: form.second || undefined, register: form.third || undefined, notes: form.fourth || undefined, person: extra.person || undefined, toneMarkers: parseMarkerList(extra.toneMarkers), taboos: parseMarkerList(extra.taboos) }
       : kind === 'techConstraints' ? { id, kind: form.first, scope: form.second || undefined, valueJson: form.third, note: form.fourth || undefined }
       : { id, note: form.first || undefined }
     if (await mutate('linguistAssetsUpsert', { projectId, kind, item })) {
@@ -594,6 +647,9 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
   const sheet = mapCandidate?.preview.sheets.find((entry) => entry.name === sheetName)
   const selectedColumns = Object.values(columns).filter(Boolean)
   const mappingValid = !!sheet && !!columns.source && !!columns.target && selectedColumns.length === new Set(selectedColumns).size
+  const assetGroups: Array<{ groupKey?: string; items: LinguistAssetsQueryResult['items'] }> = kind === 'styleGuideRules'
+    ? groupStyleGuideRules((items?.items ?? []).filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)).map((group) => ({ groupKey: group.groupKey, items: group.rules }))
+    : [{ items: items?.items ?? [] }]
   return <section className={styles.panel} aria-label={t("批次与语言资产")}>
     <h3>{t("工作批次")}</h3>
     <div className={styles.toolbar}>
@@ -602,7 +658,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
       <span>{summary.length} {t("个批次")}</span>
     </div>
     {importing && <p role="status">{t('导入中（读取并解析文件）…')}</p>}
-    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><Button variant="outline" size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
+    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /><Button variant="outline" size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
     {mapCandidate && <div className={styles.callout} aria-label={t('XLSX 映射确认')}>
       <div className={styles.toolbar}><strong>{mapCandidate.filename} {t("需要映射列")}</strong><Button variant="outline" size="sm" disabled={importing} onClick={() => setImportResult(undefined)}>{t('取消')}</Button></div>
@@ -638,7 +694,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
       <Button variant="primary" type="submit" size="sm" disabled={kind === 'contextDocs' && !editingId}>{editingId ? t("保存修改") : t("添加")}</Button>{editingId && <Button variant="outline" size="sm" onClick={() => { setEditingId(undefined); setForm({ first: '', second: '', third: '', fourth: '' }); setExtra({ sourceExample: '', module: '', suggestedTarget: '', reviewer: '', person: '', toneMarkers: '', taboos: '' }) }}>{t("取消编辑")}</Button>}
     </form>
     </fieldset>
-    {items?.items.map((item) => <article className={styles.item} key={item.id}>
+    {assetGroups.map((group) => <section key={group.groupKey ?? kind}>{group.groupKey !== undefined && <h3>{group.groupKey || t('未分组')}</h3>}{group.items.map((item) => <article className={styles.item} key={item.id}>
       <div className={styles.toolbar}>
         <strong>{'ruleText' in item ? item.ruleText : 'source' in item ? item.source : 'speaker' in item ? item.speaker : 'originalFilename' in item ? item.originalFilename : item.kind}</strong>
         {'originalFilename' in item && <Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistAssetsPreviewContextDoc', input: { projectId, docId: item.id } })}>{t('预览原件')}</Button>}
@@ -650,9 +706,49 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
       {'speaker' in item && <><p>{[item.textType, item.register, item.person].filter(Boolean).join(' · ')}</p>{item.toneMarkers && item.toneMarkers.length > 0 && <p>{t('语气')}：{item.toneMarkers.join('、')}</p>}{item.taboos && item.taboos.length > 0 && <p>{t('禁忌')}：{item.taboos.join('、')}</p>}{item.notes && <p>{item.notes}</p>}</>}
       {'valueJson' in item && <><p>{item.scope ?? t('全项目')}</p><pre>{item.valueJson}</pre>{item.note && <p>{item.note}</p>}</>}
       {'originalFilename' in item && <><p>{item.kind === 'image' ? t('图片') : t('文档')} · {item.hasTextExtract ? t('可阅读 {count} 字', { count: item.textExtractLength ?? 0 }) : t('无文本抽取')}</p>{item.note && <p>{item.note}</p>}{item.kind === 'image' && item.previewUrl?.startsWith('/la/v1/files/') && <img className={styles.preview} alt={item.originalFilename} src={item.previewUrl} />}{segmentId && <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistAssetsSetContextDocSegmentLink', { projectId, docId: item.id, segmentId, linked: true })}>{t('关联当前句段')}</Button>}</>}
-    </article>)}
+    </article>)}</section>)}
     <div className={styles.toolbar}><Button variant="outline" size="sm" disabled={assetPage === 0} onClick={() => setAssetPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {assetPage + 1} {t("页 · 共")} {items?.total ?? 0} {t("条")}</span><Button variant="outline" size="sm" disabled={!items?.hasMore} onClick={() => setAssetPage((value) => value + 1)}>{t("下一页")}</Button></div>
   </section>
+}
+
+export async function exportPreparedAsset(projectId: string, assetId: string, validation: 'verified' | 'as-is', t: ReturnType<typeof useT>): Promise<{ token: string; filename: string; preparation: LinguistPrepareDeliveryResult }> {
+  const response = await fetch('/la/v1/files/export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, assetId, validation }) })
+  if (!response.ok) throw new Error(t('导出失败：HTTP {status}', { status: response.status }))
+  const result: unknown = await response.json()
+  if (typeof result !== 'object' || result === null || !('token' in result) || typeof result.token !== 'string' || !('filename' in result) || typeof result.filename !== 'string' || !('preparation' in result) || typeof result.preparation !== 'object' || result.preparation === null) throw new Error(t('导出服务返回的下载收据无效'))
+  return { token: result.token, filename: result.filename, preparation: result.preparation as LinguistPrepareDeliveryResult }
+}
+
+function DeliveryPreparation({ prepared, onMessage }: { prepared: LinguistPrepareDeliveryResult; onMessage: (message: string) => void }): React.ReactElement {
+  const t = useT()
+  return <div className={styles.callout}><div className={styles.toolbar}><strong>{prepared.preflight.ready ? t('预检通过') : t('预检有阻塞')}</strong><Button variant="outline" size="sm" onClick={() => void writeClipboard(prepared.reportMarkdown).then((copied) => onMessage(t(copied ? '审校报告已复制' : '无法复制审校报告'))).catch(() => onMessage(t('无法复制审校报告')))}>{t('复制 PM 审校报告')}</Button></div><p>{t('阶段')} {prepared.preflight.stageCounts.confirmed}/{prepared.preflight.segmentCount} {t('· QA 错误')} {prepared.preflight.qa.openErrors} {t('· 建议待审')} {prepared.preflight.pendingProposalCount}</p>{prepared.preflight.blockers.map((blocker) => <p key={blocker.code} role="alert">{blocker.code}：{blocker.message} ({blocker.count})</p>)}<details><summary>{t('完整预检报告')}</summary><pre>{prepared.reportMarkdown}</pre></details></div>
+}
+
+export function BatchExportButton({ projectId, asset, archived }: { projectId: string; asset: LinguistAssetInfo; archived: boolean }): React.ReactElement {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+  const [prepared, setPrepared] = React.useState<LinguistPrepareDeliveryResult>()
+  const [download, setDownload] = React.useState<{ token: string; filename: string }>()
+  const [error, setError] = React.useState('')
+  const [message, setMessage] = React.useState('')
+  const run = async () => {
+    if (archived || busy) return
+    setOpen(true); setBusy(true); setPrepared(undefined); setDownload(undefined); setError(''); setMessage('')
+    try {
+      const next = await required<LinguistPrepareDeliveryResult>('linguistExportsPrepareAsset', { projectId, assetId: asset.assetId })
+      setPrepared(next)
+      if (next.preflight.ready) {
+        const result = await exportPreparedAsset(projectId, asset.assetId, 'verified', t)
+        setPrepared(result.preparation); setDownload({ token: result.token, filename: result.filename })
+        setMessage(t('导出产物已准备，可领取一次性下载链接。下载本身不代表专业任务完成。'))
+      }
+    } catch (cause) { setError(describeProjectError(cause, t)) }
+    finally { setBusy(false) }
+  }
+  return <><Button variant="outline" size="sm" disabled={archived || busy} aria-label={t('导出批次 {filename}', { filename: asset.filename })} onClick={() => void run()}>{t('导出')}</Button><Modal className={styles.confirmModal} contentClassName={styles.confirmModalContent} open={open} onClose={() => { if (!busy) setOpen(false) }} title={asset.filename} closeLabel={t('关闭')} footer={<Button variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>{t('关闭')}</Button>}>
+    {busy && <p role="status">{t('正在验证并导出…')}</p>}{error && <p role="alert">{error}<Button variant="outline" size="sm" disabled={busy} onClick={() => void run()}>{t('重试')}</Button></p>}{prepared && <DeliveryPreparation prepared={prepared} onMessage={setMessage} />}{message && <p role="status">{message}</p>}{download && <p><a href={fileUrl(download.token)} download={download.filename} onClick={() => setDownload(undefined)}>{t('下载')} {download.filename}</a>{t('（下载链接一次有效）')}</p>}
+  </Modal></>
 }
 
 export function DeliveryPanel({ projectId, assets, mutation, archived }: { projectId: string; assets: readonly LinguistAssetInfo[]; mutation: number; archived: boolean }): React.ReactElement {
@@ -684,12 +780,9 @@ export function DeliveryPanel({ projectId, assets, mutation, archived }: { proje
   const exportFile = async (validation: 'verified' | 'as-is', targetAssetId = assetId) => {
     setBusy(true); setError(''); setMessage('')
     try {
-      const response = await fetch('/la/v1/files/export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, assetId: targetAssetId, validation }) })
-      if (!response.ok) throw new Error(t('导出失败：HTTP {status}', { status: response.status }))
-      const result: unknown = await response.json()
-      if (typeof result !== 'object' || result === null || !('token' in result) || typeof result.token !== 'string' || !('filename' in result) || typeof result.filename !== 'string' || !('preparation' in result) || typeof result.preparation !== 'object' || result.preparation === null) throw new Error(t("导出服务返回的下载收据无效"))
+      const result = await exportPreparedAsset(projectId, targetAssetId, validation, t)
       setDownload({ token: result.token, filename: result.filename })
-      setPrepared(result.preparation as LinguistPrepareDeliveryResult)
+      setPrepared(result.preparation)
       setMessage(t("导出产物已准备，可领取一次性下载链接。下载本身不代表专业任务完成。"))
       void refreshExports()
       setAsIsAssetId(undefined)
@@ -709,7 +802,7 @@ export function DeliveryPanel({ projectId, assets, mutation, archived }: { proje
     {error && <p role="alert">{error}</p>}
     {archived && <p>{t('归档项目只能查看历史交付物。')}</p>}
     {message && <p role="status">{message}</p>}
-    {prepared && <div className={styles.callout}><div className={styles.toolbar}><strong>{prepared.preflight.ready ? t("预检通过") : t("预检有阻塞")}</strong><Button variant="outline" size="sm" onClick={() => void writeClipboard(prepared.reportMarkdown).then((copied) => setMessage(t(copied ? '审校报告已复制' : '无法复制审校报告'))).catch(() => setMessage(t('无法复制审校报告')))}>{t('复制 PM 审校报告')}</Button></div><p>{t("阶段")} {prepared.preflight.stageCounts.confirmed}/{prepared.preflight.segmentCount} {t("· QA 错误")} {prepared.preflight.qa.openErrors} {t("· 建议待审")} {prepared.preflight.pendingProposalCount}</p>{prepared.preflight.blockers.map((blocker) => <p key={blocker.code} role="alert">{blocker.code}：{blocker.message} ({blocker.count})</p>)}<details><summary>{t("完整预检报告")}</summary><pre>{prepared.reportMarkdown}</pre></details></div>}
+    {prepared && <DeliveryPreparation prepared={prepared} onMessage={setMessage} />}
     {download && <p><a href={fileUrl(download.token)} download={download.filename} onClick={() => setDownload(undefined)}>{t("下载")} {download.filename}</a>{t("（下载链接一次有效）")}</p>}
     <div className={styles.toolbar}><h3>{t("本项目交付记录")}</h3><Button variant="outline" size="sm" disabled={loadingExports} onClick={() => void refreshExports()}>{t("刷新")}</Button></div>{loadingExports && <p role="status">{t("正在读取交付记录…")}</p>}{exportsError && <p role="alert">{exportsError}<Button variant="outline" size="sm" onClick={() => void refreshExports()}>{t("重试")}</Button></p>}{!loadingExports && !exportsError && exports.length === 0 && <p className={styles.notice}>{t("尚无交付记录。")}</p>}{exports.map((item) => <p key={item.filename}>{item.filename} · {item.sizeBytes} bytes {item.stale ? t("· 已过时") : ''}{item.assetId && <Button variant="outline" size="sm" disabled={archived || busy} onClick={() => setAsIsAssetId(item.assetId)}>{t("按当前状态重新导出")}</Button>}</p>)}
   </section>
