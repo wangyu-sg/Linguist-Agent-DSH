@@ -5,7 +5,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import fileType from 'file-type'
 import type { LinguistCatToolsDeps } from '@linguist/cat-tools'
 import type { ProjectDatabase } from '@linguist/cat-store'
-import { runLinguistConsistencyWorker, runLinguistQaWorker, type LinguistProjectService } from '@linguist/domain-service'
+import { runLinguistConsistencyWorker, runLinguistQaWorker, type ContextImageMetadata, type LinguistProjectService } from '@linguist/domain-service'
 import type { ProjectDiscoveryScope } from '@linguist/domain-service/contracts'
 
 export interface CreateCatDepsInput {
@@ -21,6 +21,7 @@ export interface CreateCatDepsInput {
   onProjectResolved?: (db: ProjectDatabase) => void
   /** Returns an authorized real file or directory path for the current Session. */
   authorizeReadPath: (requestedPath: string) => Promise<string>
+  contextImages: () => ReadonlyMap<string, ContextImageMetadata>
   /** Returns an authorized absolute output path after checking overwrite permission. */
   authorizeWritePath: (requestedPath: string, overwrite: boolean) => Promise<string>
   discoveryScope: () => Promise<ProjectDiscoveryScope>
@@ -67,7 +68,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
       input.assertBound()
       const paths = await Promise.all(request.paths.map(input.authorizeReadPath))
       input.assertBound()
-      return service.importResourcesFromPaths(projectId, input.sessionCwd, { ...request, paths })
+      return service.importResourcesFromPaths(projectId, input.sessionCwd, { ...request, paths }, input.contextImages())
     },
     async refreshProjectEvidenceInventory() {
       input.assertBound()

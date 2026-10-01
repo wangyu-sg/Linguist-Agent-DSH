@@ -1,4 +1,3 @@
-import { extname } from 'node:path'
 import { sha256Hex, type EvidenceGap } from '@linguist/cat-core'
 import type { ProjectInventoryGapInput } from '@linguist/cat-store'
 import type {
@@ -8,12 +7,12 @@ import type {
 } from '@linguist/cat-tools'
 import type { LinguistProjectService } from './project-service'
 import { importProjectResources } from './project-file-intake'
+import { contextImageFormat } from './context-extractor'
 import type {
   ProjectDiscoveryScope,
   UnavailableProjectDiscoveryLocation,
 } from './project-discovery-scope'
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'])
 const encoder = new TextEncoder()
 
 interface BuildProjectEvidenceInventoryInput {
@@ -103,7 +102,7 @@ export function buildProjectEvidenceInventory(
       registered: input.managedEvidenceCount,
       readyToImport: input.scan.ready + input.scan.imported + input.scan.skippedDuplicate,
       unmapped: input.scan.needsInput,
-      media: input.scan.items.filter((item) => IMAGE_EXTENSIONS.has(extname(item.filename).toLowerCase())).length,
+      media: input.scan.items.filter(item => contextImageFormat(item.filename, item.imageMediaType) !== undefined).length,
       versionConflicts: duplicates.length,
       unsupported: input.scan.unsupported,
       failed: input.scan.failed + input.unavailable.length,
@@ -140,7 +139,7 @@ export async function refreshProjectEvidenceInventory(
         recursive: true,
         kind: 'auto',
         dryRun: true,
-      })
+      }, new Map(scope.files.flatMap(file => file.image === undefined ? [] : [[file.path, file.image]])))
   const draft = buildProjectEvidenceInventory({
     discoveryScopeHash: scope.hash,
     managedEvidenceCount: scope.managedEvidence.length,

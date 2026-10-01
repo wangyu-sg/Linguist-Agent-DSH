@@ -7,6 +7,7 @@ import {
 } from '@linguist/cat-core'
 import { extractXlsxContext } from '@linguist/cat-formats'
 import { LinguistContextDocExtractError } from './errors'
+import type { ContextImageMetadata } from './project-service-types'
 
 export const CONTEXT_DOC_TEXT_EXTRACT_MAX_CHARS = 200_000
 
@@ -21,6 +22,15 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.bmp': 'image/bmp',
 }
 const encoder = new TextEncoder()
+
+/** Host-verified image type takes precedence over a display filename. */
+export function contextImageFormat(filename: string, mediaType?: ContextImageMetadata['mediaType']): { extension: string; mimeType: string } | undefined {
+  const extension = mediaType === undefined
+    ? extname(filename).toLowerCase()
+    : Object.keys(IMAGE_MIME_TYPES).find(key => IMAGE_MIME_TYPES[key] === mediaType)!
+  const mimeType = mediaType ?? IMAGE_MIME_TYPES[extension]
+  return mimeType === undefined ? undefined : { extension, mimeType }
+}
 
 interface MammothModule {
   extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>
@@ -169,9 +179,26 @@ export function formatContextExtractionText(extraction: ContextExtraction): stri
 export async function extractContext(
   bytes: Uint8Array,
   filename: string,
+  imageMediaType?: ContextImageMetadata['mediaType'],
 ): Promise<ContextExtraction> {
   const extension = extname(filename).toLowerCase()
   const sourceHash = sha256Hex(bytes)
+  const image = contextImageFormat(filename, imageMediaType)
+  if (image !== undefined) {
+    const mediaId = stableId('ctxm', sourceHash, filename)
+    const anchorId = stableId('ctxa', sourceHash, mediaId)
+    return {
+      textSections: [],
+      media: [{ id: mediaId, filename, mimeType: image.mimeType, bytes, sha256: sourceHash }],
+      anchors: [{
+        id: anchorId,
+        locator: { kind: 'image', mediaId },
+        label: filename,
+        mediaId,
+      }],
+      warnings: [],
+    }
+  }
   if (extension === '.xlsx') return extractXlsxContext(bytes, filename)
   if (TEXT_EXTENSIONS.has(extension)) {
     const text = new TextDecoder('utf-8').decode(bytes)
@@ -182,22 +209,6 @@ export async function extractContext(
   }
   if (extension === '.pdf') {
     return textExtraction(sourceHash, await extractPdfPages(bytes), (index) => ({ kind: 'page', page: index + 1 }))
-  }
-  const mimeType = IMAGE_MIME_TYPES[extension]
-  if (mimeType !== undefined) {
-    const mediaId = stableId('ctxm', sourceHash, filename)
-    const anchorId = stableId('ctxa', sourceHash, mediaId)
-    return {
-      textSections: [],
-      media: [{ id: mediaId, filename, mimeType, bytes, sha256: sourceHash }],
-      anchors: [{
-        id: anchorId,
-        locator: { kind: 'image', mediaId },
-        label: filename,
-        mediaId,
-      }],
-      warnings: [],
-    }
   }
   return {
     textSections: [],

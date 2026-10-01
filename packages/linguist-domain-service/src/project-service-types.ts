@@ -359,6 +359,13 @@ export interface ProjectAssetsQuery {
 
 export interface ImportContextDocInput extends ImportReferenceInput {
   note?: string
+  /** Image type verified by the Host attachment store. */
+  imageMediaType?: ContextImageMetadata['mediaType']
+}
+
+export interface ContextImageMetadata {
+  filename?: string
+  mediaType: NonNullable<import('@linguist/cat-tools').LinguistImportResourceItem['imageMediaType']>
 }
 
 export interface CatWorkspaceQuery {

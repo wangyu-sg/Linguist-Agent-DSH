@@ -123,6 +123,7 @@ import type {
   CatSegmentContext,
   CatWorkspacePage,
   CatWorkspaceQuery,
+  ContextImageMetadata,
   ApproveSegmentExemplarInput,
   CreateLinguistProjectInput,
   DeleteLinguistProjectResult,
@@ -1403,8 +1404,9 @@ export class LinguistProjectService {
     projectId: string,
     cwd: string,
     input: LinguistImportResourcesInput,
+    images?: ReadonlyMap<string, ContextImageMetadata>,
   ): Promise<LinguistImportResourcesResult> {
-    return importProjectResources(this, projectId, cwd, input)
+    return importProjectResources(this, projectId, cwd, input, images)
   }
 
   refreshEvidenceInventory(

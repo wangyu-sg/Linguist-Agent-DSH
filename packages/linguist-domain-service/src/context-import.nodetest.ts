@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runLinguistContextImportWorker } from './cat-job-worker-client'
@@ -54,6 +55,44 @@ test('Context 大批量导入时主线程持续响应，完成后可读，失败
     }), /archived/)
   } finally {
     clearInterval(timer)
+    service.closeAll()
+    rmSync(rootDir, { recursive: true, force: true })
+  }
+})
+
+test('Host 图片 metadata 使无扩展名及误导名称仍盘点和导入为精确图片原件', async () => {
+  const rootDir = realpathSync(mkdtempSync(join(tmpdir(), 'la-native-image-context-')))
+  const service = new LinguistProjectService({ rootDir, applicationVersion: 'test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic image attachment', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR3sAAAAASUVORK5CYII=', 'base64')
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const path = join(rootDir, digest)
+    writeFileSync(path, bytes)
+    const split = join(rootDir, 'synthetic-split.mxliff')
+    writeFileSync(split, '<xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="one"><source>Open {0} world</source><target>打开 {0} 世界</target></trans-unit></body></file></xliff>')
+    for (const filename of [undefined, 'visual.pdf', 'visual.xlf']) {
+      const images = new Map([[path, { filename, mediaType: 'image/png' as const }]])
+      const paths = filename === 'visual.xlf' ? [path, split] : [path]
+      const preview = await service.importResourcesFromPaths(project.id, rootDir, { paths, recursive: false, kind: 'auto', dryRun: true }, images)
+      assert.equal(preview.ready, 1)
+      assert.equal(preview.items[0]!.filename, filename ?? digest)
+      assert.equal(preview.items[0]!.imageMediaType, 'image/png')
+      const imported = await service.importResourcesFromPaths(project.id, rootDir, { paths, recursive: false, kind: 'auto', dryRun: false }, images)
+      assert.equal(imported.imported, 1)
+      const doc = service.openProject(project.id).contextDocs.get(imported.items[0]!.resourceId!)!
+      assert.equal(doc.kind, 'image')
+      assert.equal(doc.originalFilename, filename ?? digest)
+      assert.equal(doc.sha256, digest)
+      assert.ok(doc.blobRelpath.endsWith('.png'))
+      assert.deepEqual(readFileSync(service.resolveContextDocPreviewPath(project.id, doc.id).sourcePath), bytes)
+      const anchors = service.openProject(project.id).contextDocs.listAnchors(doc.id)
+      assert.equal(anchors.length, 1)
+      assert.equal(anchors[0]!.locator.kind, 'image')
+      assert.equal(anchors[0]!.mediaContextDocId, doc.id)
+    }
+  } finally {
     service.closeAll()
     rmSync(rootDir, { recursive: true, force: true })
   }

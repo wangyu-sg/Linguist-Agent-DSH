@@ -1,8 +1,8 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
-import { resolveProjectDiscoveryScope, type LinguistProjectService, type ProjectDiscoveryScope } from '@linguist/domain-service'
+import { resolveProjectDiscoveryScope, type ContextImageMetadata, type LinguistProjectService, type ProjectDiscoveryScope } from '@linguist/domain-service'
 
-export function projectDiscoveryScope(service: LinguistProjectService, projectId: string, workspaceId: string, workspacePath: string, attachedFiles: readonly string[] = []): ProjectDiscoveryScope {
+export function projectDiscoveryScope(service: LinguistProjectService, projectId: string, workspaceId: string, workspacePath: string, attachedFiles: readonly string[] = [], images: ReadonlyMap<string, ContextImageMetadata> = new Map()): ProjectDiscoveryScope {
   const db = service.openProject(projectId)
   const managedEvidence = [
     ...db.assets.listByProject().map(asset => ({ ref: { kind: 'asset' as const, id: asset.id as string }, version: asset.sourceSha256 })),
@@ -14,6 +14,7 @@ export function projectDiscoveryScope(service: LinguistProjectService, projectId
   ]
   return resolveProjectDiscoveryScope({
     session: { workspaceId, linguistProjectId: projectId, attachedFiles: [...attachedFiles] },
+    images,
     dependencies: {
       getWorkspace: id => id === workspaceId ? { slug: workspaceId } : undefined,
       getProjectFilesPath: () => workspacePath,

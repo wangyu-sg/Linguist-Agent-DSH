@@ -21,16 +21,6 @@ import { parseSdltbReference, parseSdltmReference } from './trados-reference-par
 
 type ParsedTmUnitImportInput = Omit<TmUnitImportInput, 'sourceId'>
 
-const CONTEXT_DOC_IMAGE_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.webp',
-  '.svg',
-  '.bmp',
-])
-
 const REFERENCE_SOURCE_COLUMNS = ['source', 'src', 'sourcetext', 'source text', '源文', '原文']
 const REFERENCE_TARGET_COLUMNS = ['target', 'tgt', 'translation', 'targettext', 'target text', '译文', '翻译']
 const REFERENCE_TERM_COLUMNS = ['term', 'source', '术语', '源术语']
@@ -45,10 +35,6 @@ const PATTERN_TEXT_TYPE_COLUMNS = ['text_type', 'texttype', 'text type', '文本
 const PATTERN_MODULE_COLUMNS = ['module', '模块']
 const PATTERN_REVIEWER_COLUMNS = ['reviewer', '评审', '审校']
 const PATTERN_STATUS_COLUMNS = ['status', '状态']
-
-export function isContextDocImageExtension(extension: string): boolean {
-  return CONTEXT_DOC_IMAGE_EXTENSIONS.has(extension.toLowerCase())
-}
 
 function referenceColumn(headers: readonly string[], aliases: readonly string[]): number {
   const normalizedAliases = new Set(aliases.map(normalizeDelimitedHeader))

@@ -19,7 +19,7 @@ import { SystemPrompt, renderPrompt } from '../../packages/dsh-linguist/node_mod
 import { ToolRuntime } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
 import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-session/lib/index.js'
 import { WorkspaceId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-workspace/lib/index.js'
-import { createSystemMessage, createUserMessage } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-llm/lib/index.js'
+import { createSystemMessage, createToolResultMessage, createUserMessage, ToolCallId, type ContentBlock } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-llm/lib/index.js'
 import { AttachmentId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-attachment/lib/index.js'
 import { ensureStageEvidenceForSession } from '../../packages/dsh-linguist/src/host/stage-evidence.ts'
 import { projectDiscoveryScope } from '../../packages/dsh-linguist/src/host/discovery.ts'
@@ -135,6 +135,7 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   const attachmentRoot = realpathSync(mkdtempSync(join(tmpdir(), 'la-dsh-session-files-')))
   const attachedPaths = new Map<string, string>()
   const resolvedAttachments: string[] = []
+  const resolvedImages: string[] = []
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
   service.init()
   const project = await service.createProject({ name: 'Synthetic Host availability', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
@@ -164,10 +165,22 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   let handler: ((request: unknown, response: unknown) => Promise<void>) | undefined
   const services = {
     agents: { list: () => [] },
-    attachments: { fileHostPath: (ref: { attachmentId: string }) => {
-      resolvedAttachments.push(ref.attachmentId)
-      return attachedPaths.get(ref.attachmentId)
-    } },
+    attachments: {
+      imageLimits: { maxImageBytes: 1024 },
+      fileHostPath: (ref: { attachmentId: string }) => {
+        resolvedAttachments.push(ref.attachmentId)
+        return attachedPaths.get(ref.attachmentId)
+      },
+      imageHostPath: (ref: { attachmentId: string }) => {
+        resolvedImages.push(ref.attachmentId)
+        return attachedPaths.get(ref.attachmentId)
+      },
+      saveImage: async (input: { data: Uint8Array; mediaType: string; name: string }) => ({
+        attachmentId: AttachmentId(`sha256:${createHash('sha256').update(input.data).digest('hex')}`),
+        mediaType: input.mediaType, name: input.name, bytes: input.data.length, width: 1, height: 1,
+      }),
+      readImage: async (ref: { attachmentId: string }) => ({ ref, data: readFileSync(attachedPaths.get(ref.attachmentId)!) }),
+    },
     skills: { registerProvider: () => () => {} },
     webServer: { register: (entry: { handler: typeof handler }) => { handler = entry.handler; return () => {} } },
     workspaceRegistry: { get: (id: string) => id === workspaceId ? { id: workspaceId, path: root } : undefined },
@@ -218,7 +231,7 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     if (scenario === 'general') {
       const inventory = ctx.tools.get('cat_refresh_project_inventory')!
       const intake = ctx.tools.get('cat_import_resources')!
-      const before = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string } }
+      const before = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; media: number } }
       const refs = ['first', 'second', 'foreign'].map(version => {
         const bytes = Buffer.from(`Synthetic ${version} reference\n`)
         const digest = createHash('sha256').update(bytes).digest('hex')
@@ -232,20 +245,55 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
       })
       const foreign = Session.create(SessionId('session-foreign-attachments'))
       foreign.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'file', attachment: refs[2]!.attachment }] }), { surfaceOp: 'append' })
-      const imageId = AttachmentId(`sha256:${'c'.repeat(64)}`)
+      const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR3sAAAAASUVORK5CYII=', 'base64')
+      const imageDigest = createHash('sha256').update(imageBytes).digest('hex')
+      const imageId = AttachmentId(`sha256:${imageDigest}`)
+      const imagePath = join(attachmentRoot, imageDigest)
+      writeFileSync(imagePath, imageBytes)
+      attachedPaths.set(imageId, imagePath)
+      const foreignImageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGekAAAAASUVORK5CYII=', 'base64')
+      const foreignImageDigest = createHash('sha256').update(foreignImageBytes).digest('hex')
+      const foreignImageId = AttachmentId(`sha256:${foreignImageDigest}`)
+      const foreignImagePath = join(attachmentRoot, foreignImageDigest)
+      writeFileSync(foreignImagePath, foreignImageBytes)
+      attachedPaths.set(foreignImageId, foreignImagePath)
+      const foreignImage = { type: 'image' as const, attachment: { attachmentId: foreignImageId, mediaType: 'image/png' as const, name: 'foreign.png', bytes: foreignImageBytes.length, width: 1, height: 1 } }
+      foreign.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [foreignImage] }), { surfaceOp: 'append' })
+      session.append('user/message', createUserMessage({ source: { kind: 'system-prompt' }, content: [foreignImage] }), { surfaceOp: 'append' })
+      session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId: ToolCallId('synthetic-foreign-image'), content: [foreignImage], isError: false }) }, { surfaceOp: 'append' })
+      session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: `@${foreignImagePath} @${refs[2]!.filename}` }] }), { surfaceOp: 'append' })
       session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [
         { type: 'file', attachment: refs[0]!.attachment },
-        { type: 'image', attachment: { attachmentId: imageId, mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
+        { type: 'image', attachment: { attachmentId: imageId, mediaType: 'image/png', name: 'visual-reference.png', bytes: imageBytes.length, width: 1, height: 1 } },
       ] }), { surfaceOp: 'append' })
-      const first = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; items: { filename: string; sourceSha256?: string }[] } }
+      const first = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; media: number; items: { filename: string; sourceSha256?: string; status: string; resourceKind?: string }[] } }
       assert.notEqual(first.details.discoveryScopeHash, before.details.discoveryScopeHash, 'A native admitted file changes the discovery scope')
       assert.ok(first.details.items.some(item => item.filename === 'reference.txt' && item.sourceSha256 === refs[0]!.attachment.attachmentId.slice('sha256:'.length)))
       assert.equal(resolvedAttachments.includes(refs[2]!.attachment.attachmentId), false, 'Another Session does not authorize its files')
       assert.equal(resolvedAttachments.includes(imageId), false, 'Native image content is not reclassified as a file reference')
+      assert.equal(resolvedImages.includes(imageId), true, 'The current native user image is resolved through its public image attachment path')
+      assert.equal(resolvedImages.includes(foreignImageId), false, 'Another Session, tool result, non-user producer and plain @path text never authorize an image')
+      assert.ok(first.details.items.some(item => item.filename === 'visual-reference.png' && item.sourceSha256 === imageDigest && item.status === 'ready' && item.resourceKind === 'context'), 'Native image metadata classifies its extensionless object as a ready Context resource')
+      assert.equal(first.details.media, before.details.media + 1)
       const imported = await intake.execute({ paths: [refs[0]!.filename], kind: 'context', dryRun: true }, exec as never) as { details: { ready: number } }
       assert.equal(imported.details.ready, 1, 'The exact admitted reference is readable outside the Workspace')
+      const imageAuto = await intake.execute({ paths: [imagePath], kind: 'auto', dryRun: true }, exec as never) as { details: { ready: number } }
+      assert.equal(imageAuto.details.ready, 1, 'Auto intake recognizes the native image object without an extension')
+      const imageSaved = await intake.execute({ paths: [imagePath], kind: 'context' }, exec as never) as { details: { imported: number; items: { resourceId: string }[] } }
+      assert.equal(imageSaved.details.imported, 1)
+      const imageDoc = service.openProject(project.id).contextDocs.get(imageSaved.details.items[0]!.resourceId)!
+      assert.equal(imageDoc.kind, 'image')
+      assert.equal(imageDoc.originalFilename, 'visual-reference.png')
+      assert.equal(imageDoc.sha256, imageDigest)
+      assert.deepEqual(readFileSync(service.resolveContextDocPreviewPath(project.id, imageDoc.id).sourcePath), imageBytes)
+      assert.equal(service.openProject(project.id).contextDocs.listAnchors(imageDoc.id)[0]!.locator.kind, 'image')
+      const imageRead = await ctx.tools.get('cat_read_context_doc')!.execute({ docId: imageDoc.id, readOnly: true }, exec as never) as { content: ContentBlock[] }
+      const renderedImage = imageRead.content.find(block => block.type === 'image')!
+      assert.equal(renderedImage.attachment.mediaType, 'image/png')
+      assert.deepEqual((await services.attachments.readImage(renderedImage.attachment)).data, imageBytes)
       await assert.rejects(intake.execute({ paths: [attachmentRoot], kind: 'context', recursive: true, dryRun: true }, exec as never), /outside this DSH Workspace/)
       await assert.rejects(intake.execute({ paths: [refs[2]!.filename], kind: 'context', dryRun: true }, exec as never), /outside this DSH Workspace/)
+      await assert.rejects(intake.execute({ paths: [foreignImagePath], kind: 'context', dryRun: true }, exec as never), /outside this DSH Workspace/)
       session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'file', attachment: refs[1]!.attachment }] }), { surfaceOp: 'append' })
       const second = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; items: { filename: string; sourceSha256?: string }[]; gaps: { code: string; summary: string }[] } }
       assert.notEqual(second.details.discoveryScopeHash, first.details.discoveryScopeHash, 'A different admitted version changes the frozen scope')

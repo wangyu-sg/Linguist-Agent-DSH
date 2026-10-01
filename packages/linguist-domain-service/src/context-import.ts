@@ -2,9 +2,8 @@ import { extname, join } from 'node:path'
 import type { ContextAnchorLocator, ProjectId } from '@linguist/cat-core'
 import { sha256Hex } from '@linguist/cat-formats'
 import { ProjectDatabase, readProjectManifestFile, saveProjectBlob, type ContextDoc } from '@linguist/cat-store'
-import { extractContext, formatContextExtractionText } from './context-extractor'
+import { contextImageFormat, extractContext, formatContextExtractionText } from './context-extractor'
 import { LinguistProjectArchivedError } from './errors'
-import { isContextDocImageExtension } from './project-resource-parsers'
 import type { ImportContextDocInput } from './project-service-types'
 
 export interface ContextImportWorkerRequest {
@@ -16,9 +15,10 @@ export interface ContextImportWorkerRequest {
 /** 同一只读提取过程供预检和正式写入使用。 */
 export async function prepareContextImport(input: ImportContextDocInput) {
   const sha256 = sha256Hex(input.bytes)
-  const extension = extname(input.filename).toLowerCase()
-  const kind: ContextDoc['kind'] = isContextDocImageExtension(extension) ? 'image' : 'doc'
-  const extraction = await extractContext(input.bytes, input.filename)
+  const image = contextImageFormat(input.filename, input.imageMediaType)
+  const extension = image?.extension ?? extname(input.filename).toLowerCase()
+  const kind: ContextDoc['kind'] = image === undefined ? 'doc' : 'image'
+  const extraction = await extractContext(input.bytes, input.filename, input.imageMediaType)
   const textExtract = formatContextExtractionText(extraction)
   return { sha256, extension, kind, extraction, textExtract }
 }

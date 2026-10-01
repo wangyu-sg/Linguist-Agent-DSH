@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import type { VersionedStageEvidenceRef } from '@linguist/cat-core'
+import type { ContextImageMetadata } from './project-service-types'
 
 export type ProjectDiscoverySourceKind =
   | 'workspace-root'
@@ -13,6 +14,7 @@ export type ProjectDiscoverySourceKind =
 export interface ProjectDiscoveryLocation {
   kind: ProjectDiscoverySourceKind
   path: string
+  image?: ContextImageMetadata
 }
 
 export interface UnavailableProjectDiscoveryLocation {
@@ -48,6 +50,7 @@ interface ProjectDiscoveryScopeDependencies {
 export function resolveProjectDiscoveryScope(input: {
   session: DiscoverySession
   dependencies: ProjectDiscoveryScopeDependencies
+  images?: ReadonlyMap<string, ContextImageMetadata>
 }): ProjectDiscoveryScope {
   const { session, dependencies } = input
   const roots: ProjectDiscoveryLocation[] = []
@@ -77,7 +80,8 @@ export function resolveProjectDiscoveryScope(input: {
     }
     if (seen.has(resolved)) return
     seen.add(resolved)
-    const location = { kind, path: resolved }
+    const image = expected === 'file' ? input.images?.get(resolved) : undefined
+    const location: ProjectDiscoveryLocation = { kind, path: resolved, ...(image === undefined ? {} : { image }) }
     if (expected === 'directory') roots.push(location)
     else files.push(location)
   }
@@ -91,7 +95,10 @@ export function resolveProjectDiscoveryScope(input: {
     .sort((left, right) => `${left.ref.kind}\0${left.ref.id}\0${left.version}`.localeCompare(`${right.ref.kind}\0${right.ref.id}\0${right.version}`))
   const canonical = {
     roots: roots.map(item => `${item.kind}\0${item.path}`).sort(),
-    files: files.map(item => `${item.kind}\0${item.path}`).sort(),
+    files: files.map(item => {
+      const identity = `${item.kind}\0${item.path}`
+      return item.image === undefined ? identity : `${identity}\0${JSON.stringify([item.image.filename, item.image.mediaType])}`
+    }).sort(),
     unavailable: unavailable.map(item => `${item.kind}\0${item.name}\0${item.reason}`).sort(),
   }
   return { roots, files, unavailable, managedEvidence, hash: createHash('sha256').update(JSON.stringify(canonical)).digest('hex') }

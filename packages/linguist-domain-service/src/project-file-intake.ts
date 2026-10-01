@@ -13,6 +13,7 @@ import { sha256Hex } from '@linguist/cat-core'
 import {
   LINGUIST_IMPORT_MAX_BYTES,
   LINGUIST_RESOURCE_IMPORT_MAX_BYTES,
+  type ContextImageMetadata,
 } from './project-service-types'
 import type {
   LinguistImportResourceItem,
@@ -25,13 +26,13 @@ import type {
 import { LinguistCatInvalidArgumentError } from '@linguist/cat-tools'
 import { errorCodeOf, LinguistImportTooLargeError } from './errors'
 import { runLinguistContextPrepareWorker } from './cat-job-worker-client'
+import { contextImageFormat } from './context-extractor'
 import { createDefaultCatFormatRegistry } from './format-registry'
 import { parseTermReference, parseTmReference } from './project-resource-parsers'
 import type { LinguistProjectService } from './project-service'
 
 const CONTEXT_EXTENSIONS = new Set([
   '.pdf', '.doc', '.docx', '.rtf', '.pptx', '.md', '.markdown', '.txt',
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
 ])
 const TM_EXTENSIONS = new Set(['.tmx', '.sdltm'])
 const TB_EXTENSIONS = new Set(['.tbx', '.sdltb'])
@@ -51,6 +52,7 @@ interface IntakeEntry {
   path: string
   filename: string
   sizeBytes: number
+  imageMediaType?: ContextImageMetadata['mediaType']
 }
 
 function safeImportFailureMessage(error: unknown): string {
@@ -118,6 +120,7 @@ async function scanEntries(
   cwd: string,
   inputPaths: readonly string[],
   recursive: boolean,
+  images?: ReadonlyMap<string, ContextImageMetadata>,
 ): Promise<{ entries: IntakeEntry[]; failures: LinguistImportResourceItem[]; truncated: boolean }> {
   const entries: IntakeEntry[] = []
   const failures: LinguistImportResourceItem[] = []
@@ -132,7 +135,9 @@ async function scanEntries(
     const info = await stat(path)
     if (!info.isFile()) return
     seen.add(path)
-    entries.push({ path, filename: basename(path), sizeBytes: info.size })
+    const image = images?.get(path)
+    entries.push({ path, filename: image?.filename ?? basename(path), sizeBytes: info.size,
+      ...(image === undefined ? {} : { imageMediaType: image.mediaType }) })
   }
   const visit = async (inputPath: string): Promise<void> => {
     const path = await realpath(isAbsolute(inputPath) ? inputPath : resolve(cwd, inputPath))
@@ -204,7 +209,7 @@ async function importEntry(
     }
   }
   if (resourceKind === 'context') {
-    const doc = await service.importContextDoc(projectId, { bytes, filename: entry.filename })
+    const doc = await service.importContextDoc(projectId, { bytes, filename: entry.filename, imageMediaType: entry.imageMediaType })
     return {
       resourceKind,
       filename: entry.filename,
@@ -253,12 +258,13 @@ export async function importProjectResources(
   projectId: string,
   cwd: string,
   input: LinguistImportResourcesInput,
+  images?: ReadonlyMap<string, ContextImageMetadata>,
 ): Promise<LinguistImportResourcesResult> {
   // 项目级失败不能伪装成某一个文件的 partial failure；也不要先读用户文件再
   // 发现项目已归档或 cat.db 不健康。
   service.assertProjectWritable(projectId)
   const db = service.openProject(projectId)
-  const { entries, failures, truncated } = await scanEntries(cwd, input.paths, input.recursive)
+  const { entries, failures, truncated } = await scanEntries(cwd, input.paths, input.recursive, images)
   const registry = createDefaultCatFormatRegistry()
   const items: LinguistImportResourceItem[] = [...failures]
   const phraseSplits: IntakeEntry[] = []
@@ -268,7 +274,7 @@ export async function importProjectResources(
   const importedAssetsByHash = new Map(db.assets.listByProject().map((asset) => [asset.sourceSha256, asset]))
   const duplicateMasterHashes = new Set<string>()
   for (const entry of entries) {
-    if (!['.mxliff', '.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase())) continue
+    if (entry.imageMediaType !== undefined || !['.mxliff', '.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase())) continue
     try {
       const bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_IMPORT_MAX_BYTES)).bytes
       const adapter = await registry.detectBest(bytes, entry.filename)
@@ -296,7 +302,7 @@ export async function importProjectResources(
     }
   }
   const phraseMasters = entries.filter((entry) =>
-    ['.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase()) && !phraseFiles.has(entry.path))
+    entry.imageMediaType === undefined && ['.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase()) && !phraseFiles.has(entry.path))
   const phrasePairs = new Map<string, IntakeEntry>()
   const phrasePairMessages = new Map<string, string>()
   const phraseCandidateMasters = new Set<string>()
@@ -366,7 +372,7 @@ export async function importProjectResources(
   for (const entry of entries) {
     if (phraseCandidateMasters.has(entry.path)) continue
     const filename = entry.filename
-    const extension = extname(filename).toLowerCase()
+    const extension = contextImageFormat(filename, entry.imageMediaType)?.extension ?? extname(filename).toLowerCase()
     const phraseIssue = phraseIssues.get(entry.path)
     if (phraseIssue !== undefined) {
       items.push({ filename, status: 'needs-input', resourceKind: 'batch', message: phraseIssue })
@@ -393,11 +399,11 @@ export async function importProjectResources(
         }
       }
       resourceKind = input.kind === 'auto'
-        ? resourceKind ?? (TM_EXTENSIONS.has(extension)
-          ? 'tm'
-          : TB_EXTENSIONS.has(extension)
-            ? 'terms'
-            : undefined)
+        ? entry.imageMediaType !== undefined ? 'context' : resourceKind ?? (TM_EXTENSIONS.has(extension)
+            ? 'tm'
+            : TB_EXTENSIONS.has(extension)
+              ? 'terms'
+              : undefined)
         : input.kind === 'tb' ? 'terms' : input.kind
       if (resourceKind === undefined) {
         bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_RESOURCE_IMPORT_MAX_BYTES)).bytes
@@ -406,7 +412,7 @@ export async function importProjectResources(
           resourceKind = 'batch'
         } catch {
           if (BATCH_EXTENSIONS.has(extension)) resourceKind = 'batch'
-          else if (CONTEXT_EXTENSIONS.has(extension)) resourceKind = 'context'
+          else if (contextImageFormat(filename, entry.imageMediaType) !== undefined || CONTEXT_EXTENSIONS.has(extension)) resourceKind = 'context'
         }
       }
       if (resourceKind === undefined) {
@@ -452,7 +458,7 @@ export async function importProjectResources(
           status = preview.status
           resourceId = preview.assetId
         } else if (resourceKind === 'context') {
-          await runLinguistContextPrepareWorker({ bytes, filename })
+          await runLinguistContextPrepareWorker({ bytes, filename, imageMediaType: entry.imageMediaType })
         } else {
           const project = service.getProject(projectId)
           const reference = { bytes, filename, xlsxMapping }
@@ -463,6 +469,7 @@ export async function importProjectResources(
           }
         }
         items.push({ filename, status, resourceKind, sourceSha256: sha256Hex(bytes),
+          ...(entry.imageMediaType === undefined ? {} : { imageMediaType: entry.imageMediaType }),
           ...(resourceId === undefined ? {} : { resourceId }) })
         continue
       }
@@ -473,6 +480,7 @@ export async function importProjectResources(
         resourceKind,
         resourceId: imported.resourceId,
         sourceSha256: imported.sourceSha256,
+        ...(entry.imageMediaType === undefined ? {} : { imageMediaType: entry.imageMediaType }),
         ...(phrasePairMessages.get(entry.path) === undefined ? {} : { message: phrasePairMessages.get(entry.path) }),
         ...(imported.unknownTagSummary === undefined ? {} : { unknownTagSummary: imported.unknownTagSummary }),
       })

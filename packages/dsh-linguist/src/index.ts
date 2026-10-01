@@ -14,7 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat-tools'
 import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
-import { LinguistProjectService } from '@linguist/domain-service'
+import { LinguistProjectService, type ContextImageMetadata } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
 import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
 import { createCatDeps } from './host/cat-deps'
@@ -183,16 +183,28 @@ export function apply(ctx: Context, config: Config): void {
           refreshStage(db)
           return { db, delegatedScope }
         }
-        const attachedFiles = () => agent.session.deriveMessages().flatMap(message => {
-          if (message.role !== 'user' || message.source.kind !== 'user') return []
-          return message.content.flatMap(block => {
-            if (block.type !== 'file') return []
-            const path = ctx.attachments.fileHostPath(block.attachment)
-            if (path === undefined) throw new Error('DSH Session attachment has no readable host file')
-            return [path]
+        const attachedFiles = () => {
+          const images = new Map<string, ContextImageMetadata>()
+          const paths = agent.session.deriveMessages().flatMap(message => {
+            if (message.role !== 'user' || message.source.kind !== 'user') return []
+            return message.content.flatMap(block => {
+              if (block.type !== 'file' && block.type !== 'image') return []
+              const path = block.type === 'file'
+                ? ctx.attachments.fileHostPath(block.attachment)
+                : ctx.attachments.imageHostPath(block.attachment)
+              if (path === undefined) throw new Error('DSH Session attachment has no readable host file')
+              if (block.type === 'image') images.set(realpathSync(path), {
+                filename: block.attachment.name, mediaType: block.attachment.mediaType,
+              })
+              return [path]
+            })
           })
-        })
-        const scope = () => projectDiscoveryScope(service, projectId, workspace.id, workspace.path, attachedFiles())
+          return { paths, images }
+        }
+        const scope = () => {
+          const files = attachedFiles()
+          return projectDiscoveryScope(service, projectId, workspace.id, workspace.path, files.paths, files.images)
+        }
         const prepareStage = (segmentIds: readonly string[], task?: { scope?: 'segments' | 'assets' | 'project'; restart?: boolean; toolCallId: string }) => {
           const { db, delegatedScope } = resolveStage()
           if (binding.role === 'general' || db.readOnly) return
@@ -216,7 +228,8 @@ export function apply(ctx: Context, config: Config): void {
           service, projectId, sessionId, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
-          authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles()),
+          authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles().paths),
+          contextImages: () => attachedFiles().images,
           authorizeWritePath: (path, overwrite) => authorizeWorkspaceWrite(path, workspace.path, overwrite),
           discoveryScope: async () => scope(),
           onMutation: mutation => { mutations.publish(projectId, mutation) },

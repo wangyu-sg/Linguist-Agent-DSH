@@ -1,6 +1,4 @@
 import * as React from 'react'
-import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
-import { LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
 import { useT } from './ui-locale'
 import styles from './ProjectLocaleSelect.module.css'
 
@@ -46,27 +44,13 @@ export function ProjectLocaleSelect({ label, value, onValueChange, disabled = fa
   const t = useT()
   const id = React.useId()
   const known = PROJECT_LOCALE_OPTIONS.some((option) => option.value === value)
-  const [custom, setCustom] = React.useState(!known)
-  const showCustom = custom || !known
-  const invalid = value.length > 0 && (value.length > LOCALE_MAX_LENGTH || !LOCALE_PATTERN.test(value))
+  const options = known || value.length === 0
+    ? PROJECT_LOCALE_OPTIONS
+    : [...PROJECT_LOCALE_OPTIONS, { value, label: `${value}（当前值）` }]
   return <div className={styles.field}>
     <label className={styles.label} htmlFor={id}>{label}</label>
-    <select id={id} disabled={disabled} value={showCustom ? 'custom' : value} onChange={(event) => {
-      const next = event.target.value
-      setCustom(next === 'custom')
-      onValueChange(next === 'custom' ? '' : next)
-    }}>
-      {PROJECT_LOCALE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
-      <option value="custom">{t('自定义语言代码')}</option>
+    <select id={id} disabled={disabled} value={value} onChange={(event) => onValueChange(event.target.value)}>
+      {options.map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
     </select>
-    {showCustom && <>
-      <Input required disabled={disabled} aria-label={t('{label}语言代码', { label })}
-        aria-describedby={`${id}-hint`} aria-invalid={invalid || undefined}
-        maxLength={LOCALE_MAX_LENGTH} pattern={LOCALE_PATTERN.source} placeholder="es-419 / zh-Hant-TW"
-        value={value} onChange={(event) => onValueChange(event.target.value)} onBlur={() => onValueChange(value.trim())} />
-      <small id={`${id}-hint`} className={invalid ? styles.error : styles.hint}>
-        {t(invalid ? '语言代码格式不正确（如 en、zh-CN、zh-Hant-TW）' : '使用 BCP-47 语言代码，如 es-419、zh-Hant-TW。')}
-      </small>
-    </>}
   </div>
 }

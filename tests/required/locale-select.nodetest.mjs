@@ -9,7 +9,6 @@ const client = new URL('../../packages/dsh-linguist/src/client/', import.meta.ur
 const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
 const React = require('react')
 const { renderToStaticMarkup } = require('react-dom/server')
-const constraints = { LOCALE_MAX_LENGTH: 35, LOCALE_PATTERN: /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/ }
 
 function renderLocale(props) {
   const exports = {}
@@ -18,8 +17,6 @@ function renderLocale(props) {
   }).outputText
   runInNewContext(code, { exports, require: name => {
     if (name === 'react') return React
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Input: props => React.createElement('input', props) }
-    if (name === '../project-input') return constraints
     if (name === './ui-locale') return { useT: () => key => key }
     if (name.endsWith('.module.css')) return { default: {} }
     throw new Error(`Unexpected locale select import: ${name}`)
@@ -29,25 +26,24 @@ function renderLocale(props) {
 
 test('project locale dropdown retains all 30 source languages and localized labels', () => {
   const html = renderLocale({ value: 'en-US' })
-  assert.equal((html.match(/<option /g) ?? []).length, 31)
+  assert.equal((html.match(/<option /g) ?? []).length, 30)
   assert.match(html, /<option value="en-US" selected="">英语（美国，en-US）<\/option>/)
   for (const value of ['zh-CN', 'zh-TW', 'zh-HK', 'pt-BR', 'pt-PT', 'es-MX', 'ja-JP', 'ko-KR', 'ms-MY']) assert(html.includes(`value="${value}"`), value)
-  assert(html.includes('源语言'))
-  assert(html.includes('自定义语言代码'))
-  assert(!html.includes('<input'), 'common languages need no manual code input')
+  const id = html.match(/<select[^>]* id="([^"]+)"/)[1]
+  assert(html.includes(`<label for="${id}">源语言</label>`))
+  assert(!html.includes('<input'))
+  assert.equal((renderLocale({ value: '' }).match(/<option /g) ?? []).length, 30)
 })
 
-test('custom project locales retain their value and native validation, including frozen fields', () => {
-  const html = renderLocale({ value: 'es-419', disabled: true })
-  assert.match(html, /<select[^>]*disabled=""/)
-  assert.match(html, /<input[^>]*disabled=""/)
-  assert(html.includes('value="es-419"'))
-  assert(html.includes('maxLength="35"'))
-  assert(html.includes('required=""'))
-  const pattern = html.match(/ pattern="([^"]+)"/)[1]
-  for (const locale of ['en', 'es-419', 'zh-Hant-TW']) assert(new RegExp(pattern, 'v').test(locale))
-  for (const locale of ['', 'zh_CN', 'zh--CN']) assert(!new RegExp(pattern, 'v').test(locale))
-  assert.match(renderLocale({ value: 'zh_CN' }), /aria-invalid="true"/)
+test('unknown project locales remain selected as current values, including frozen fields', () => {
+  for (const value of ['es-419', 'zh_CN']) {
+    const html = renderLocale({ value, disabled: true })
+    assert.equal((html.match(/<option /g) ?? []).length, 31)
+    assert.match(html, /<select[^>]*disabled=""/)
+    assert(html.includes(`<option value="${value}" selected="">${value}（当前值）</option>`))
+    assert(!html.includes('<input'))
+    assert(!html.includes('aria-invalid'))
+  }
 })
 
 test('create and settings use the same dropdown and create preserves QA choice before opening the new project', () => {

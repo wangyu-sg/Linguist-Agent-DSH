@@ -2,6 +2,23 @@ import { describe, expect, test } from 'bun:test'
 import { buildProjectEvidenceInventory } from './project-evidence-inventory'
 
 describe('Project Evidence inventory', () => {
+  test('已验证 native 图片类型驱动无扩展名和误导名称媒体计数', () => {
+    const result = buildProjectEvidenceInventory({
+      discoveryScopeHash: 'native-images', managedEvidenceCount: 0, unavailable: [],
+      scan: {
+        found: 3, ready: 3, imported: 0, skippedDuplicate: 0, needsInput: 0,
+        unsupported: 0, failed: 0, truncated: false,
+        items: [
+          { filename: 'a'.repeat(64), imageMediaType: 'image/png', status: 'ready', resourceKind: 'context' },
+          { filename: 'visual.pdf', imageMediaType: 'image/png', status: 'ready', resourceKind: 'context' },
+          { filename: 'brief.pdf', status: 'ready', resourceKind: 'context' },
+        ],
+      },
+    })
+    expect(result.summary.media).toBe(2)
+    expect(result.summary.unsupported).toBe(0)
+  })
+
   test('重复分类保留实际计数，同名但不同映射要求保留独立 Gap', () => {
     const scan = {
       found: 6, ready: 0, imported: 0, skippedDuplicate: 0, needsInput: 2,

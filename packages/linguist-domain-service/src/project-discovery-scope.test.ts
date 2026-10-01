@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveProjectDiscoveryScope } from './project-discovery-scope'
+import type { ContextImageMetadata } from './project-service-types'
 
 const temporaryDirectories: string[] = []
 
@@ -11,6 +13,34 @@ afterEach(() => {
 })
 
 describe('Project Discovery Scope', () => {
+  test('同一图片对象的名称和类型进入冻结 hash，普通文件保留原 canonical 格式', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'linguist-discovery-image-')))
+    temporaryDirectories.push(root)
+    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR3sAAAAASUVORK5CYII=', 'base64')
+    const path = join(root, createHash('sha256').update(bytes).digest('hex'))
+    writeFileSync(path, bytes)
+    const input = {
+      session: { attachedFiles: [path] },
+      dependencies: {
+        getWorkspace: () => undefined,
+        getProjectFilesPath: () => root,
+        getWorkspaceAttachedDirectories: () => [],
+        getWorkspaceAttachedFiles: () => [],
+        listManagedEvidence: () => [],
+      },
+    }
+    const withImage = (image: ContextImageMetadata) => resolveProjectDiscoveryScope({ ...input, images: new Map([[path, image]]) })
+    const original = withImage({ filename: 'visual.png', mediaType: 'image/png' })
+    expect(withImage({ filename: 'renamed.png', mediaType: 'image/png' }).hash).not.toBe(original.hash)
+    expect(withImage({ filename: 'visual.png', mediaType: 'image/jpeg' }).hash).not.toBe(original.hash)
+    expect(withImage({ filename: 'visual.png', mediaType: 'image/png' })).toEqual(original)
+    expect(original.files).toEqual([{ kind: 'session-attached-file', path, image: { filename: 'visual.png', mediaType: 'image/png' } }])
+    const plain = resolveProjectDiscoveryScope(input)
+    const canonical = { roots: [], files: [`session-attached-file\0${path}`], unavailable: [] }
+    expect(plain.files).toEqual([{ kind: 'session-attached-file', path }])
+    expect(plain.hash).toBe(createHash('sha256').update(JSON.stringify(canonical)).digest('hex'))
+  })
+
   test('只包含宿主授权的项目根和附件，并把不可用附件显式保留为缺口', () => {
     const root = mkdtempSync(join(tmpdir(), 'linguist-discovery-'))
     temporaryDirectories.push(root)

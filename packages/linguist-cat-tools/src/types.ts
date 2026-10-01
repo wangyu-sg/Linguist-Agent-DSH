@@ -281,6 +281,7 @@ export interface LinguistImportResourcesInput {
 
 export interface LinguistImportResourceItem {
   filename: string
+  imageMediaType?: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
   status: 'imported' | 'skipped-duplicate' | 'needs-input' | 'unsupported' | 'failed' | 'ready' | 'supporting'
   resourceKind?: LinguistIntakeResourceKind
   resourceId?: string
