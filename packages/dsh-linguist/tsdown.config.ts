@@ -59,7 +59,7 @@ export default defineConfig([
     outDir: 'lib', format: 'esm', dts: false, clean: false,
     copy: ['../linguist-domain-service/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
     external: [/^@deepseek-ai\//],
-    noExternal: [/^@linguist\//, /^file-type$/],
+    noExternal: [/^@linguist\//, /^file-type$/, /^pdfjs-dist\//],
     outputOptions: { entryFileNames: 'index.mjs' },
   },
   {
@@ -70,7 +70,7 @@ export default defineConfig([
     },
     outDir: 'lib', format: 'esm', dts: false, clean: false,
     external: [/^@deepseek-ai\//],
-    noExternal: [/^@linguist\//, /^file-type$/],
+    noExternal: [/^@linguist\//, /^file-type$/, /^pdfjs-dist\//],
     outputOptions: { entryFileNames: '[name].js' },
   },
   client,
