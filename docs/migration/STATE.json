@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "IN_PROGRESS",
-  "updatedAt": "2026-10-01T10:49:41.444744+00:00",
+  "updatedAt": "2026-10-01T11:22:47.092Z",
   "source": {
     "path": "/Users/wangyu/Desktop/linguist-agent-next",
     "branch": "main",
@@ -1291,7 +1291,7 @@
     }
   ],
   "customerDataTouched": false,
-  "remotePublished": false,
+  "remotePublished": true,
   "readyReceipt": {
     "status": "FAILED",
     "freshForCurrentState": false,
@@ -1303,11 +1303,12 @@
   "historyArchive": "docs/migration/history/2026-09-29-before-rc2-full-audit.json",
   "hostCapabilityBoundary": "按实施规范§16（第584行），Skills/MCP/项目指令/文件保持DSH宿主原生方式。旧ProjectAgentCapabilitiesSection只是Proma能力摘要和导航：MCP统计配置enabled并打开宿主MCP页；Memory调用openWorkspaceMemoryWindow，编辑workspace memory/Markdown，非LA领域存储。目标以公开Skills/默认指令候选及原生Plugins/Files入口接管，不重建Proma专有Memory窗口/后端。固定DSH Files/文档面板为只读浏览预览，不能据此声称手工编辑等价；这是已明确的宿主体验边界，不作为LA域编辑器实现待办。PluginInventoryEntry.moduleName是Loader实际模块标识，但listPlugins是profile清单，不等于当前Workspace有效MCP集合，因此不显示猜测的项目启用数。",
   "remotePushAuthorization": {
-    "date": "2026-09-29",
-    "visibility": "private",
-    "timing": "after completing implementation and acceptance",
+    "date": "2026-10-01",
+    "visibility": "public",
+    "timing": "publish the current source snapshot now for web GPT Pro review, before complete acceptance",
     "repositoryCreated": true,
-    "pushed": false,
+    "pushed": true,
+    "firstPushedCommit": "3ce492325f140bb04906a7b9408742fcd2cc10b9",
     "repository": "https://github.com/wangyu-sg/Linguist-Agent-DSH",
     "userAuthorized": true
   },

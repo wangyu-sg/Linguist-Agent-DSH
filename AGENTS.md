@@ -52,7 +52,7 @@ Allowed: target code, necessary pinned dependencies, bounded compatibility patch
 
 Forbidden: source mutations, old LA/Proma replacement or deletion of existing DSH profile data, real OSgame/customer database writes, real Phrase operations, user-data deletion, Cookie/key extraction, auth bypass, public release/publication, unrelated global upgrades and system security changes.
 
-User authorization added 2026-09-29: create the private GitHub repository `https://github.com/wangyu-sg/Linguist-Agent-DSH` and push this target project after completing the work, for analysis by the user's web GPT Pro. This supersedes the earlier prohibition on remote push for that repository only. Exclude credentials, runtime profiles, customer data and local evidence containing private data. Ponytail review remains required before each commit and push. Record the actual destination, private visibility and pushed commit.
+User authorization updated 2026-10-01: push the current target project now and make `https://github.com/wangyu-sg/Linguist-Agent-DSH` public for analysis by the user's web GPT Pro. This supersedes the previous private visibility and completion-before-push conditions for that repository only. Publishing this source review snapshot does not establish product readiness. Exclude credentials, runtime profiles, customer data and local evidence containing private data. Ponytail review remains required before each commit and push. Record the actual destination, visibility and pushed commit.
 
 Use no customer content in fixtures, logs or model tests. Never dump environment variables, credentials or browser profiles. Do not silently change model/provider/effort to pass a test.
 

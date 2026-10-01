@@ -1,5 +1,10 @@
 # 当前进度与接续（2026-10-01）
 
+## 公开源码审查
+
+- 用户要求先推送供网页 GPT Pro 分析；已推送 `3ce492325f140bb04906a7b9408742fcd2cc10b9` 并将 [GitHub 仓库](https://github.com/wangyu-sg/Linguist-Agent-DSH) 改为公开，默认分支 `main`。后续文档同步提交可在 GitHub 提交记录查看。
+- 当前仍 **IN_PROGRESS / NOT_READY**。本次公开操作没有增加验收通过项；凭据、运行时 profile、客户数据及本机原始证据不随 Git 分发。
+
 ## 当前真实安装与冻结源码
 
 - 官方 DSH：`/Applications/DeepSeek Harness.app`，固定 `0.2.0-rc.2`，默认 desktop profile。
@@ -46,7 +51,7 @@
 1. 在当前1649上核D043当前用户FileBlock/ImageBlock准入、无扩展名元数据／同批图像排除及实际模型可见文图request/response链；原生Browser以小范围MAX／General localhost合成链核freshness。旧CLI／Workspace图像／模型链不替代当前来源证明；Root独占native／model。
 2. 收集**8类真实PNG＋17个UI动作**，按 `native-final-018c/final-proof-collection.json`／`acceptance-gap-018c/缺口矩阵.md`归集尚未覆盖的20surface、30V及完整合同。已完成1649安装／冷启动、初始默认与Source30下拉框不重复；未观察的完整生命周期仍按实际范围核定。既有JPEG保留来源，不冒作未观察的PNG／动作。
 3. mapagent正在为已完整声明范围的历史及b62有限证据建立**合法1649 canonical范围桥**，保留原请求／响应／actor／时间／安装ID。总索引128／202仍是b62有限完整绑定，剩余74是未绑定合同，不是74个代码故障。下方bulk50／CAS／SSE／201、StyleVoice、TM、rename／未来任务生命周期、Exemplar／PDF／自然QAStop等有限实测不重复演示；只重验修改影响或原本未覆盖的范围。
-4. 完整归集202合同及功能面／验证族后运行正式 `verify:ready`。旧FAILED／NOT_OBSERVED保持；飞书由用户延后，真实投递仍 **BLOCKED_ENV**，不删门禁。只有当前安装产物全部必需门禁通过才通知“完整迁移完成，可以直接使用”。私有GitHub已创建未push；完成后按授权推送，每次commit／push先对精确diff运行Ponytail并得到 **Lean already. Ship.**。
+4. 完整归集202合同及功能面／验证族后运行正式 `verify:ready`。旧FAILED／NOT_OBSERVED保持；飞书由用户延后，真实投递仍 **BLOCKED_ENV**，不删门禁。只有当前安装产物全部必需门禁通过才通知“完整迁移完成，可以直接使用”。GitHub已按用户最新要求先行公开推送；每次后续commit／push先对精确diff运行Ponytail并得到 **Lean already. Ship.**。
 
 ## 冻结历史证据（保留原身份）
 
@@ -69,7 +74,7 @@
 - CAT选区按需附带、实际提交时冻结；项目身份由Linguist列表和原生会话顶部承载，用户接受SDK没有侧栏行内徽标接口。
 - 全新包已有持续安装授权；桌面工具对不受信任本地build仍要求安装动作当场确认，按工具规则执行，已安装包不重复问。
 - 源仓库只读；仅非客户合成；不访问真实Phrase/OSgame/客户库，不切provider/effort，不覆盖旧LA/Proma/DSH数据。
-- 私有 `wangyu-sg/Linguist-Agent-DSH` 已创建、尚未push。完成后按授权推送；每次commit/push前精确diff必须Ponytail `Lean already. Ship.`。
+- 用户2026-10-01授权立即推送并公开 `wangyu-sg/Linguist-Agent-DSH`，已完成首次公开推送。每次后续commit/push前精确diff必须Ponytail `Lean already. Ship.`。
 
 ## 历史检查点（以下安装等待已解除）
 

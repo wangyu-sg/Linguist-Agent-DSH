@@ -6,6 +6,8 @@ DeepSeek Harness 原生 Host + Client 插件，迁移 Linguist Agent 的 CAT、�
 
 官方宿主基线为 **DSH 0.2.0-rc.2**。本轮统一前端与功能补齐处于集成验收阶段；源码检查通过不代表当前安装产物已完成验收。以 [迁移状态](docs/migration/STATE.json) 和 [接续记录](docs/migration/NEXT.md) 为准。
 
+2026-10-01 按用户要求公开当前源码供 GPT Pro 审查。当前为 **IN_PROGRESS / NOT_READY**，尚未通过完整安装产物验收；审查应同时核对源码、功能清单与下列状态记录。
+
 ## 分析入口
 
 - [完整功能总览](docs/migration/audit-2026-09-29/功能迁移总览.html)：可下载后在浏览器搜索和筛选。
