@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { executeWorkingCopyAction } from './working-copy-service'
 import { prepareWorkingCopy, readWorkingJson, workingCopyPath } from './working-copy'
 import { LinguistProjectService } from './project-service'
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
+import { LinguistImportTooLargeError } from './errors'
 import { PROJECT_BRIEF_PATH, readProjectBrief, readWorkspaceBriefSource, type ProjectBrief } from './project-brief'
 
 test('project service creates versioned metadata and preserves import/CAS/archive behavior', async () => {
@@ -53,6 +55,16 @@ test('project service creates versioned metadata and preserves import/CAS/archiv
     service.closeAll()
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('working JSON reports the filename and shared limit before reading an oversized sparse file', () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-working-limit-'))
+  try {
+    const path = join(root, 'oversized.json')
+    writeFileSync(path, '{}')
+    truncateSync(path, LINGUIST_FILE_MAX_BYTES + 1)
+    assert.throws(() => readWorkingJson(root, 'oversized.json'), error => error instanceof LinguistImportTooLargeError && error.filename === 'oversized.json' && error.limitBytes === LINGUIST_FILE_MAX_BYTES)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('working copies preserve original bytes, explicit decisions and T→E→P revision identity', async () => {

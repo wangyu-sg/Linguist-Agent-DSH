@@ -3,7 +3,6 @@
  *
  * Provenance — every constant here is lifted from frozen legacy-repo SOURCE
  * (read-only; data/ and outputs/ were never touched):
- * - docs/migration/CAT_EXTRACTION_MATRIX.md §5 (new repo) — layout blueprint.
  * - linguist-agent/packages/cat-data/src/workspace.ts:17-19 — workspacePath()
  *   = <root>/data/projects/<projectId>/...
  * - linguist-agent/packages/cat-data/src/runtime_migrations.ts:13-14 —

@@ -11,7 +11,7 @@ import { discoverBaselineInstructionFiles } from '@deepseek-ai/dsh-agent-instruc
 import fileType from 'file-type'
 import { FormatAmbiguousError, FormatExportError, FormatParseError, FormatSegmentLostError, FormatUnsupportedError,
   MQXLIFF_ADAPTER_ID, PHRASE_DOCX_ADAPTER_ID, PHRASE_MXLIFF_ADAPTER_ID, SDLXLIFF_ADAPTER_ID } from '@linguist/cat-formats'
-import type { LinguistProjectService } from '@linguist/domain-service'
+import { LinguistImportTooLargeError, type LinguistProjectService } from '@linguist/domain-service'
 import { LINGUIST_IPC_ERROR_CODES, type LinguistIpcError } from '@linguist/domain-service/contracts'
 import { BindingStore, type LinguistRole, type LinguistWorkMode, type SessionBinding } from './bindings'
 import { ManagedFiles } from './files'
@@ -40,7 +40,7 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
   if (violation) { sendJson(response, 403, { error: `forbidden: ${violation}` }); return }
   try {
     if (route === '/la/v1/status' && request.method === 'GET') {
-      sendJson(response, 200, { appId: 'linguist-agent-dsh', installationId: deps.installationId, service: deps.service.getStatus(), mutationDeliveryError: deps.mutations.lastError ?? null })
+      sendJson(response, 200, { appId: 'linguist-agent-dsh', installationId: deps.installationId, service: deps.service.getStatus(), mutationDeliveryError: deps.mutations.lastError ?? null, stagingCleanupError: deps.files.lastCleanupError ?? null })
     } else if (route === '/la/v1/pdf-worker.mjs' && request.method === 'GET') {
       const worker = await readFile(new URL('./pdf.worker.mjs', import.meta.url))
       response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Content-Length': worker.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
@@ -96,6 +96,11 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
       catch (error) { sendJson(response, 200, { ok: false, error: invokeError(error) }) }
     } else if (route === '/la/v1/files/stage' && request.method === 'POST') {
       sendJson(response, 200, { tokens: await deps.files.stage(request) })
+    } else if (route === '/la/v1/files/discard' && request.method === 'POST') {
+      const body = await readJson(request)
+      if (!Array.isArray(body.tokens) || body.tokens.length > 500 || !body.tokens.every(token => typeof token === 'string' && /^[A-Za-z0-9_-]{32}$/.test(token))) throw new RequestError(400, 'Invalid upload tokens')
+      for (const token of body.tokens) deps.files.discardUpload(token)
+      sendJson(response, 200, { discarded: true })
     } else if (route === '/la/v1/files/export' && request.method === 'POST') {
       const body = await readJson(request)
       const projectId = stringField(body, 'projectId')
@@ -131,7 +136,8 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
     }
   } catch (error) {
     if (response.headersSent) { response.destroy(error instanceof Error ? error : undefined); return }
-    if (error instanceof RequestError) sendJson(response, error.status, { error: error.message })
+    if (error instanceof LinguistImportTooLargeError) sendJson(response, 413, { error: invokeError(error) })
+    else if (error instanceof RequestError) sendJson(response, error.status, { error: error.message })
     else {
       console.error('[Linguist HTTP] unexpected request error')
       sendJson(response, 500, { error: 'Unexpected internal error.' })
@@ -226,6 +232,7 @@ export function invokeError(error: unknown): LinguistIpcError {
     formatDetails = { code: 'FORMAT_AMBIGUOUS', category: 'format_ambiguous', filename: basename(error.filename.replaceAll('\\', '/')), score: error.score, adapterIds: [...error.adapterIds] }
   }
   let message = code === LINGUIST_IPC_ERROR_CODES.INVALID_INPUT ? 'Invalid Linguist input.' : 'Linguist request failed.'
+  if (error instanceof LinguistImportTooLargeError) message = error.message
   if (formatDetails) {
     switch (formatDetails.code) {
       case 'FORMAT_PARSE_ERROR': message = `Could not parse ${formatDetails.filename} with ${formatDetails.adapterId}.`; break
@@ -259,7 +266,7 @@ function fenceViolation(request: IncomingMessage, route: string): string | undef
 async function sendManagedFile(response: ServerResponse, files: ManagedFiles, token: string): Promise<void> {
   if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new RequestError(404, 'Unknown file token')
   const file = await files.open(token)
-  if (file.kind === 'upload') throw new RequestError(403, 'Upload token is not downloadable')
+  if (file.kind === 'upload') { file.stream.destroy(); throw new RequestError(403, 'Upload token is not downloadable') }
   let mime = 'application/octet-stream'
   if (file.kind === 'preview') {
     const handle = await openFile(file.path, 'r')
@@ -280,5 +287,7 @@ async function sendManagedFile(response: ServerResponse, files: ManagedFiles, to
     'Content-Security-Policy': 'sandbox',
   })
   file.stream.pipe(response)
+  file.stream.once('error', error => response.destroy(error))
+  response.once('close', () => file.stream.destroy())
   response.once('finish', file.consume)
 }

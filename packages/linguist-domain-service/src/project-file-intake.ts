@@ -10,11 +10,8 @@ import {
   probePhraseMasterPair,
 } from '@linguist/cat-formats'
 import { sha256Hex } from '@linguist/cat-core'
-import {
-  LINGUIST_IMPORT_MAX_BYTES,
-  LINGUIST_RESOURCE_IMPORT_MAX_BYTES,
-  type ContextImageMetadata,
-} from './project-service-types'
+import type { ContextImageMetadata } from './project-service-types'
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import type {
   LinguistImportResourceItem,
   LinguistImportResourcesInput,
@@ -61,6 +58,7 @@ function safeImportFailureMessage(error: unknown): string {
   if (error instanceof FormatParseError) {
     return `导入失败（${publicCode} / ${error.adapterId}）：${error.detail.slice(0, 240)}`
   }
+  if (error instanceof LinguistImportTooLargeError) return error.message
   return `导入失败（${publicCode}）`
 }
 
@@ -97,11 +95,11 @@ export async function readPickedFileWithinLimit(
     const info = await file.stat()
     if (!info.isFile()) throw new Error('picked path is not a regular file')
     if (info.size > limitBytes) {
-      throw new LinguistImportTooLargeError(info.size, limitBytes)
+      throw new LinguistImportTooLargeError(info.size, limitBytes, basename(filePath))
     }
     const bytes = await file.readFile()
     if (bytes.byteLength > limitBytes) {
-      throw new LinguistImportTooLargeError(bytes.byteLength, limitBytes)
+      throw new LinguistImportTooLargeError(bytes.byteLength, limitBytes, basename(filePath))
     }
     return { bytes, filename: basename(filePath) }
   } finally {
@@ -176,14 +174,12 @@ async function importEntry(
   xlsxMapping?: LinguistIntakeXlsxMapping,
   phraseMaster?: IntakeEntry,
 ): Promise<LinguistIntakeImportResult> {
-  const maxBytes = resourceKind === 'batch'
-    ? LINGUIST_IMPORT_MAX_BYTES
-    : LINGUIST_RESOURCE_IMPORT_MAX_BYTES
-  assertEntryWithinLimit(entry, resourceKind, maxBytes)
+  const maxBytes = LINGUIST_FILE_MAX_BYTES
+  assertEntryWithinLimit(entry, maxBytes)
   const { bytes } = await readPickedFileWithinLimit(entry.path, maxBytes)
   if (resourceKind === 'batch') {
-    if (phraseMaster !== undefined && phraseMaster.sizeBytes > LINGUIST_IMPORT_MAX_BYTES) {
-      throw new LinguistCatInvalidArgumentError('paths', 'Phrase master companion exceeds the batch intake limit')
+    if (phraseMaster !== undefined && phraseMaster.sizeBytes > LINGUIST_FILE_MAX_BYTES) {
+      throw new LinguistImportTooLargeError(phraseMaster.sizeBytes, LINGUIST_FILE_MAX_BYTES, phraseMaster.filename)
     }
     const result = await service.importAsset(projectId, {
       bytes,
@@ -191,7 +187,7 @@ async function importEntry(
       xlsxMapping,
       ...(phraseMaster === undefined ? {} : {
         phraseMaster: {
-          bytes: (await readPickedFileWithinLimit(phraseMaster.path, LINGUIST_IMPORT_MAX_BYTES)).bytes,
+          bytes: (await readPickedFileWithinLimit(phraseMaster.path, LINGUIST_FILE_MAX_BYTES)).bytes,
           filename: phraseMaster.filename,
         },
       }),
@@ -241,16 +237,10 @@ async function importEntry(
 
 function assertEntryWithinLimit(
   entry: IntakeEntry,
-  resourceKind: LinguistIntakeResourceKind,
-  maxBytes = resourceKind === 'batch'
-    ? LINGUIST_IMPORT_MAX_BYTES
-    : LINGUIST_RESOURCE_IMPORT_MAX_BYTES,
+  maxBytes = LINGUIST_FILE_MAX_BYTES,
 ): void {
   if (entry.sizeBytes <= maxBytes) return
-  throw new LinguistCatInvalidArgumentError(
-    'paths',
-    `file exceeds the ${Math.floor(maxBytes / 1024 / 1024)}MB ${resourceKind} intake limit`,
-  )
+  throw new LinguistImportTooLargeError(entry.sizeBytes, maxBytes, entry.filename)
 }
 
 export async function importProjectResources(
@@ -276,7 +266,7 @@ export async function importProjectResources(
   for (const entry of entries) {
     if (entry.imageMediaType !== undefined || !['.mxliff', '.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase())) continue
     try {
-      const bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_IMPORT_MAX_BYTES)).bytes
+      const bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_FILE_MAX_BYTES)).bytes
       const adapter = await registry.detectBest(bytes, entry.filename)
       if (adapter.id !== PHRASE_MXLIFF_ADAPTER_ID) continue
       phraseFiles.add(entry.path)
@@ -314,7 +304,7 @@ export async function importProjectResources(
   for (const master of phraseMasters) {
     if (!phraseCandidateMasters.has(master.path)) continue
     try {
-      const bytes = (await readPickedFileWithinLimit(master.path, LINGUIST_IMPORT_MAX_BYTES)).bytes
+      const bytes = (await readPickedFileWithinLimit(master.path, LINGUIST_FILE_MAX_BYTES)).bytes
       if (duplicateMasterHashes.has(sha256Hex(bytes))) usedMasters.add(master.path)
     } catch {
       // 下方统一返回 needs-input；不可读的配套文件不自动当独立源批次导入。
@@ -323,7 +313,7 @@ export async function importProjectResources(
   for (const split of phraseSplits) {
     let splitBytes: Uint8Array
     try {
-      splitBytes = (await readPickedFileWithinLimit(split.path, LINGUIST_IMPORT_MAX_BYTES)).bytes
+      splitBytes = (await readPickedFileWithinLimit(split.path, LINGUIST_FILE_MAX_BYTES)).bytes
     } catch {
       phraseIssues.set(split.path, 'Phrase split 文件不可读')
       continue
@@ -335,7 +325,7 @@ export async function importProjectResources(
         const probe = await probePhraseMasterPair(
           splitBytes,
           split.filename,
-          (await readPickedFileWithinLimit(master.path, LINGUIST_IMPORT_MAX_BYTES)).bytes,
+          (await readPickedFileWithinLimit(master.path, LINGUIST_FILE_MAX_BYTES)).bytes,
           master.filename,
         )
         if (probe.status === 'matched' || (probe.status === 'not-required' && probe.literalSegments > 0)) {
@@ -382,7 +372,7 @@ export async function importProjectResources(
     try {
       let bytes: Uint8Array | undefined
       if (input.kind === 'auto' && extension === '.csv') {
-        bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_RESOURCE_IMPORT_MAX_BYTES)).bytes
+        bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_FILE_MAX_BYTES)).bytes
         const csvKind = autoCsvKind(bytes, filename)
         if (csvKind === 'terms') {
           resourceKind = 'terms'
@@ -406,7 +396,7 @@ export async function importProjectResources(
               : undefined)
         : input.kind === 'tb' ? 'terms' : input.kind
       if (resourceKind === undefined) {
-        bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_RESOURCE_IMPORT_MAX_BYTES)).bytes
+        bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_FILE_MAX_BYTES)).bytes
         try {
           await registry.detectBest(bytes, filename)
           resourceKind = 'batch'
@@ -421,7 +411,7 @@ export async function importProjectResources(
       }
       let xlsxMapping = input.xlsxMapping
       if (resourceKind !== 'context' && extension === '.xlsx' && xlsxMapping === undefined) {
-        bytes ??= (await readPickedFileWithinLimit(entry.path, LINGUIST_IMPORT_MAX_BYTES)).bytes
+        bytes ??= (await readPickedFileWithinLimit(entry.path, LINGUIST_FILE_MAX_BYTES)).bytes
         xlsxMapping = await service.resolveWorkbookMapping(projectId, bytes, filename)
         if (xlsxMapping === undefined) {
           items.push({
@@ -434,12 +424,10 @@ export async function importProjectResources(
           continue
         }
       }
-      assertEntryWithinLimit(entry, resourceKind)
+      assertEntryWithinLimit(entry)
       const master = phrasePairs.get(entry.path)
       if (input.dryRun) {
-        const maxBytes = resourceKind === 'batch'
-          ? LINGUIST_IMPORT_MAX_BYTES
-          : LINGUIST_RESOURCE_IMPORT_MAX_BYTES
+        const maxBytes = LINGUIST_FILE_MAX_BYTES
         bytes ??= (await readPickedFileWithinLimit(entry.path, maxBytes)).bytes
         let status: LinguistImportResourceItem['status'] = 'ready'
         let resourceId: string | undefined
@@ -450,7 +438,7 @@ export async function importProjectResources(
             xlsxMapping,
             ...(master === undefined ? {} : {
               phraseMaster: {
-                bytes: (await readPickedFileWithinLimit(master.path, LINGUIST_IMPORT_MAX_BYTES)).bytes,
+                bytes: (await readPickedFileWithinLimit(master.path, LINGUIST_FILE_MAX_BYTES)).bytes,
                 filename: master.filename,
               },
             }),

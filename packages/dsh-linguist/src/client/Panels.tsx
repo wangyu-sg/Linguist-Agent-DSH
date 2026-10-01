@@ -33,7 +33,7 @@ import type {
   LinguistWorkflowStage,
   LinguistXlsxMappingPreviewSheet,
 } from '@linguist/domain-service/contracts'
-import { fileUrl, required, stageFiles } from './api'
+import { discardStagedFiles, fileUrl, required, stageFiles } from './api'
 import { describeLinguistFormat, isGenericXliffFallback } from './format-labels'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { BackupRestorePreview } from './BackupRestorePreview'
@@ -590,6 +590,14 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     } catch (error) { setMessage(describeProjectError(error, t)) }
     finally { setImporting(false) }
   }
+  const cancelMapping = async () => {
+    const candidate = importResult
+    if (!candidate || candidate.cancelled || candidate.bulk || !candidate.requiresXlsxMapping) return
+    setImporting(true)
+    try { await discardStagedFiles([candidate.mappingId]); setImportResult(undefined) }
+    catch (error) { setMessage(describeProjectError(error, t)) }
+    finally { setImporting(false) }
+  }
   const importResource = async (file: File, operation: 'linguistAssetsImportContextDoc' | 'linguistAssetsImportSentencePatterns') => {
     if (archived) return
     try {
@@ -661,7 +669,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /><Button variant="outline" size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
     {mapCandidate && <div className={styles.callout} aria-label={t('XLSX 映射确认')}>
-      <div className={styles.toolbar}><strong>{mapCandidate.filename} {t("需要映射列")}</strong><Button variant="outline" size="sm" disabled={importing} onClick={() => setImportResult(undefined)}>{t('取消')}</Button></div>
+      <div className={styles.toolbar}><strong>{mapCandidate.filename} {t("需要映射列")}</strong><Button variant="outline" size="sm" disabled={importing} onClick={() => void cancelMapping()}>{t('取消')}</Button></div>
       <label>{t('工作表')} <select aria-label={t("工作表")} disabled={importing} value={sheetName} onChange={(event) => { const next = mapCandidate.preview.sheets.find((entry) => entry.name === event.target.value); setSheetName(event.target.value); setColumns(suggestedXlsxColumns(next)) }}>{mapCandidate.preview.sheets.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}{entry.state === 'visible' ? '' : ` (${entry.state})`}</option>)}</select></label>
       {sheet && <>
         <div className={styles.toolbar}>{(['key','source','target','locked','context'] as const).map((field) => <label key={field}>{field}<select aria-label={t('{field} 列', { field })} disabled={importing} value={columns[field]} onChange={(event) => setColumns((current) => ({ ...current, [field]: event.target.value }))}><option value="">{t("未指定")}</option>{sheet.columns.filter((entry) => entry.selectable).map((entry) => <option key={entry.index} value={entry.header}>{entry.header}</option>)}</select></label>)}</div>

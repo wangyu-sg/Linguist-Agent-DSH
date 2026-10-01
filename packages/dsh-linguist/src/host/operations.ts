@@ -1,3 +1,4 @@
+import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
@@ -238,6 +239,15 @@ function scheduleRequest(payload: Data, service: LinguistProjectService): Lingui
 }
 
 export async function dispatchOperation(input: DispatchOperationInput): Promise<unknown> {
+  const tokens = input.payload.fileTokens === undefined ? [] : uploadTokens(input.payload)
+  for (const key of ['mappingId', 'candidateId']) {
+    const token = input.payload[key]
+    if (typeof token === 'string' && input.files.pendingImports.has(token)) tokens.push(token)
+  }
+  return tokens.length === 0 ? dispatch(input) : input.files.useUploads(tokens, () => dispatch(input))
+}
+
+async function dispatch(input: DispatchOperationInput): Promise<unknown> {
   const { operation, payload, service, bindings, workspaceRegistry, files, mutations } = input
   switch (operation) {
     case 'linguistDelegationsList': {
@@ -635,40 +645,40 @@ function tagCandidate(value: Data) {
   }
 }
 
-const pendingImports = new Map<string, { projectId: string; kind: 'xlsx' | 'tm' | 'terms'; sha256: string; xlsxMapping?: XlsxImportMapping }>()
-
 async function importProject(input: DispatchOperationInput): Promise<unknown> {
   const { service, files, payload, mutations } = input
   const id = projectId(payload)
   service.assertProjectWritable(id)
   const tokens = uploadTokens(payload)
   const uploads = tokens.map((token) => readUpload(files, token))
-  if (uploads.length > 1 || payload.selection === 'directory') {
-    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), recursive: false, kind: 'auto', dryRun: false })
-    if (result.imported > 0) notify(mutations, id, 'asset-updated')
-    return { cancelled: false, bulk: true, ...result }
-  }
   const upload = uploads[0]!
   const extension = extname(upload.filename).toLowerCase()
-  if (SINGLE_RESOURCE_EXTENSIONS.has(extension)) {
-    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: [upload.path], recursive: false, kind: 'auto', dryRun: false })
+  if (uploads.length > 1 || payload.selection === 'directory' || SINGLE_RESOURCE_EXTENSIONS.has(extension)) {
+    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), recursive: false, kind: 'auto', dryRun: false })
+    const complete = result.items.every(item => item.status === 'imported' || item.status === 'skipped-duplicate' || item.status === 'supporting')
+    for (const [index, item] of uploads.entries()) {
+      const outcomes = result.items.filter(outcome => outcome.filename === item.filename)
+      if (complete || (outcomes.length > 0 && outcomes.every(outcome => outcome.status === 'imported' || outcome.status === 'skipped-duplicate'))) files.discardUpload(tokens[index]!)
+    }
     if (result.imported > 0) notify(mutations, id, 'asset-updated')
     return { cancelled: false, bulk: true, ...result }
   }
-  const { bytes } = await readPickedFileWithinLimit(upload.path, 50 * 1024 * 1024)
+  const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   if (await XLSX_DETECTOR.detect(bytes, upload.filename) > 0) {
     const parsed = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
     const matched = await service.matchWorkbookMapping(id, bytes, upload.filename)
     if (matched !== undefined) {
       const mapping = validateXlsxMapping(parsed, matched.mapping)
       const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping })
+      files.discardUpload(tokens[0]!)
       if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
       return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result, mappingUsed: { profileId: matched.profileId, sheetName: mapping.sheetName, columns: mapping.columns } }
     }
-    pendingImports.set(tokens[0]!, { projectId: id, kind: 'xlsx', sha256: parsed.report.sourceSha256 })
+    files.pendingImports.set(tokens[0]!, { projectId: id, kind: 'xlsx', sha256: parsed.report.sourceSha256 })
     return { cancelled: false, bulk: false, requiresXlsxMapping: true, filename: upload.filename, mappingId: tokens[0], sourceSha256: parsed.report.sourceSha256, preview: xlsxPreview(parsed, service.getProject(id)) }
   }
   const result = await service.importAsset(id, { bytes, filename: upload.filename })
+  files.discardUpload(tokens[0]!)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
   return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result }
 }
@@ -679,10 +689,10 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   service.assertProjectWritable(id)
   const mappingId = string(payload.mappingId, 'mappingId', 200)
   const sourceSha256 = string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/)
-  const pending = pendingImports.get(mappingId)
+  const pending = files.pendingImports.get(mappingId)
   if (pending?.projectId !== id || pending.kind !== 'xlsx' || pending.sha256 !== sourceSha256) throw new TypeError('XLSX mapping candidate is missing or bound to another project/source')
   const upload = readUpload(files, mappingId)
-  const { bytes } = await readPickedFileWithinLimit(upload.path, 50 * 1024 * 1024)
+  const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   if (sha256Hex(bytes) !== sourceSha256) throw new TypeError('XLSX source bytes changed after preview')
   const parsed = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
   const selected = object(payload.columns, 'columns')
@@ -699,7 +709,7 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   const rememberMapping = boolean(payload.rememberMapping, 'rememberMapping', false)
   const profile = rememberMapping ? await service.saveWorkbookMappingFromBytes(id, bytes, upload.filename, mapping) : undefined
   const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping })
-  pendingImports.delete(mappingId)
+  files.pendingImports.delete(mappingId)
   files.discardUpload(mappingId)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
   return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result, ...(profile === undefined ? {} : { mappingUsed: { profileId: profile.id, sheetName: profile.sheetName, columns: profile.columns } }) }
@@ -753,17 +763,17 @@ function validateXlsxMapping(parsed: XlsxWorkbookParseResult, mapping: XlsxImpor
 async function previewManagedFile(files: ManagedFiles, sourcePath: string, filename: string): Promise<LinguistAssetPreviewResult> {
   const ext = extname(filename).toLowerCase()
   if (TEXT_PREVIEW_EXTENSIONS.has(ext)) {
-    const { bytes } = await readPickedFileWithinLimit(sourcePath, 50 * 1024 * 1024)
+    const { bytes } = await readPickedFileWithinLimit(sourcePath, LINGUIST_FILE_MAX_BYTES)
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     return { kind: 'text', text: text.slice(0, 200_000), truncated: text.length > 200_000, filename }
   }
   if (OFFICE_PREVIEW_EXTENSIONS.has(ext)) {
-    const { bytes } = await readPickedFileWithinLimit(sourcePath, 50 * 1024 * 1024)
+    const { bytes } = await readPickedFileWithinLimit(sourcePath, LINGUIST_FILE_MAX_BYTES)
     const converted = await convertOfficePreviewToHtml(bytes, filename)
     return { kind: 'html', ...converted, filename }
   }
   if (LEGACY_OFFICE_PREVIEW_EXTENSIONS.has(ext)) {
-    const { bytes } = await readPickedFileWithinLimit(sourcePath, 50 * 1024 * 1024)
+    const { bytes } = await readPickedFileWithinLimit(sourcePath, LINGUIST_FILE_MAX_BYTES)
     const text = await readOfficePreviewText(bytes)
     return { kind: 'text', text: text.slice(0, 200_000), truncated: text.length > 200_000, filename }
   }
@@ -889,8 +899,8 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       const id = projectId(payload)
       const token = string(payload.candidateId, 'candidateId', 200)
       const kind = referenceKind(payload.kind)
-      requirePending(token, id, kind, string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/))
-      pendingImports.delete(token)
+      requirePending(files, token, id, kind, string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/))
+      files.pendingImports.delete(token)
       files.discardUpload(token)
       return { candidateId: token }
     }
@@ -899,10 +909,10 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       service.getProject(id)
       const token = string(payload.candidateId, 'candidateId', 200)
       const kind = referenceKind(payload.kind)
-      requirePending(token, id, kind, string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/))
+      requirePending(files, token, id, kind, string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/))
       const upload = readUpload(files, token)
       if (OFFICE_PREVIEW_EXTENSIONS.has(extname(upload.filename).toLowerCase())) return previewManagedFile(files, upload.path, upload.filename)
-      const { bytes } = await readPickedFileWithinLimit(upload.path, 512 * 1024 * 1024)
+      const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       return { kind: 'text', text: text.slice(0, 200_000), truncated: text.length > 200_000, filename: upload.filename }
     }
@@ -992,8 +1002,8 @@ function referenceImportInfo(source: { id: string; kind: string; originalFilenam
 function tmSourceInfo(source: { id: string; displayName: string; enabled: boolean; priority: number; unitCount: number }) {
   return { id: source.id, displayName: source.displayName, enabled: source.enabled, priority: source.priority, unitCount: source.unitCount }
 }
-function requirePending(token: string, id: string, kind: 'xlsx' | 'tm' | 'terms', sha256: string) {
-  const pending = pendingImports.get(token)
+function requirePending(files: ManagedFiles, token: string, id: string, kind: 'xlsx' | 'tm' | 'terms', sha256: string) {
+  const pending = files.pendingImports.get(token)
   if (pending?.projectId !== id || pending.kind !== kind || pending.sha256 !== sha256) throw new TypeError('Import candidate is missing or bound to another project/source')
   return pending
 }
@@ -1006,17 +1016,17 @@ async function importReference(input: DispatchOperationInput): Promise<unknown> 
   const tokens = uploadTokens(payload)
   if (tokens.length !== 1) throw new TypeError('Reference import accepts exactly one file')
   const upload = readUpload(files, tokens[0]!)
-  const { bytes } = await readPickedFileWithinLimit(upload.path, 512 * 1024 * 1024)
+  const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   const project = service.getProject(id)
   const sourceSha256 = sha256Hex(bytes)
   if (await XLSX_DETECTOR.detect(bytes, upload.filename) > 0) {
     const workbook = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
-    pendingImports.set(tokens[0]!, { projectId: id, kind, sha256: sourceSha256 })
+    files.pendingImports.set(tokens[0]!, { projectId: id, kind, sha256: sourceSha256 })
     return { cancelled: false, filename: upload.filename, requiresConfirmation: true, requiresXlsxMapping: true, candidateId: tokens[0], sourceSha256, preview: xlsxPreview(workbook, project) }
   }
   const parsed = kind === 'tm' ? await parseTmReference({ bytes, filename: upload.filename }, project.sourceLocale, project.targetLocale) : await parseTermReference({ bytes, filename: upload.filename }, project.sourceLocale, project.targetLocale)
   const summary = referenceCandidateSummary(kind, parsed.entries, parsed.warnings)
-  pendingImports.set(tokens[0]!, { projectId: id, kind, sha256: sourceSha256 })
+  files.pendingImports.set(tokens[0]!, { projectId: id, kind, sha256: sourceSha256 })
   return { cancelled: false, filename: upload.filename, requiresConfirmation: true, requiresXlsxMapping: false, candidateId: tokens[0], sourceSha256, summary }
 }
 
@@ -1026,10 +1036,10 @@ async function mapReferenceXlsxCandidate(input: DispatchOperationInput): Promise
   const kind = referenceKind(payload.kind)
   const token = string(payload.candidateId, 'candidateId', 200)
   const sourceSha256 = string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/)
-  const pending = requirePending(token, id, kind, sourceSha256)
+  const pending = requirePending(files, token, id, kind, sourceSha256)
   service.assertProjectWritable(id)
   const upload = readUpload(files, token)
-  const { bytes } = await readPickedFileWithinLimit(upload.path, 512 * 1024 * 1024)
+  const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   if (sha256Hex(bytes) !== sourceSha256) throw new TypeError('Reference candidate bytes changed after preview')
   const workbook = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
   const columns = object(payload.columns, 'columns')
@@ -1049,14 +1059,14 @@ async function confirmReferenceImport(input: DispatchOperationInput): Promise<un
   const kind = referenceKind(payload.kind)
   const token = string(payload.candidateId, 'candidateId', 200)
   const sourceSha256 = string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/)
-  const pending = requirePending(token, id, kind, sourceSha256)
+  const pending = requirePending(files, token, id, kind, sourceSha256)
   service.assertProjectWritable(id)
   const upload = readUpload(files, token)
-  const { bytes } = await readPickedFileWithinLimit(upload.path, 512 * 1024 * 1024)
+  const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   if (sha256Hex(bytes) !== sourceSha256) throw new TypeError('Reference candidate bytes changed after preview')
   const result = await service.importReference(id, kind, { bytes, filename: upload.filename, xlsxMapping: pending.xlsxMapping })
   if (result.source === undefined) throw new Error('Reference source provenance was not persisted')
-  pendingImports.delete(token)
+  files.pendingImports.delete(token)
   files.discardUpload(token)
   if (result.imported > 0) notify(mutations, id, 'project-updated')
   return { cancelled: false, requiresConfirmation: false, filename: upload.filename, imported: result.imported, unchanged: result.unchanged, warnings: result.warnings, source: referenceImportInfo(result.source) }
@@ -1172,7 +1182,7 @@ async function dispatchRemainingOperation(input: DispatchOperationInput): Promis
       service.assertProjectWritable(id)
       const token = exactlyOneUpload(payload)
       const upload = readUpload(files, token)
-      const { bytes } = await readPickedFileWithinLimit(upload.path, 512 * 1024 * 1024)
+      const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
       const note = trimmed(payload.note, 'note', 4000)
       const doc = await service.importContextDoc(id, { bytes, filename: upload.filename, ...(note === undefined ? {} : { note }) })
       files.discardUpload(token)
@@ -1184,7 +1194,7 @@ async function dispatchRemainingOperation(input: DispatchOperationInput): Promis
       service.assertProjectWritable(id)
       const token = exactlyOneUpload(payload)
       const upload = readUpload(files, token)
-      const { bytes } = await readPickedFileWithinLimit(upload.path, 50 * 1024 * 1024)
+      const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
       const result = service.importSentencePatterns(id, { bytes, filename: upload.filename })
       files.discardUpload(token)
       if (result.imported > 0) notify(mutations, id, 'asset-updated')

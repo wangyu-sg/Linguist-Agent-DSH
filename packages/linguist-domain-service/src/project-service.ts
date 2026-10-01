@@ -111,7 +111,6 @@ import {
   type ProjectWorkbookMappingMatch,
 } from './project-workbook-mapping'
 import {
-  MAX_IMPORT_BYTES,
   ProjectDelivery,
 } from './project-delivery'
 import type { ProjectModuleContext } from './project-module-context'
@@ -166,7 +165,6 @@ import {
   type LinguistProjectPaths,
 } from './paths'
 
-export { MAX_IMPORT_BYTES }
 export * from './project-service-types'
 
 /** 健康检查 source blob 抽查的样本上限（spot-check，不全量扫）。 */

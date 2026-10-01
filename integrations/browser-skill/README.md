@@ -5,7 +5,14 @@ This directory adapts the pinned upstream DSH plugin in `BASELINE.json`. It adds
 owned sessions, runner, queue, cancellation, observation, and UI. There is no
 second browser-control path.
 
-From the target repository root:
+The supported host baseline is DSH 0.2.0-rc.2 on macOS ARM64. Use the local
+0.3.1-la-dsh.5 plugin tarball, bsk 0.3.1 CLI, and extension 0.3.1. The extension
+must show a connection to the configured daemon port before browser actions work.
+Install the tarball through the official DSH plugin manager.
+
+The following are maintainer helpers for a prepared, pinned upstream checkout
+and local tooling described in BASELINE.json; they are not normal LA installation
+prerequisites. From this repository root:
 
 ```sh
 node integrations/browser-skill/build-adapted-plugin.mjs
@@ -40,22 +47,15 @@ attachment, exact download bytes, and cleanup of its own session. Its receipt is
 `dist/LOCALHOST_SMOKE.json`. A missing daemon or extension yields `BLOCKED_ENV`;
 the script never reports a browser pass from a simulated connection.
 
-For the installed LA-DSH product, run `node scripts/test-browser-skill.mjs` from
-the target repository. It reads `current.json` and uses only that installation's
-fixed CLI, independent BSK_HOME and port. The localhost fixture contains two
-similar synthetic jobs; the script checks server-side save for the intended job,
-observes the Agent Window, verifies upload at the fixture server, compares exact
-download bytes, and stops only the session it created. It writes
-`artifacts/evidence/browser-skill-localhost.json` and an action trace. If no
-extension is connected, the receipt records `BLOCKED_ENV` and no Agent Window is
-started. A passing CLI Agent Window chain is recorded as `CLI_CHAIN_PASS`; it
-still requires a real installed DSH Agent `browser_*` tool invocation and native
-skill discovery trace before G08 can pass.
+Optional maintainer diagnostics in an already prepared local installation:
 
-File-transfer edge checks run with `node scripts/test-browser-files-edge.mjs --managed`.
-This uses the plugin’s recoverable prepare/start/claim/cancel protocol against
-the real extension, retaining cleanup failures until the exact request closes.
-Receipts are written under `artifacts/evidence/browser-files-edge-*/`. The default
-mode exercises direct CLI stop for comparison; it can expose a cleanup timeout
-that the managed request protocol recovers. These checks do not prove installed
-DSH tool cancellation, borrowed-tab return, or plugin reload.
+- `node scripts/test-browser-skill.mjs`: uses that installation's fixed CLI,
+  independent BSK_HOME and port with localhost synthetic jobs.
+- `node scripts/test-browser-files-edge.mjs --managed`: exercises the plugin's
+  recoverable prepare/start/claim/cancel file protocol with the real extension.
+
+These tools use the author's local current.json and write local diagnostic output.
+They are not prerequisites for ordinary build, regression tests or installation.
+A disconnected extension is a real unavailable browser environment, not a successful
+page operation. CLI navigation, model-generated output and verified platform save
+are distinct results.

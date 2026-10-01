@@ -25,7 +25,7 @@ test('native prompt, diagnostics bundle, worker scrub and redacted exports use s
   const events: IntegrityEvent[] = []
   bus.publishIntegrity = (_projectId, event) => { events.push(event as IntegrityEvent) }
   const bindings = new BindingStore(dataRoot)
-  const integrity = new IntegrityHost(service, bus, files, new URL('../../lib/integrity-scrub-worker.js', import.meta.url))
+  const integrity = new IntegrityHost(service, bus, files, new URL('./integrity-worker.ts', import.meta.url))
   try {
     const project = await service.createProject({ name: 'Synthetic', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
     writeFileSync(join(workspaceRoot, '.linguist', 'project-brief.json'), JSON.stringify({

@@ -23,7 +23,7 @@ export const LINGUIST_SERVICE_ERROR_CODES = {
   PROJECT_ARCHIVED: 'PROJECT_ARCHIVED',
   /** 项目磁盘内容缺失/损坏（cat.db、project.json 或索引损坏）。 */
   PROJECT_UNHEALTHY: 'PROJECT_UNHEALTHY',
-  /** 导入字节数超过服务上限（50MB）。 */
+  /** 单文件字节数超过接收上限。 */
   IMPORT_TOO_LARGE: 'IMPORT_TOO_LARGE',
   /** 资产仍有 open blocking QA Finding，导出前必须人工解决或填写 waiver。 */
   EXPORT_BLOCKED_BY_QA: 'EXPORT_BLOCKED_BY_QA',
@@ -108,8 +108,9 @@ export class LinguistImportTooLargeError extends LinguistServiceError {
   constructor(
     readonly sizeBytes: number,
     readonly limitBytes: number,
+    readonly filename?: string,
   ) {
-    super(`Import payload of ${sizeBytes} bytes exceeds the ${limitBytes}-byte limit.`)
+    super(`文件${filename === undefined ? '' : `“${filename}”`}超过单文件上限 ${limitBytes / 1024 / 1024} MiB（检测到至少 ${sizeBytes} 字节）。请拆分文件后重试。`)
     this.name = 'LinguistImportTooLargeError'
   }
 }

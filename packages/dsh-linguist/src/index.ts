@@ -12,12 +12,14 @@ import Schema from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import manifest from '../package.json' with { type: 'json' }
 import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat-tools'
 import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
 import { LinguistProjectService, type ContextImageMetadata } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
 import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
 import { createCatDeps } from './host/cat-deps'
+import { DEFAULT_DATA_ROOT, initializeStorage } from './host/config'
 import { LinguistDelegationControl } from './host/delegation-control'
 import { createLinguistDelegationTool } from './host/delegation-tool'
 import { buildLinguistPromptSection, DIAGNOSTICS_OPERATIONS, DiagnosticsHost } from './host/diagnostics'
@@ -40,7 +42,7 @@ import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
 export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
-export const Config = Schema.object({ dataRoot: Schema.string(), installationId: Schema.string(),
+export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_DATA_ROOT), installationId: Schema.string().default(''),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
     domain: Schema.union(['feishu', 'lark']).default('feishu'),
@@ -49,11 +51,14 @@ export const Config = Schema.object({ dataRoot: Schema.string(), installationId:
 export type Config = { dataRoot: string; installationId: string; notificationDestinations: Volatile<FeishuDestination[]> }
 
 export function apply(ctx: Context, config: Config): void {
-  if (!config.dataRoot || !config.installationId) throw new Error('Linguist product dataRoot and installationId are required')
-  const service = new LinguistProjectService({ rootDir: join(config.dataRoot, 'linguist'), applicationVersion: '1.0.0' })
+  config = { ...config, ...initializeStorage(config) }
+  const service = new LinguistProjectService({ rootDir: join(config.dataRoot, 'linguist'), applicationVersion: manifest.version })
   service.init()
   const bindings = new BindingStore(config.dataRoot)
   const files = new ManagedFiles(config.dataRoot)
+  const stagingCleanup = setInterval(() => files.collectExpired(), 60_000)
+  stagingCleanup.unref()
+  ctx.effect(() => () => clearInterval(stagingCleanup))
   const mutations = new MutationBus()
   const turnContextReceipts = new TurnContextReceipts(config.dataRoot)
   const evidence = new EvidenceObserver(service, config.dataRoot)

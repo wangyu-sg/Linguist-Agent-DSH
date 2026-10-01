@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { Readable } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import { sha256Hex } from '@linguist/cat-core'
-import type { LinguistReferenceImportResult, LinguistReferenceQueryResult, LinguistTmReferenceInfo } from '@linguist/domain-service/contracts'
+import type { LinguistProjectImportResult, LinguistReferenceImportResult, LinguistReferenceQueryResult, LinguistTmReferenceInfo } from '@linguist/domain-service/contracts'
 import test from 'node:test'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { executeWorkingCopyAction, LinguistProjectService, prepareWorkingCopy } from '@linguist/domain-service'
@@ -14,6 +15,109 @@ import { BindingStore } from './bindings'
 import { ManagedFiles } from './files'
 import { MutationBus } from './mutations'
 import { dispatchOperation, listWorkingCopies, type DispatchOperationInput } from './operations'
+
+test('successful and duplicate ordinary imports release staging while keeping the original asset; cleanup failure is diagnosed and retried', async (context) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-staging-lifecycle-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  const files = new ManagedFiles(root)
+  try {
+    const project = await service.createProject({ name: 'Synthetic staging', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const bytes = Buffer.from(JSON.stringify([{ key: 'a', source: 'Start', target: '开始' }]))
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = {
+      service, files, bindings: new BindingStore(root), mutations: new MutationBus(), workspaceRegistry: { get: () => undefined },
+      assertProjectSession: async () => { throw new Error('Unexpected Session check') }, resolveSessionWorkspace: async () => { throw new Error('Unexpected Workspace lookup') },
+    }
+    for (const expected of ['imported', 'skipped-duplicate']) {
+      const body = Buffer.concat([Buffer.from('--lifecycle\r\nContent-Disposition: form-data; name="files"; filename="synthetic.json"\r\n\r\n'), bytes, Buffer.from('\r\n--lifecycle--\r\n')])
+      const request = Object.assign(Readable.from([body]), { headers: { 'content-type': 'multipart/form-data; boundary=lifecycle' } }) as IncomingMessage
+      const [token] = await files.stage(request)
+      const path = files.takeUpload(token!).path
+      if (expected === 'imported') {
+        context.mock.method(fs, 'rmSync', () => { throw new Error('synthetic cleanup EACCES') })
+        syncBuiltinESMExports()
+      }
+      const result = await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: [token] } }) as { status: string; assetId: string }
+      assert.equal(result.status, expected)
+      if (expected === 'imported') {
+        assert.equal(existsSync(path), true)
+        assert.match(files.lastCleanupError!, /synthetic cleanup EACCES/)
+        context.mock.restoreAll()
+        syncBuiltinESMExports()
+        files.collectExpired()
+      }
+      assert.equal(existsSync(path), false)
+      assert.throws(() => files.takeUpload(token!))
+      assert.doesNotThrow(() => files.discardUpload(token!))
+      assert.deepEqual(readFileSync(service.resolveAssetSourcePath(project.id, result.assetId).sourcePath), bytes)
+    }
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('ordinary XLSX keeps its mapping candidate, cancels it safely, and releases confirmed and automatically mapped duplicates', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-xlsx-staging-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic workbook', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const files = new ManagedFiles(root)
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = {
+      service, files, bindings: new BindingStore(root), mutations: new MutationBus(), workspaceRegistry: { get: () => undefined },
+      assertProjectSession: async () => { throw new Error('Unexpected Session check') }, resolveSessionWorkspace: async () => { throw new Error('Unexpected Workspace lookup') },
+    }
+    const bytes = await referenceWorkbook()
+    const cancelled = await stageSynthetic(files, 'synthetic.xlsx', bytes)
+    await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: [cancelled] } })
+    const cancelledPath = files.takeUpload(cancelled).path
+    assert.equal(files.pendingImports.has(cancelled), true)
+    files.discardUpload(cancelled)
+    assert.equal(files.pendingImports.has(cancelled), false)
+    assert.equal(existsSync(cancelledPath), false)
+    assert.equal(service.openProject(project.id).assets.listByProject().length, 0)
+
+    const token = await stageSynthetic(files, 'synthetic.xlsx', bytes)
+    const path = files.takeUpload(token).path
+    const preview = await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: [token] } }) as Extract<LinguistProjectImportResult, { requiresXlsxMapping: true }>
+    assert.equal(preview.requiresXlsxMapping, true)
+    const imported = await dispatchOperation({ ...deps, operation: 'linguistProjectsConfirmXlsxMapping', payload: {
+      projectId: project.id, mappingId: preview.mappingId, sourceSha256: preview.sourceSha256,
+      sheetName: 'Synthetic references', columns: { source: 'English', target: 'Chinese' }, rememberMapping: true,
+    } }) as { assetId: string; status: string }
+    assert.equal(imported.status, 'imported')
+    assert.equal(existsSync(path), false)
+    assert.deepEqual(readFileSync(service.resolveAssetSourcePath(project.id, imported.assetId).sourcePath), bytes)
+    const duplicate = await stageSynthetic(files, 'synthetic.xlsx', bytes)
+    const duplicatePath = files.takeUpload(duplicate).path
+    const auto = await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: [duplicate] } }) as { status: string; requiresXlsxMapping: boolean }
+    assert.equal(auto.requiresXlsxMapping, false)
+    assert.equal(auto.status, 'skipped-duplicate')
+    assert.equal(existsSync(duplicatePath), false)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('separately uploaded Phrase split and master are imported as one paired batch and both staging files are released', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-phrase-staging-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic Phrase pairing', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const files = new ManagedFiles(root)
+    const split = Buffer.from('<xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="s1"><source>Open {0} world</source><target>打开 {0} 世界</target></trans-unit></body></file></xliff>')
+    const master = Buffer.from('<xliff version="1.2"><file><body><trans-unit id="m1"><source>Open <ph id="1">{0}</ph> world</source></trans-unit></body></file></xliff>')
+    const tokens = [await stageSynthetic(files, 'split.mxliff', split), await stageSynthetic(files, 'master.xliff', master)]
+    const paths = tokens.map(token => files.takeUpload(token).path)
+    const result = await dispatchOperation({
+      service, files, bindings: new BindingStore(root), mutations: new MutationBus(), workspaceRegistry: { get: () => undefined },
+      assertProjectSession: async () => { throw new Error('Unexpected Session check') }, resolveSessionWorkspace: async () => { throw new Error('Unexpected Workspace lookup') },
+      operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: tokens },
+    }) as { imported: number; items: { status: string; message: string }[] }
+    assert.equal(result.imported, 1)
+    assert.match(result.items[0]!.message, /唯一配对/)
+    assert.equal(service.openProject(project.id).assets.listByProject().length, 1)
+    assert.equal(service.openProject(project.id).segments.query({ limit: 1 })[0]!.source, 'Open <ph id="1">{0}</ph> world')
+    assert.equal(paths.every(path => !existsSync(path)), true)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
 
 test('Host operation dispatch creates a bound project and preserves proposal mode semantics', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-dsh-dispatch-')))
@@ -87,14 +191,7 @@ test('reference XLSX mapping previews explicit columns, binds the choice and con
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-reference-xlsx-')))
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
   service.init()
-  const JSZip = createRequire(new URL('../../../linguist-cat-formats/package.json', import.meta.url))('jszip')
-  const zip = new JSZip()
-  zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>')
-  zip.file('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
-  zip.file('xl/workbook.xml', '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic references" sheetId="1" r:id="rId1"/></sheets></workbook>')
-  zip.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
-  zip.file('xl/worksheets/sheet1.xml', '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + [['English', 'Chinese', 'French'], ['Open', '打开', 'Ouvrir'], ['Close', '关闭', 'Fermer']].map((row, i) => `<row r="${i + 1}">${row.map((value, j) => `<c r="${String.fromCharCode(65 + j)}${i + 1}" t="inlineStr"><is><t>${value}</t></is></c>`).join('')}</row>`).join('') + '</sheetData></worksheet>')
-  const bytes = await zip.generateAsync({ type: 'nodebuffer' })
+  const bytes = await referenceWorkbook()
   try {
     const project = await service.createProject({ name: 'Synthetic references', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
     const foreign = await service.createProject({ name: 'Foreign candidate', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
@@ -173,3 +270,22 @@ test('reference delete accepts the real imported TM occurrence ID and deletes on
     assert.equal(after.sources![0]!.unitCount, 1)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
+
+async function referenceWorkbook(): Promise<Buffer> {
+  const JSZip = createRequire(new URL('../../../linguist-cat-formats/package.json', import.meta.url))('jszip')
+  const zip = new JSZip()
+  zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>')
+  zip.file('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+  zip.file('xl/workbook.xml', '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic references" sheetId="1" r:id="rId1"/></sheets></workbook>')
+  zip.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+  zip.file('xl/worksheets/sheet1.xml', '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + [['English', 'Chinese', 'French'], ['Open', '打开', 'Ouvrir'], ['Close', '关闭', 'Fermer']].map((row, i) => `<row r="${i + 1}">${row.map((value, j) => `<c r="${String.fromCharCode(65 + j)}${i + 1}" t="inlineStr"><is><t>${value}</t></is></c>`).join('')}</row>`).join('') + '</sheetData></worksheet>')
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
+
+async function stageSynthetic(files: ManagedFiles, filename: string, bytes: Buffer): Promise<string> {
+  const request = Object.assign(Readable.from([
+    Buffer.from(`--synthetic\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\n\r\n`),
+    bytes, Buffer.from('\r\n--synthetic--\r\n'),
+  ]), { headers: { 'content-type': 'multipart/form-data; boundary=synthetic' } }) as IncomingMessage
+  return (await files.stage(request))[0]!
+}

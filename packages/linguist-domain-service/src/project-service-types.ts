@@ -50,8 +50,6 @@ export type { LinguistProjectService } from './project-service'
 export type { ProjectDiscoveryScope } from './project-discovery-scope'
 export type { WorkingCopyActionInput, WorkingCopyContext } from './working-copy-service'
 export const LINGUIST_ASSET_ID_PATTERN = /^ast(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
-export const LINGUIST_IMPORT_MAX_BYTES = 50 * 1024 * 1024
-export const LINGUIST_RESOURCE_IMPORT_MAX_BYTES = 512 * 1024 * 1024
 
 export interface LinguistTmPanelItem {
   id: string

@@ -69,8 +69,7 @@ import type {
   UndoImportAssetResult,
 } from './project-service-types'
 
-/** 导入体积上限：50MB。 */
-export const MAX_IMPORT_BYTES = 50 * 1024 * 1024
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 
 const EXPORT_HARD_RULES = new Set<string>([
   DETERMINISTIC_HARD_RULE_CODES.INVALID_TARGET_ENCODING,
@@ -583,10 +582,11 @@ export class ProjectDelivery {
     if (project.archivedAt !== undefined) {
       throw new LinguistProjectArchivedError(projectId)
     }
-    if (input.bytes.byteLength > MAX_IMPORT_BYTES) {
+    if (input.bytes.byteLength > LINGUIST_FILE_MAX_BYTES) {
       throw new LinguistImportTooLargeError(
         input.bytes.byteLength,
-        MAX_IMPORT_BYTES,
+        LINGUIST_FILE_MAX_BYTES,
+        input.filename,
       )
     }
     const adapter = await this.context.registry.detectBest(

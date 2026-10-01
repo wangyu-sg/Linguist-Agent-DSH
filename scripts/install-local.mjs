@@ -4,6 +4,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, 
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { initializeStorage } from '../packages/dsh-linguist/src/host/config.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH')
@@ -16,6 +17,9 @@ const bskPath = join(dataRoot, 'runtime/browser-skill/bin/bsk')
 const bskHome = join(dataRoot, 'browser-skill/home')
 const receipts = join(dataRoot, 'receipts')
 const pack = JSON.parse(readFileSync(join(root, 'artifacts/pack.json'), 'utf8'))
+const desktopManifest = join(home, 'profiles/desktop/package.json')
+if (!existsSync(desktopManifest)) throw new Error('请先打开官方 DeepSeek Harness，完成首次初始化，再重试安装辅助命令。普通插件安装请使用 DSH 的“插件 → 安装本地插件”。')
+if (!pack.browserSkill) throw new Error('该作者安装辅助需要固定 BrowserSkill 包；先按 integrations/browser-skill/README.md 构建，普通 LA 安装不需要此命令。')
 const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 const run = (command, args) => {
@@ -27,7 +31,8 @@ const run = (command, args) => {
 assert(pack.dshVersion === '0.2.0-rc.2', 'pack must match official Desktop 0.2.0-rc.2')
 assert(sha256(dmg) === dmgSha256, 'official Desktop DMG SHA-256 changed')
 for (const key of ['linguist', 'browserSkill']) assert(sha256(pack[key].path) === pack[key].sha256, `${key} pack changed`)
-const installationId = `la-${pack.linguist.sha256.slice(0, 12)}-${pack.browserSkill.sha256.slice(0, 8)}`
+const prior = join(dataRoot, 'current.json')
+const installationId = initializeStorage({ dataRoot, installationId: existsSync(prior) ? JSON.parse(readFileSync(prior, 'utf8')).installationId : '' }).installationId
 const staged = {
   linguist: join(dataRoot, 'runtime/packages', `linguist-dsh-plugin-${pack.linguist.sha256.slice(0, 12)}.tgz`),
   browserSkill: join(dataRoot, 'runtime/packages/browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz'),
@@ -80,9 +85,8 @@ const current = {
     linguist: { sha256: pack.linguist.sha256, version: pack.linguist.version, tarball: staged.linguist },
     browserSkill: { sha256: pack.browserSkill.sha256, version: pack.browserSkill.version, tarball: staged.browserSkill },
   },
-  nativeInstallReceiptPath: join(receipts, `native-install-${installationId}.json`),
 }
-const manifest = JSON.parse(readFileSync(join(home, 'profiles/desktop/package.json'), 'utf8'))
+const manifest = JSON.parse(readFileSync(desktopManifest, 'utf8'))
 const wanted = [['@linguist/dsh-plugin', staged.linguist], ['@wxg-prc-cpg/browser-skill-dsh-plugin', staged.browserSkill]]
 const scheduleBundle = '@deepseek-ai/dsh-experimental-schedule-bundle'
 const installed = manifest.dsh?.profile?.bundles?.includes(scheduleBundle) && wanted.every(([name, tarball]) => manifest.dependencies?.[name] === `file:${tarball}` && manifest.dsh?.profile?.bundles?.filter(item => item === name).length === 1)
@@ -90,15 +94,7 @@ if (!installed) {
   console.log(JSON.stringify({ status: 'NATIVE_INSTALL_PENDING', installationId, staged, appPath, requiredBundle: `${scheduleBundle}@${pack.dshVersion}`, profile: join(home, 'profiles/desktop') }, null, 2))
   process.exitCode = 2
 } else {
-  assert(existsSync(current.nativeInstallReceiptPath), `native Desktop UI receipt missing: ${current.nativeInstallReceiptPath}`)
-  if (existsSync(patchPath)) {
-    const existing = readFileSync(patchPath, 'utf8')
-    assert(existing.startsWith('# Linguist Agent plugin configuration.'), 'DSH home has another user patch; inspect before changing')
-    const identities = existing.match(/^    installationId: .*$/gm)
-    assert(identities?.length === 1, 'DSH home has no unique Linguist installationId')
-    writeFileSync(patchPath, existing.replace(identities[0], `    installationId: ${JSON.stringify(installationId)}`), { mode: 0o600 })
-  } else writeFileSync(patchPath, patch, { mode: 0o600 })
-  const prior = join(dataRoot, 'current.json')
+  if (!existsSync(patchPath)) writeFileSync(patchPath, patch, { mode: 0o600 })
   if (existsSync(prior) && !existsSync(join(receipts, 'pre-desktop-current.json'))) copyFileSync(prior, join(receipts, 'pre-desktop-current.json'))
   const tmp = `${prior}.${process.pid}.tmp`
   writeFileSync(tmp, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })

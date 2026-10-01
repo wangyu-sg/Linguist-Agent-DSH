@@ -1,4 +1,5 @@
 import type { LinguistIpcError, LinguistIpcResult, LinguistMigrationProgress, LinguistProjectMutationEvent } from '@linguist/domain-service/contracts'
+import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 
 const base = '/la/v1'
 
@@ -68,15 +69,37 @@ export async function required<T>(operation: string, input: object): Promise<T> 
 }
 
 export async function stageFiles(files: readonly File[]): Promise<readonly string[]> {
-  const form = new FormData()
-  for (const file of files) form.append('files', file, file.name)
-  const response = await fetch(`${base}/files/stage`, { method: 'POST', credentials: 'same-origin', body: form })
-  if (!response.ok) throw new Error(`Linguist file staging failed: HTTP ${response.status}`)
-  const result: unknown = await response.json()
-  if (typeof result !== 'object' || result === null || !('tokens' in result) || !Array.isArray(result.tokens) || !result.tokens.every((token) => typeof token === 'string')) {
-    throw new Error('Invalid Linguist file staging response')
+  if (files.length === 0 || files.length > 500) throw new Error('一次请选择 1–500 个文件。')
+  for (const file of files) {
+    if (file.size > LINGUIST_FILE_MAX_BYTES) throw new LinguistRequestError({ code: 'IMPORT_TOO_LARGE', message: `文件“${file.name}”（${file.size} 字节）超过单文件上限 512 MiB。请拆分文件后重试。` })
   }
-  return result.tokens
+  const tokens: string[] = []
+  try {
+    for (const file of files) {
+      const form = new FormData()
+      form.append('files', file, file.name)
+      const response = await fetch(`${base}/files/stage`, { method: 'POST', credentials: 'same-origin', body: form })
+      if (!response.ok) {
+        const failure: { error: LinguistIpcError | string } = await response.json()
+        throw typeof failure.error === 'string' ? new Error(failure.error) : new LinguistRequestError(failure.error)
+      }
+      const result: unknown = await response.json()
+      if (typeof result !== 'object' || result === null || !('tokens' in result) || !Array.isArray(result.tokens) || result.tokens.length !== 1 || typeof result.tokens[0] !== 'string') throw new Error('Invalid Linguist file staging response')
+      tokens.push(result.tokens[0])
+    }
+    return tokens
+  } catch (error) {
+    if (tokens.length) {
+      try { await discardStagedFiles(tokens) }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], '上传未完成，部分暂存释放失败；请重新选择文件，遗留暂存将在过期后回收。') }
+    }
+    throw error
+  }
+}
+
+export async function discardStagedFiles(tokens: readonly string[]): Promise<void> {
+  const response = await fetch(`${base}/files/discard`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokens }) })
+  if (!response.ok) throw new Error(`暂存释放失败：HTTP ${response.status}`)
 }
 
 export function fileUrl(token: string): string {

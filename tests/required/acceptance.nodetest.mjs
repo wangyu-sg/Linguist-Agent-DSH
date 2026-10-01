@@ -311,10 +311,11 @@ test('local HTTP rejects cross-site access and unsafe files while SSE replays on
     const mutations = new MutationBus()
     let handler
     const service = { getStatus: () => ({ state: 'ready' }), getProject: id => ({ id }) }
+    const files = new ManagedFiles(root, 32)
     registerHttpRoutes({
       ctx: { webServer: { register: route => { handler = route.handler; return () => {} } } },
       service,
-      bindings: new BindingStore(root), files: new ManagedFiles(root), mutations,
+      bindings: new BindingStore(root), files, mutations,
       installationId: 'synthetic-installation', rebindAgent: () => {},
       dispatch: async () => { throw new Error('synthetic dispatch failure') },
     })
@@ -339,6 +340,17 @@ test('local HTTP rejects cross-site access and unsafe files while SSE replays on
     assert.equal(status.response.statusCode, 200)
     assert.equal(status.json().installationId, 'synthetic-installation')
     assert.equal(status.response.headers['Cache-Control'], 'no-store')
+    const uploadHeaders = { host: '127.0.0.1:19387', origin: 'http://127.0.0.1:19387', 'content-type': 'multipart/form-data; boundary=bounded' }
+    const multipart = bytes => '--bounded\r\nContent-Disposition: form-data; name="files"; filename="boundary.txt"\r\n\r\n' + 'x'.repeat(bytes) + '\r\n--bounded--\r\n'
+    const overflow = await send('/la/v1/files/stage', uploadHeaders, 'POST', multipart(33))
+    assert.equal(overflow.response.statusCode, 413)
+    assert.equal(overflow.json().error.code, 'IMPORT_TOO_LARGE')
+    assert.match(overflow.json().error.message, /boundary.txt/)
+    const staged = await send('/la/v1/files/stage', uploadHeaders, 'POST', multipart(32))
+    const token = staged.json().tokens[0]
+    const discarded = await send('/la/v1/files/discard', { ...uploadHeaders, 'content-type': 'application/json' }, 'POST', JSON.stringify({ tokens: [token] }))
+    assert.equal(discarded.response.statusCode, 200)
+    assert.throws(() => files.takeUpload(token))
     service.getStatus = () => { throw new Error('/private/customer/secret') }
     const failedStatus = await send('/la/v1/status')
     assert.equal(failedStatus.response.statusCode, 500)
@@ -1164,7 +1176,7 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
 })
 
 test('failed Session seed copy is archived through the real native registry and survives reopening', async () => {
-  const requireNative = createRequire(new URL('../../.toolchain/dsh-0.2.0-rc.2/package.json', import.meta.url))
+  const requireNative = requireDsh
   const { Context: NativeContext } = requireNative('@deepseek-ai/cordis')
   const { Storage } = requireNative('@deepseek-ai/dsh-storage')
   const jsonStorage = requireNative('@deepseek-ai/dsh-storage-json')
@@ -2152,7 +2164,7 @@ test('Feishu schedule notifications freeze recipients, disclose only selected tu
 
 test('native DSH settings redact Linguist notification credentials', async () => {
   const { Config } = await import('../../packages/dsh-linguist/src/index.ts')
-  const { redactSecrets } = await import('../../.toolchain/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh-settings/lib/index.js')
+  const { redactSecrets } = requireDsh('@deepseek-ai/dsh-settings')
   const value = { dataRoot: '/synthetic', installationId: 'synthetic', notificationDestinations: [{ id: 'room', label: 'Synthetic', appId: 'app', appSecret: 'DO_NOT_EXPOSE_SYNTHETIC_SECRET', chatId: 'chat', domain: 'feishu' }] }
   assert.equal(Config.dict.notificationDestinations.meta.volatile, true, 'native configuration UI only exposes live fields')
   assert.equal(Config(value).notificationDestinations.get()[0].appId, 'app', 'live config must be read through native Volatile.get')

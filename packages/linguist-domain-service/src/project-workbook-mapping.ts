@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { basename, isAbsolute, resolve } from 'node:path'
 import {
   sha256Hex,
@@ -20,7 +20,9 @@ import type {
   LinguistWorkbookMappingSuggestion,
 } from '@linguist/cat-tools'
 import { LinguistCatInvalidArgumentError } from '@linguist/cat-tools'
-import { LINGUIST_IMPORT_MAX_BYTES } from './project-service-types'
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
+import { readPickedFileWithinLimit } from './project-file-intake'
+import { LinguistImportTooLargeError } from './errors'
 
 const SAMPLE_ROWS = 50
 const SAMPLE_VALUE_CHARS = 300
@@ -43,10 +45,9 @@ interface WorkbookFile {
 async function readWorkbookFile(cwd: string, filePath: string): Promise<WorkbookFile> {
   try {
     const path = await realpath(isAbsolute(filePath) ? filePath : resolve(cwd, filePath))
-    const info = await stat(path)
-    if (!info.isFile() || info.size > LINGUIST_IMPORT_MAX_BYTES) throw new Error('invalid workbook file')
-    return { filename: basename(path), bytes: await readFile(path) }
-  } catch {
+    return await readPickedFileWithinLimit(path, LINGUIST_FILE_MAX_BYTES)
+  } catch (error) {
+    if (error instanceof LinguistImportTooLargeError) throw error
     throw new LinguistCatInvalidArgumentError('filePath', 'must resolve to a readable XLSX within the import size limit')
   }
 }

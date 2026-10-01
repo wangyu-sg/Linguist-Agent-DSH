@@ -1,44 +1,66 @@
-# Linguist Agent for DSH
+# Linguist Agent
 
-DeepSeek Harness 原生 Host + Client 插件，迁移 Linguist Agent 的 CAT、非 CAT 工作副本、专业岗位与 BrowserSkill 工作流程。
+游戏本地化的翻译与审校助手，在 DeepSeek Harness（DSH）中使用。
 
-## 当前状态
+整理项目文件、术语和翻译记忆，完成翻译、全量审校与校对；在双语 CAT 工作台中编辑译文、处理 QA 问题、检查标签并导出支持的文件。
 
-官方宿主基线为 **DSH 0.2.0-rc.2**。本轮统一前端与功能补齐处于集成验收阶段；源码检查通过不代表当前安装产物已完成验收。以 [迁移状态](docs/migration/STATE.json) 和 [接续记录](docs/migration/NEXT.md) 为准。
+**第一次使用：安装插件 → 新建项目并导入文件 → 说明要做的工作。**
 
-2026-10-01 按用户要求公开当前源码供 GPT Pro 审查。当前为 **IN_PROGRESS / NOT_READY**，尚未通过完整安装产物验收；审查应同时核对源码、功能清单与下列状态记录。
+## 安装
 
-## 分析入口
+当前支持基线为 **官方 DSH 0.2.0-rc.2**；本机安装与打包检查范围为 **macOS Apple Silicon**。其他系统和宿主版本尚未验证。
 
-- [完整功能总览](docs/migration/audit-2026-09-29/功能迁移总览.html)：可下载后在浏览器搜索和筛选。
-- [68 项领域能力](docs/migration/audit-2026-09-29/SOURCE-DOMAIN.md)及[结构化清单](docs/migration/audit-2026-09-29/SOURCE-DOMAIN.json)。
-- [137 项界面操作](docs/migration/audit-2026-09-29/SOURCE-UI.md)及[结构化清单](docs/migration/audit-2026-09-29/SOURCE-UI.json)。
-- [前端问题审计](docs/migration/audit-2026-09-29/TARGET-UI-ISSUES.md)：施工前问题、统一标准与验收要求。
-- [上下文开销核对](docs/CONTEXT_COST.md)：CAT 选区、常驻提示与工具正文的区别。
-- [实施规范](handoff/01-完整实施规范.md)、[架构决策](docs/migration/DECISIONS.md)。
+1. 打开官方 DeepSeek Harness，完成首次初始化与模型登录。
+2. 在 DSH 插件管理中安装并启用官方自动化组件 `@deepseek-ai/dsh-experimental-schedule-bundle@0.2.0-rc.2`。它提供 LA 必需的原生调度服务；缺少它时 LA 无法加载。
+3. 在插件管理中选择维护者提供的 **linguist-dsh-plugin-1.0.1.tgz** 本地安装包。安装后按 DSH 提示重新加载或重开应用。
+4. 打开左侧 **Linguist**。首次使用会自动建立数据目录与持久安装标识，无需填写作者路径；已配置的目录、标识和通知设置继续使用。
 
-领域能力与界面操作清单相互交叉，不能把两者相加作为功能总数或完成率。每项实现状态与安装验收状态分别记录。
+截至 2026-10-01，仓库提供公开源码，没有 GitHub Release 安装包；本轮产物在本机生成，不提供虚构的下载链接。构建方式见 [开发说明](CONTRIBUTING.md)。
 
-## 代码边界
+浏览器工作需要另装 **BrowserSkill 0.3.1-la-dsh.5** 插件、**bsk 0.3.1** CLI 和 **BrowserSkill 0.3.1** Chrome 扩展，并在扩展中连接插件显示的本机服务地址。CLI、扩展安装目录及权限由用户确认；在 BrowserSkill 插件设置中指定 CLI 路径和独立的 bskHome。已有正常连接不需要重新配置。CAT 编辑和工作副本不要求浏览器连接。固定版本与配置见 [BrowserSkill 说明](integrations/browser-skill/README.md)。
 
-| 路径 | 职责 |
-|---|---|
-| `packages/dsh-linguist/src/host` | 原生工具、会话绑定、证据、HTTP/SSE、任务适配 |
-| `packages/dsh-linguist/src/client` | DSH Slots 中的项目与 CAT 工作台 |
-| `packages/linguist-cat-*` | 格式、存储、编辑约束、QA 与工具领域逻辑 |
-| `packages/linguist-domain-service` | 项目、资源、工作副本和专业工作流 |
-| `integrations/browser-skill` | 固定上游版本及文件传输薄适配 |
+## 开始第一项任务
 
-DSH 管理模型、权限、会话与 Agent 循环；BrowserSkill 承担正式浏览器控制。开发命令见根 `package.json`。本机实际安装通过官方 DSH 插件管理器完成。
+在 Linguist 选择 DSH 工作区，新建项目，选择源语言和目标语言，导入一份文件。XLSX 需确认工作表和列映射；Phrase split/master 同批选择。
 
-## 界面与主题
+选择岗位与工作方式，创建会话。例如：
 
-项目工作台、CAT 和选区引用栏使用 DSH 原生控件与官方主题变量；遵循 DSH 主题接口的皮肤可统一颜色、字体与圆角。布局、间距和编辑密度由 Linguist 管理，原文件预览保留文档本身的视觉内容。界面质量须在官方桌面端检查，源码样式或构建结果不能替代视觉验收。
+> 审校这批中译英文本，逐条检查原文和当前译文，注意技能名称、语气、数字和标签。按要求修改，并汇总仍需我确认的问题。
 
-## 验收与数据
+> 只检查术语不一致和占位符问题，先列出结果，不修改译文。
 
-`test:required` 检查类型和合成行为；`verify:ready` 核验当前包的实际安装、桌面重开、完整 UI、四岗位、模型与浏览器证据。缺失门禁时不能称为完整完成。
+**通用、翻译、审校、校对**四个岗位均保留 DSH 通用工具和用户选择的权限。审校默认覆盖已确定的完整工作范围。CAT 选区按需点击“附带 CAT 选区”，随该条消息冻结发送。
 
-运行时 profile、凭据、本机安装包、客户数据不进入此仓库。文档中的 `artifacts/` 是本机证据位置，未随 Git 分发；没有证据的项目不能因为链接存在就视为通过。
+常用编辑、参考资料、备份和恢复见 [使用指南](QUICK_START.md)。
 
-许可证与来源见 [LICENSE](LICENSE)、[NOTICE](NOTICE.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
+## 文件与限制
+
+| 用途 | 当前范围 |
+| --- | --- |
+| CAT 待译导入与原生导出 | 通用 XLIFF、Phrase MXLIFF、SDLXLIFF、memoQ MQXLIFF、CSV/TSV、受支持的 JSON 结构、已映射 XLSX、Phrase 双语 DOCX |
+| 翻译记忆 / 术语资料 | TMX、SDLTM、TBX、SDLTB、CSV、已映射 XLSX；按资源类型导入 |
+| 参考正文抽取 | PDF、DOCX、XLSX、Markdown、TXT；图片可作为视觉参考，其他保留原件的格式可能无可读正文 |
+| 原稿预览 | 支持的文本、图片、PDF，以及 DOCX/XLSX/PPTX 的转换预览；大表格和长正文会采样或截断 |
+
+普通 Word 文档作为参考资料读取，不承诺任意 DOCX 的 CAT 无损往返。预览不是文档排版编辑器；文件结构、锁定、标签和格式资格限制仍适用。
+
+- **单文件接收上限 512 MiB（536,870,912 字节）**，普通批次和参考资源一致。一次最多选择 500 个文件。
+- 每个文件分请求顺序上传，各请求的文件内容预算为 512 MiB；收齐后仍按同一业务批次导入，保留 Phrase 配对。整批合计可以超过 512 MiB。
+- 接收上限不保证任意格式在该体积下都能快速解析。压缩包安全检查、抽取和预览采样仍存在；PDF、DOCX、Markdown 和 TXT 的参考正文抽取上限为 200,000 字符。
+- 导入完成、确认重复或取消后释放无用暂存。待确认输入最长保留一小时；过期需重新选择文件。在途读取受到保护，重启后会回收过期孤儿。
+
+## 工作结果与数据
+
+CAT 修改写入 LA 的项目库，原稿独立保存；导出产生交付副本。工作副本模式在 DSH 工作区中生成派生 JSON 工作稿，不能当作原生交付文件或平台已提交。浏览器模式通过 BrowserSkill 操作实际页面，外部提交需用户授权并核对平台结果。
+
+macOS 默认数据目录为 `~/Library/Application Support/Linguist-Agent-DSH`。更新保留项目和设置，卸载插件不会自动删除项目目录。清理仅针对 LA 自己的暂存，不删除正式来源、数据库、备份或交付文件。
+
+项目存储在本机，模型请求与浏览器、飞书等外部服务仍可能发送用户授权的内容。实际传输取决于使用的模型和工具；“本地存储”不等于完全离线。
+
+通用岗位在 CAT 项目中可以委派专业子任务；不能将这一专用委派宣传为所有模式都同样支持。启动任务、模型生成结束、全量审校完成、导出文件和平台提交分别记录。
+
+## 求助与来源
+
+遇到问题，请提供插件/DSH 版本、操作步骤、预期和实际结果，附必要的脱敏截图或日志。不要上传客户原稿、数据库或账号信息。[提交问题](https://github.com/wangyu-sg/Linguist-Agent-DSH/issues)。
+
+许可证与归属见 [LICENSE](LICENSE)、[NOTICE](NOTICE.md)、[第三方声明](THIRD_PARTY_NOTICES.md)。

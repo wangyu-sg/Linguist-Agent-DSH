@@ -4,7 +4,8 @@ import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { bindImportedSegments } from '@linguist/cat-formats'
 import { deriveAssetId, runDeterministicHardRules, type Segment, type LinguistTagProfile } from '@linguist/cat-core'
-import { LINGUIST_IMPORT_MAX_BYTES } from './project-service-types'
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
+import { LinguistImportTooLargeError } from './errors'
 import { createDefaultCatFormatRegistry } from './format-registry'
 import { readPickedFileWithinLimit } from './project-file-intake'
 
@@ -71,7 +72,7 @@ export async function prepareWorkingCopy(input: {
   targetLocale: string
 }): Promise<LinguistWorkingCopy> {
   const path = workingCopyPath(input.workspaceRoot, input.sourcePath)
-  const { bytes, filename } = await readPickedFileWithinLimit(path, LINGUIST_IMPORT_MAX_BYTES)
+  const { bytes, filename } = await readPickedFileWithinLimit(path, LINGUIST_FILE_MAX_BYTES)
   const adapter = await createDefaultCatFormatRegistry().detectBest(bytes, filename)
   if (adapter.id === 'json_i18n') {
     const value: unknown = JSON.parse(Buffer.from(bytes).toString('utf8').replace(/^\uFEFF/u, ''))
@@ -177,8 +178,9 @@ function resumeWorkingCopy(baseline: LinguistWorkingCopy, value: unknown, tagPro
 export function readWorkingJson(workspaceRoot: string, path: string): WorkingJsonSnapshot {
   const file = workingCopyPath(workspaceRoot, path)
   const stat = statSync(file)
-  if (!stat.isFile() || stat.size > LINGUIST_IMPORT_MAX_BYTES) throw new Error('工作文件不是受支持大小的普通 JSON 文件')
+  if (!stat.isFile()) throw new Error('工作文件不是普通 JSON 文件')
+  if (stat.size > LINGUIST_FILE_MAX_BYTES) throw new LinguistImportTooLargeError(stat.size, LINGUIST_FILE_MAX_BYTES, basename(file))
   const bytes = readFileSync(file)
-  if (bytes.byteLength > LINGUIST_IMPORT_MAX_BYTES) throw new Error('工作文件超过大小上限')
+  if (bytes.byteLength > LINGUIST_FILE_MAX_BYTES) throw new LinguistImportTooLargeError(bytes.byteLength, LINGUIST_FILE_MAX_BYTES, basename(file))
   return { value: JSON.parse(bytes.toString('utf8')) as unknown, sha256: createHash('sha256').update(bytes).digest('hex') }
 }

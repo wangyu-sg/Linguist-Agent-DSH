@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { bindSession, fileUrl, getBinding, invoke, LinguistRequestError, required, stageFiles, subscribeProject } from '../../packages/dsh-linguist/src/client/api.ts'
+import { LINGUIST_FILE_MAX_BYTES } from '../../packages/linguist-domain-service/src/contracts.ts'
 
 test('Client 通过同源 HTTP 使用 native Session 绑定和 operation 信封，并核对返回身份', async () => {
   const original = globalThis.fetch
@@ -55,6 +56,42 @@ test('Client 上传文件只传浏览器 File，返回受管 token，不传本�
   } finally {
     globalThis.fetch = original
   }
+})
+
+test('Client 分请求上传，收齐同一批 token 后才交给导入', async () => {
+  const original = globalThis.fetch
+  const names: string[][] = []
+  globalThis.fetch = async (_url, options) => {
+    names.push((options!.body as FormData).getAll('files').map(file => (file as File).name))
+    return Response.json({ tokens: [`token-${names.length}`] })
+  }
+  try {
+    const files = [new File(['split'], 'split.mxliff'), new File(['master'], 'master.mxliff')]
+    for (const file of files) Object.defineProperty(file, 'size', { value: 300 * 1024 * 1024 })
+    assert.deepEqual(await stageFiles(files), ['token-1', 'token-2'])
+    assert.deepEqual(names, [['split.mxliff'], ['master.mxliff']])
+  } finally { globalThis.fetch = original }
+})
+
+test('Client accepts inclusive File.size metadata, rejects overflow before upload, and releases a partially staged batch', async (context) => {
+  let count = 0
+  const cleanup: string[][] = []
+  context.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    if (String(url).endsWith('/discard')) {
+      cleanup.push(JSON.parse(String(options.body)).tokens)
+      return Response.json({ discarded: true })
+    }
+    count++
+    return count === 3 ? Response.json({ error: { code: 'IMPORT_TOO_LARGE', message: 'synthetic overflow' } }, { status: 413 }) : Response.json({ tokens: [`token-${count}`] })
+  })
+  const file = new File(['synthetic'], 'boundary.txt')
+  Object.defineProperty(file, 'size', { configurable: true, value: LINGUIST_FILE_MAX_BYTES })
+  assert.deepEqual(await stageFiles([file]), ['token-1'])
+  Object.defineProperty(file, 'size', { value: LINGUIST_FILE_MAX_BYTES + 1 })
+  await assert.rejects(stageFiles([file]), (error: unknown) => error instanceof LinguistRequestError && error.detail.code === 'IMPORT_TOO_LARGE' && error.message.includes('boundary.txt'))
+  assert.equal(count, 1)
+  await assert.rejects(stageFiles([new File(['a'], 'a.txt'), new File(['b'], 'b.txt')]), /synthetic overflow/)
+  assert.deepEqual(cleanup, [['token-2']])
 })
 
 test('Project mutation SSE 只接受请求项目的事件并在卸载时关闭', () => {
