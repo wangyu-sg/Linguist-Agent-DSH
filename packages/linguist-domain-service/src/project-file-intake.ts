@@ -10,7 +10,8 @@ import {
   probePhraseMasterPair,
 } from '@linguist/cat-formats'
 import { sha256Hex } from '@linguist/cat-core'
-import type { ContextImageMetadata } from './project-service-types'
+import type { ContextImageMetadata, ImportAssetInput } from './project-service-types'
+import type { LinguistImportProgress } from './contracts'
 import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import type {
   LinguistImportResourceItem,
@@ -173,10 +174,12 @@ async function importEntry(
   resourceKind: LinguistIntakeResourceKind,
   xlsxMapping?: LinguistIntakeXlsxMapping,
   phraseMaster?: IntakeEntry,
+  onProgress?: ImportAssetInput['onProgress'],
 ): Promise<LinguistIntakeImportResult> {
   const maxBytes = LINGUIST_FILE_MAX_BYTES
   assertEntryWithinLimit(entry, maxBytes)
   const { bytes } = await readPickedFileWithinLimit(entry.path, maxBytes)
+  await onProgress?.('parsing')
   if (resourceKind === 'batch') {
     if (phraseMaster !== undefined && phraseMaster.sizeBytes > LINGUIST_FILE_MAX_BYTES) {
       throw new LinguistImportTooLargeError(phraseMaster.sizeBytes, LINGUIST_FILE_MAX_BYTES, phraseMaster.filename)
@@ -185,6 +188,7 @@ async function importEntry(
       bytes,
       filename: entry.filename,
       xlsxMapping,
+      onProgress,
       ...(phraseMaster === undefined ? {} : {
         phraseMaster: {
           bytes: (await readPickedFileWithinLimit(phraseMaster.path, LINGUIST_FILE_MAX_BYTES)).bytes,
@@ -249,6 +253,7 @@ export async function importProjectResources(
   cwd: string,
   input: LinguistImportResourcesInput,
   images?: ReadonlyMap<string, ContextImageMetadata>,
+  onProgress?: (progress: LinguistImportProgress) => Promise<void>,
 ): Promise<LinguistImportResourcesResult> {
   // 项目级失败不能伪装成某一个文件的 partial failure；也不要先读用户文件再
   // 发现项目已归档或 cat.db 不健康。
@@ -265,6 +270,7 @@ export async function importProjectResources(
   const duplicateMasterHashes = new Set<string>()
   for (const entry of entries) {
     if (entry.imageMediaType !== undefined || !['.mxliff', '.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase())) continue
+    await onProgress?.({ filename: entry.filename, index: entries.indexOf(entry) + 1, total: entries.length, phase: 'matching' })
     try {
       const bytes = (await readPickedFileWithinLimit(entry.path, LINGUIST_FILE_MAX_BYTES)).bytes
       const adapter = await registry.detectBest(bytes, entry.filename)
@@ -282,7 +288,7 @@ export async function importProjectResources(
       })
       const recovery = inspectPhraseRecovery(parsed.segments)
       if (recovery.status === 'unsupported-representation') {
-        phraseIssues.set(entry.path, `Phrase 包含仅在 Target 出现或未配对的标记：${recovery.keys.join('、')}`)
+        phraseIssues.set(entry.path, 'Phrase 存在未配对、或仅在译文中出现的标记。请在 Phrase 中检查源文与译文标签后重新导出。此文件尚未导入。')
       } else if (recovery.status === 'needs-master') {
         phraseSplits.push(entry)
       }
@@ -311,6 +317,7 @@ export async function importProjectResources(
     }
   }
   for (const split of phraseSplits) {
+    await onProgress?.({ filename: split.filename, index: entries.indexOf(split) + 1, total: entries.length, phase: 'matching' })
     let splitBytes: Uint8Array
     try {
       splitBytes = (await readPickedFileWithinLimit(split.path, LINGUIST_FILE_MAX_BYTES)).bytes
@@ -339,7 +346,7 @@ export async function importProjectResources(
     }
     const best = ranked[0]
     if (best === undefined) {
-      phraseIssues.set(split.path, `Phrase split 缺少可匹配的 master XLIFF${rejected.length > 0 ? `（${rejected.join('；')}）` : ''}`)
+      phraseIssues.set(split.path, `Phrase split 缺少可匹配的 master XLIFF。请同时选择此文件与同一任务的原始 .xlf / .xliff；没有配套文件时，请向文件提供方索取。${rejected.length > 0 ? `（${rejected.join('；')}）` : ''}`)
     } else if (ranked.length > 1) {
       const sampleKeys = [...new Set(ranked.flatMap((item) => [
         ...item.probe.sampleKeys,
@@ -361,6 +368,8 @@ export async function importProjectResources(
 
   for (const entry of entries) {
     if (phraseCandidateMasters.has(entry.path)) continue
+    const progress = onProgress === undefined ? undefined : (phase: LinguistImportProgress['phase']) => onProgress({ filename: entry.filename, index: entries.indexOf(entry) + 1, total: entries.length, phase })
+    await progress?.('reading')
     const filename = entry.filename
     const extension = contextImageFormat(filename, entry.imageMediaType)?.extension ?? extname(filename).toLowerCase()
     const phraseIssue = phraseIssues.get(entry.path)
@@ -461,7 +470,7 @@ export async function importProjectResources(
           ...(resourceId === undefined ? {} : { resourceId }) })
         continue
       }
-      const imported = await importEntry(service, projectId, entry, resourceKind, xlsxMapping, master)
+      const imported = await importEntry(service, projectId, entry, resourceKind, xlsxMapping, master, progress)
       items.push({
         filename,
         status: imported.status,

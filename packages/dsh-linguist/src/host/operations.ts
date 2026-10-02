@@ -2,6 +2,8 @@ import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
+import { setImmediate } from 'node:timers/promises'
+import type { LinguistImportProgress } from '@linguist/domain-service/contracts'
 import { basename, extname, isAbsolute, join, relative } from 'node:path'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import {
@@ -644,16 +646,28 @@ function tagCandidate(value: Data) {
   }
 }
 
+function importProgress({ payload, mutations }: DispatchOperationInput): ((progress: LinguistImportProgress) => Promise<void>) | undefined {
+  if (payload.requestId === undefined) return undefined
+  const requestId = string(payload.requestId, 'requestId', 100)
+  const id = projectId(payload)
+  return async progress => {
+    mutations.publishImport(id, requestId, progress)
+    // Flush the real phase before synchronous parsing / SQLite work starts.
+    await setImmediate()
+  }
+}
+
 async function importProject(input: DispatchOperationInput): Promise<unknown> {
   const { service, files, payload, mutations } = input
   const id = projectId(payload)
   service.assertProjectWritable(id)
   const tokens = uploadTokens(payload)
   const uploads = tokens.map((token) => readUpload(files, token))
+  const progress = importProgress(input)
   const upload = uploads[0]!
   const extension = extname(upload.filename).toLowerCase()
   if (uploads.length > 1 || payload.selection === 'directory' || SINGLE_RESOURCE_EXTENSIONS.has(extension)) {
-    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), recursive: false, kind: 'auto', dryRun: false })
+    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), recursive: false, kind: 'auto', dryRun: false }, undefined, progress)
     const complete = result.items.every(item => item.status === 'imported' || item.status === 'skipped-duplicate' || item.status === 'supporting')
     for (const [index, item] of uploads.entries()) {
       const outcomes = result.items.filter(outcome => outcome.filename === item.filename)
@@ -662,13 +676,16 @@ async function importProject(input: DispatchOperationInput): Promise<unknown> {
     if (result.imported > 0) notify(mutations, id, 'asset-updated')
     return { cancelled: false, bulk: true, ...result }
   }
+  const onProgress = progress === undefined ? undefined : (phase: LinguistImportProgress['phase']) => progress({ filename: upload.filename, index: 1, total: 1, phase })
+  await onProgress?.('reading')
   const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
+  await onProgress?.('parsing')
   if (await XLSX_DETECTOR.detect(bytes, upload.filename) > 0) {
     const parsed = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
     const matched = await service.matchWorkbookMapping(id, bytes, upload.filename)
     if (matched !== undefined) {
       const mapping = validateXlsxMapping(parsed, matched.mapping)
-      const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping })
+      const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping, onProgress })
       files.discardUpload(tokens[0]!)
       if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
       return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result, mappingUsed: { profileId: matched.profileId, sheetName: mapping.sheetName, columns: mapping.columns } }
@@ -676,7 +693,7 @@ async function importProject(input: DispatchOperationInput): Promise<unknown> {
     files.pendingImports.set(tokens[0]!, { projectId: id, kind: 'xlsx', sha256: parsed.report.sourceSha256 })
     return { cancelled: false, bulk: false, requiresXlsxMapping: true, filename: upload.filename, mappingId: tokens[0], sourceSha256: parsed.report.sourceSha256, preview: xlsxPreview(parsed, service.getProject(id)) }
   }
-  const result = await service.importAsset(id, { bytes, filename: upload.filename })
+  const result = await service.importAsset(id, { bytes, filename: upload.filename, onProgress })
   files.discardUpload(tokens[0]!)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
   return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result }
@@ -691,8 +708,12 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   const pending = files.pendingImports.get(mappingId)
   if (pending?.projectId !== id || pending.kind !== 'xlsx' || pending.sha256 !== sourceSha256) throw new TypeError('XLSX mapping candidate is missing or bound to another project/source')
   const upload = readUpload(files, mappingId)
+  const progress = importProgress(input)
+  const onProgress = progress === undefined ? undefined : (phase: LinguistImportProgress['phase']) => progress({ filename: upload.filename, index: 1, total: 1, phase })
+  await onProgress?.('reading')
   const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
   if (sha256Hex(bytes) !== sourceSha256) throw new TypeError('XLSX source bytes changed after preview')
+  await onProgress?.('parsing')
   const parsed = await parseXlsxWorkbook(bytes, { filename: upload.filename, maxRowsPerSheet: 50 })
   const selected = object(payload.columns, 'columns')
   const mapping = validateXlsxMapping(parsed, {
@@ -707,7 +728,7 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   })
   const rememberMapping = boolean(payload.rememberMapping, 'rememberMapping', false)
   const profile = rememberMapping ? await service.saveWorkbookMappingFromBytes(id, bytes, upload.filename, mapping) : undefined
-  const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping })
+  const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping, onProgress })
   files.pendingImports.delete(mappingId)
   files.discardUpload(mappingId)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })

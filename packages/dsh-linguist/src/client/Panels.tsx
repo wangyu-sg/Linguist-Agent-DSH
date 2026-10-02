@@ -13,7 +13,6 @@ import type {
   LinguistExportFileInfo,
   LinguistPrepareDeliveryResult,
   LinguistProjectInfo,
-  LinguistProjectImportResult,
   LinguistProposalDiff,
   LinguistApplyTranslationsResult,
   LinguistProposalListResult,
@@ -31,12 +30,12 @@ import type {
   LinguistUnknownTagPatternInfo,
   LinguistVoiceProfileInfo,
   LinguistWorkflowStage,
-  LinguistXlsxMappingPreviewSheet,
 } from '@linguist/domain-service/contracts'
-import { discardStagedFiles, fileUrl, required, stageFiles } from './api'
+import { fileUrl, required, stageFiles } from './api'
 import { describeLinguistFormat, isGenericXliffFallback } from './format-labels'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { BackupRestorePreview } from './BackupRestorePreview'
+import { BatchImport } from './BatchImport'
 import { describeProjectError } from './project-errors'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { groupProposalRuns, textDiffParts } from './proposal-view'
@@ -514,18 +513,6 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
 
 type AssetKind = 'contextDocs' | 'styleGuideRules' | 'sentencePatterns' | 'voiceProfiles' | 'techConstraints'
 
-function suggestedXlsxColumns(sheet: LinguistXlsxMappingPreviewSheet | undefined): { key: string; source: string; target: string; locked: string; context: string } {
-  const columns = { key: '', source: '', target: '', locked: '', context: '' }
-  if (!sheet) return columns
-  const selectable = new Set(sheet.columns.filter((column) => column.selectable).map((column) => column.header))
-  const used = new Set<string>()
-  for (const role of ['key', 'source', 'target', 'locked', 'context'] as const) {
-    const value = sheet.suggestion.columns[role]
-    if (value && selectable.has(value) && !used.has(value)) { columns[role] = value; used.add(value) }
-  }
-  return columns
-}
-
 export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archived, onChanged, onSendAgentTask, onOpenBatchPreview }: { projectId: string; segmentId?: string; focusDocId?: string; mutation: number; archived: boolean; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void>; onOpenBatchPreview: (assetId: string) => void }): React.ReactElement {
   const t = useT()
   const [kind, setKind] = React.useState<AssetKind>('contextDocs')
@@ -534,11 +521,7 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
   const [assetPage, setAssetPage] = React.useState(0)
   const [sentenceStatus, setSentenceStatus] = React.useState('')
   const [summary, setSummary] = React.useState<LinguistAssetInfo[]>([])
-  const [importResult, setImportResult] = React.useState<LinguistProjectImportResult>()
   const [preview, setPreview] = React.useState<PreviewRequest>()
-  const [sheetName, setSheetName] = React.useState('')
-  const [columns, setColumns] = React.useState({ key: '', source: '', target: '', locked: '', context: '' })
-  const [rememberMapping, setRememberMapping] = React.useState(true)
   const [importing, setImporting] = React.useState(false)
   const [agentSending, setAgentSending] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string>()
@@ -565,38 +548,6 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     if (archived) return false
     try { await required(operation, input); changed(); setMessage(t("操作已完成")); return true }
     catch (error) { setMessage(describeProjectError(error, t)); return false }
-  }
-  const importBatch = async (files: FileList, selection: 'files' | 'directory') => {
-    setImporting(true)
-    try {
-      const result = await required<LinguistProjectImportResult>('linguistProjectsImport', { projectId, fileTokens: await stageFiles(Array.from(files)), selection })
-      setImportResult(result)
-      if (!result.cancelled && !result.bulk && result.requiresXlsxMapping) {
-        const sheet = result.preview.sheets[0]
-        setSheetName(sheet?.name ?? '')
-        setColumns(suggestedXlsxColumns(sheet))
-      } else changed()
-    } catch (error) { setMessage(describeProjectError(error, t)) }
-    finally { setImporting(false) }
-  }
-  const confirmMapping = async () => {
-    const candidate = importResult
-    if (!candidate || candidate.cancelled || candidate.bulk || !candidate.requiresXlsxMapping) return
-    setImporting(true)
-    try {
-      const result = await required<LinguistProjectImportResult>('linguistProjectsConfirmXlsxMapping', { projectId, mappingId: candidate.mappingId, sourceSha256: candidate.sourceSha256, sheetName, columns: Object.fromEntries(Object.entries(columns).filter(([, value]) => value)), rememberMapping })
-      setImportResult(result)
-      changed()
-    } catch (error) { setMessage(describeProjectError(error, t)) }
-    finally { setImporting(false) }
-  }
-  const cancelMapping = async () => {
-    const candidate = importResult
-    if (!candidate || candidate.cancelled || candidate.bulk || !candidate.requiresXlsxMapping) return
-    setImporting(true)
-    try { await discardStagedFiles([candidate.mappingId]); setImportResult(undefined) }
-    catch (error) { setMessage(describeProjectError(error, t)) }
-    finally { setImporting(false) }
   }
   const importResource = async (file: File, operation: 'linguistAssetsImportContextDoc' | 'linguistAssetsImportSentencePatterns') => {
     if (archived) return
@@ -641,9 +592,6 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     else if ('valueJson' in item) setForm({ first: item.kind, second: item.scope ?? '', third: item.valueJson, fourth: item.note ?? '' })
     else setForm({ first: item.note ?? '', second: '', third: '', fourth: '' })
   }
-  const mapCandidate = importResult && !importResult.cancelled && !importResult.bulk && importResult.requiresXlsxMapping ? importResult : undefined
-  const bulkImport = importResult && !importResult.cancelled && importResult.bulk ? importResult : undefined
-  const completedImport = importResult && !importResult.cancelled && !importResult.bulk && !importResult.requiresXlsxMapping ? importResult : undefined
   const summarizeVoice = async () => {
     setAgentSending(true)
     try {
@@ -652,42 +600,15 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     } catch (cause) { setMessage(String(cause)) }
     finally { setAgentSending(false) }
   }
-  const sheet = mapCandidate?.preview.sheets.find((entry) => entry.name === sheetName)
-  const selectedColumns = Object.values(columns).filter(Boolean)
-  const mappingValid = !!sheet && !!columns.source && !!columns.target && selectedColumns.length === new Set(selectedColumns).size
   const assetGroups: Array<{ groupKey?: string; items: LinguistAssetsQueryResult['items'] }> = kind === 'styleGuideRules'
     ? groupStyleGuideRules((items?.items ?? []).filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)).map((group) => ({ groupKey: group.groupKey, items: group.rules }))
     : [{ items: items?.items ?? [] }]
   return <section className={styles.panel} aria-label={t("批次与语言资产")}>
     <h3>{t("工作批次")}</h3>
-    <div className={styles.toolbar}>
-      <label>{t('选择文件')} <input type="file" multiple disabled={archived || importing || !!mapCandidate} onChange={(event) => { if (event.target.files?.length) void importBatch(event.target.files, 'files'); event.target.value = '' }} /></label>
-      <label>{t('选择文件夹')} <input type="file" multiple {...{ webkitdirectory: '' }} disabled={archived || importing || !!mapCandidate} onChange={(event) => { if (event.target.files?.length) void importBatch(event.target.files, 'directory'); event.target.value = '' }} /></label>
-      <span>{summary.length} {t("个批次")}</span>
-    </div>
-    {importing && <p role="status">{t('导入中（读取并解析文件）…')}</p>}
+    <BatchImport projectId={projectId} archived={archived} importing={importing} setImporting={setImporting} onImported={changed} />
+    <span className={styles.notice}>{summary.length} {t('个批次')}</span>
     {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /><Button variant="outline" size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
-    {mapCandidate && <div className={styles.callout} aria-label={t('XLSX 映射确认')}>
-      <div className={styles.toolbar}><strong>{mapCandidate.filename} {t("需要映射列")}</strong><Button variant="outline" size="sm" disabled={importing} onClick={() => void cancelMapping()}>{t('取消')}</Button></div>
-      <label>{t('工作表')} <select aria-label={t("工作表")} disabled={importing} value={sheetName} onChange={(event) => { const next = mapCandidate.preview.sheets.find((entry) => entry.name === event.target.value); setSheetName(event.target.value); setColumns(suggestedXlsxColumns(next)) }}>{mapCandidate.preview.sheets.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}{entry.state === 'visible' ? '' : ` (${entry.state})`}</option>)}</select></label>
-      {sheet && <>
-        <div className={styles.toolbar}>{(['key','source','target','locked','context'] as const).map((field) => <label key={field}>{field}<select aria-label={t('{field} 列', { field })} disabled={importing} value={columns[field]} onChange={(event) => setColumns((current) => ({ ...current, [field]: event.target.value }))}><option value="">{t("未指定")}</option>{sheet.columns.filter((entry) => entry.selectable).map((entry) => <option key={entry.index} value={entry.header}>{entry.header}</option>)}</select></label>)}</div>
-        <p>{t('建议置信度 {percent}%', { percent: Math.round(sheet.suggestion.confidence * 100) })} · {sheet.suggestion.reasons.join('；')}</p>
-        <details><summary>{t('解析证据：表头 {headers} · 样本 {shown}/{total}', { headers: sheet.headerRowNumbers.join('、') || t('未识别'), shown: sheet.coverage.shownSampleRows, total: sheet.coverage.dataRows })}</summary>
-          <p>{t('物理行 {physical} · 非空 {nonEmpty} · 空行 {empty}', { physical: sheet.coverage.physicalRows, nonEmpty: sheet.coverage.nonEmptyDataRows, empty: sheet.coverage.emptyDataRows })}</p>
-          <p>{t('公式 {formula} · 无缓存值 {missing} · 错误单元格 {errors} · 合并区域 {merged}', { formula: sheet.distortion.formulaCells, missing: sheet.distortion.formulaCellsWithoutCachedValue, errors: sheet.distortion.errorCells, merged: sheet.distortion.mergedRanges })}</p>
-          {sheet.sampleRows.map((row) => <p key={row.rowNo}>{t('第 {row} 行', { row: row.rowNo })}：{row.cells.map((cell) => `${sheet.columns.find((column) => column.index === cell.columnIndex)?.header ?? `#${cell.columnIndex + 1}`}=${cell.value}${cell.truncated ? '…' : ''}`).join(' · ')}</p>)}
-        </details>
-      </>}
-      <div className={styles.toolbar}><Checkbox label={t('记住此映射')} checked={rememberMapping} disabled={importing} onChange={setRememberMapping} /><Button variant="outline" size="sm" disabled={archived || importing || !mappingValid} onClick={() => void confirmMapping()}>{t("确认映射并导入")}</Button></div>
-      {!mappingValid && <p role="alert">{t('Source、Target 必选，且每列只能用于一个字段。')}</p>}
-    </div>}
-    {bulkImport && <details className={styles.callout} open><summary>{t('批量导入结果')} · {t('发现 {found} · 导入 {imported} · 重复 {duplicate} · 待确认 {needsInput} · 不支持 {unsupported} · 失败 {failed}', { found: bulkImport.found, imported: bulkImport.imported, duplicate: bulkImport.skippedDuplicate, needsInput: bulkImport.needsInput, unsupported: bulkImport.unsupported, failed: bulkImport.failed })}</summary>
-      {bulkImport.truncated && <p role="alert">{t('已达到 500 项上限，请缩小文件夹范围后继续。')}</p>}
-      <ul className={styles.importItems}>{bulkImport.items.map((item, index) => <li key={`${item.filename}:${index}`}><strong>{item.filename}</strong> · {item.status}{item.resourceKind ? ` · ${item.resourceKind}` : ''}{item.message ? ` · ${item.message}` : ''}{item.status === 'needs-input' && item.filename.toLowerCase().endsWith('.xlsx') ? ` · ${t('请单独选择此 XLSX 以确认 Sheet/列映射')}` : ''}</li>)}</ul>
-    </details>}
-    {completedImport && <div className={styles.callout} role="status"><strong>{completedImport.filename} · {completedImport.status}</strong><p>{t(describeLinguistFormat(completedImport.formatId))} · {completedImport.segmentCount} {t('段')} · SHA-256 {completedImport.sourceSha256}</p>{isGenericXliffFallback(completedImport.filename, completedImport.formatId) && <p role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</p>}{completedImport.mappingUsed && <p>{t('映射已使用')} · {completedImport.mappingUsed.sheetName}</p>}{completedImport.warnings.map((warning, index) => <p key={`${warning.code}:${index}`} role="note">{warning.code} · {warning.message}</p>)}{completedImport.verification.checks.map((check) => <p key={check.id}>{check.passed ? '✓' : '✗'} {check.id} · {check.detail}</p>)}</div>}
     <hr /><div className={styles.toolbar}><strong>{t("项目语言资产")}</strong><select aria-label={t("语言资产类别")} value={kind} onChange={(event) => { setKind(event.target.value as AssetKind); setAssetPage(0); setEditingId(undefined); setForm({ first: '', second: '', third: '', fourth: '' }); setExtra({ sourceExample: '', module: '', suggestedTarget: '', reviewer: '', person: '', toneMarkers: '', taboos: '' }) }}><option value="contextDocs">{t("Context 文档与图像")}</option><option value="styleGuideRules">Style Guide</option><option value="sentencePatterns">{t("句型")}</option><option value="voiceProfiles">Voice Profile</option><option value="techConstraints">{t("技术约束")}</option></select><Input aria-label={t("搜索语言资产")} placeholder={t("搜索语言资产")} value={assetQuery} onChange={(event) => { setAssetQuery(event.target.value); setAssetPage(0) }} />{kind === 'sentencePatterns' && <select aria-label={t("句型状态")} value={sentenceStatus} onChange={(event) => { setSentenceStatus(event.target.value); setAssetPage(0) }}><option value="">{t("全部状态")}</option><option value="pending">{t("待审")}</option><option value="confirmed">{t("已确认")}</option><option value="rejected">{t("已拒绝")}</option></select>}{(kind === 'contextDocs' || kind === 'sentencePatterns') && <label>{t("导入文件")} <input type="file" disabled={archived} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importResource(file, kind === 'contextDocs' ? 'linguistAssetsImportContextDoc' : 'linguistAssetsImportSentencePatterns'); event.target.value = '' }} /></label>}{kind === 'voiceProfiles' && <Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void summarizeVoice()}>{agentSending ? t('发送中…') : t('让 Agent 从已确认台词总结角色声音')}</Button>}</div>
     {message && <p role="status">{message}</p>}
     <fieldset disabled={archived} className={styles.formFields}>

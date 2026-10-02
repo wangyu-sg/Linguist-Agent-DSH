@@ -103,6 +103,7 @@ interface LinguistFormatParseErrorDetails {
   adapterId: string
   filename: string
   detail: string
+  reason?: 'phrase-master-required' | 'phrase-marker-mismatch' | 'phrase-master-mismatch'
 }
 
 interface LinguistFormatExportErrorDetails {
@@ -383,6 +384,13 @@ export interface LinguistXlsxMappingUsedInfo {
     locked?: string
     context?: string
   }
+}
+
+export interface LinguistImportProgress {
+  filename: string
+  index: number
+  total: number
+  phase: 'reading' | 'matching' | 'parsing' | 'writing' | 'scanning'
 }
 
 export type LinguistProjectImportResult =

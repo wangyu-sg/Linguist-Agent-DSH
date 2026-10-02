@@ -578,6 +578,7 @@ export class ProjectDelivery {
 
   /** dry-run 与正式导入共用解析；重复源文件仍沿用既有的幂等路径。 */
   private async prepareImport(projectId: string, input: ImportAssetInput) {
+    await input.onProgress?.('parsing')
     const project = this.context.getProject(projectId)
     if (project.archivedAt !== undefined) {
       throw new LinguistProjectArchivedError(projectId)
@@ -640,6 +641,7 @@ export class ProjectDelivery {
       return { project, adapter, db, sourceSha256, duplicate } as const
     }
     if (input.phraseMaster !== undefined) {
+      await input.onProgress?.('matching')
       const probe = await probePhraseMasterPair(
         input.bytes,
         input.filename,
@@ -652,6 +654,7 @@ export class ProjectDelivery {
       if (probe.status === 'matched' || probe.literalSegments > 0) {
         formatConfigJson = serializePhraseMxliffFormatConfig(probe.config)
       }
+      await input.onProgress?.('parsing')
     }
     const rawImported = await adapter.import({
       bytes: input.bytes,
@@ -743,6 +746,7 @@ export class ProjectDelivery {
       }
     }
     const { imported } = prepared
+    await input.onProgress?.('writing')
     const assetPreview = createAsset({
       projectId: project.id,
       formatId: imported.asset.formatId,
@@ -782,6 +786,7 @@ export class ProjectDelivery {
     console.log(
       `[Linguist] 已导入批次: 项目 ${projectId} 批次 ${asset.id}（${adapter.id}，${imported.segments.length} 段，${imported.warnings.length} 警告）`,
     )
+    await input.onProgress?.('scanning')
     const unknownTagSummary = await this.scanImportedAsset(db, project, asset)
     return {
       status: 'imported',

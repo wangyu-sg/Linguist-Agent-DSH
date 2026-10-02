@@ -222,6 +222,11 @@ export function invokeError(error: unknown): LinguistIpcError {
         : vendor ? 'vendor_structure_incomplete' : 'file_corrupt'
     formatDetails = { code: 'FORMAT_PARSE_ERROR', category, adapterId: error.adapterId,
       filename: basename(error.filename.replaceAll('\\', '/')), detail: 'The source file could not be parsed.' }
+    if (error.adapterId === PHRASE_MXLIFF_ADAPTER_ID) {
+      if (error.detail === 'Phrase markers require a verified master XLIFF companion') formatDetails.reason = 'phrase-master-required'
+      else if (error.detail === 'Phrase target-only or unbalanced markers require manual source/master inspection') formatDetails.reason = 'phrase-marker-mismatch'
+      else if (error.detail === 'Phrase master did not verify the unresolved markers' || error.detail.startsWith('Phrase master companion: ')) formatDetails.reason = 'phrase-master-mismatch'
+    }
   } else if (error instanceof FormatExportError) {
     formatDetails = { code: 'FORMAT_EXPORT_ERROR', adapterId: error.adapterId, detail: 'The source format could not be exported safely.' }
   } else if (error instanceof FormatSegmentLostError) {

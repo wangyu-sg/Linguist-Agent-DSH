@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { Readable } from 'node:stream'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { sha256Hex } from '@linguist/cat-core'
 import type { LinguistProjectImportResult, LinguistReferenceImportResult, LinguistReferenceQueryResult, LinguistTmReferenceInfo } from '@linguist/domain-service/contracts'
 import test from 'node:test'
@@ -106,11 +106,22 @@ test('separately uploaded Phrase split and master are imported as one paired bat
     const master = Buffer.from('<xliff version="1.2"><file><body><trans-unit id="m1"><source>Open <ph id="1">{0}</ph> world</source></trans-unit></body></file></xliff>')
     const tokens = [await stageSynthetic(files, 'split.mxliff', split), await stageSynthetic(files, 'master.xliff', master)]
     const paths = tokens.map(token => files.takeUpload(token).path)
+    const mutations = new MutationBus()
+    const frames: string[] = []
+    const unsubscribe = mutations.subscribe(project.id, 0, { write: (frame: string) => { frames.push(frame); return true } } as ServerResponse)
     const result = await dispatchOperation({
-      service, files, bindings: new BindingStore(root), mutations: new MutationBus(), workspaceRegistry: { get: () => undefined },
+      service, files, bindings: new BindingStore(root), mutations, workspaceRegistry: { get: () => undefined },
       assertProjectSession: async () => { throw new Error('Unexpected Session check') }, resolveSessionWorkspace: async () => { throw new Error('Unexpected Workspace lookup') },
-      operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: tokens },
+      operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: tokens, requestId: 'synthetic-paired-import' },
     }) as { imported: number; items: { status: string; message: string }[] }
+    unsubscribe()
+    const progress = frames.filter(frame => frame.startsWith('event: import-progress')).map(frame => JSON.parse(frame.split('\ndata: ')[1]!))
+    for (const phase of ['reading', 'matching', 'parsing', 'writing', 'scanning']) assert.ok(progress.some(event => event.phase === phase), phase)
+    assert.ok(progress.every(event => event.requestId === 'synthetic-paired-import' && event.projectId === project.id && event.total === 2))
+    assert.doesNotMatch(JSON.stringify(progress), /Open|世界|staging/)
+    const writing = progress.findIndex(event => event.phase === 'writing')
+    assert.ok(writing > progress.findIndex(event => event.phase === 'parsing'))
+    assert.ok(progress.findIndex(event => event.phase === 'scanning') > writing)
     assert.equal(result.imported, 1)
     assert.match(result.items[0]!.message, /唯一配对/)
     assert.equal(service.openProject(project.id).assets.listByProject().length, 1)

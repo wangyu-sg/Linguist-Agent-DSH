@@ -1403,8 +1403,9 @@ export class LinguistProjectService {
     cwd: string,
     input: LinguistImportResourcesInput,
     images?: ReadonlyMap<string, ContextImageMetadata>,
+    onProgress?: (progress: import('./contracts').LinguistImportProgress) => Promise<void>,
   ): Promise<LinguistImportResourcesResult> {
-    return importProjectResources(this, projectId, cwd, input, images)
+    return importProjectResources(this, projectId, cwd, input, images, onProgress)
   }
 
   refreshEvidenceInventory(

@@ -1,4 +1,4 @@
-import type { LinguistIpcError, LinguistIpcResult, LinguistMigrationProgress, LinguistProjectMutationEvent } from '@linguist/domain-service/contracts'
+import type { LinguistImportProgress, LinguistIpcError, LinguistIpcResult, LinguistMigrationProgress, LinguistProjectMutationEvent } from '@linguist/domain-service/contracts'
 import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 
 const base = '/la/v1'
@@ -68,24 +68,50 @@ export async function required<T>(operation: string, input: object): Promise<T> 
   return result.data
 }
 
-export async function stageFiles(files: readonly File[]): Promise<readonly string[]> {
+export interface UploadProgress {
+  filename: string
+  index: number
+  total: number
+  loadedBytes: number
+  totalBytes: number
+}
+
+export async function stageFiles(files: readonly File[], onProgress?: (progress: UploadProgress) => void): Promise<readonly string[]> {
   if (files.length === 0 || files.length > 500) throw new Error('一次请选择 1–500 个文件。')
   for (const file of files) {
     if (file.size > LINGUIST_FILE_MAX_BYTES) throw new LinguistRequestError({ code: 'IMPORT_TOO_LARGE', message: `文件“${file.name}”（${file.size} 字节）超过单文件上限 512 MiB。请拆分文件后重试。` })
   }
   const tokens: string[] = []
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+  let completedBytes = 0
   try {
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
       const form = new FormData()
       form.append('files', file, file.name)
-      const response = await fetch(`${base}/files/stage`, { method: 'POST', credentials: 'same-origin', body: form })
-      if (!response.ok) {
-        const failure: { error: LinguistIpcError | string } = await response.json()
-        throw typeof failure.error === 'string' ? new Error(failure.error) : new LinguistRequestError(failure.error)
-      }
-      const result: unknown = await response.json()
+      const report = (fraction: number) => onProgress?.({ filename: file.name, index: index + 1, total: files.length, loadedBytes: completedBytes + Math.round(file.size * fraction), totalBytes })
+      report(0)
+      const result: unknown = await new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest()
+        request.open('POST', `${base}/files/stage`)
+        request.responseType = 'json'
+        request.upload.onprogress = event => { if (event.lengthComputable) report(event.loaded / event.total) }
+        request.onerror = () => reject(new Error(`“${file.name}”上传连接中断，请检查 DSH 是否仍在运行后重新选择文件。`))
+        request.onabort = () => reject(new Error(`“${file.name}”上传已中止。`))
+        request.onload = () => {
+          if (request.status >= 200 && request.status < 300) resolve(request.response)
+          else {
+            const failure = request.response?.error
+            reject(failure && typeof failure === 'object' && typeof failure.code === 'string'
+              ? new LinguistRequestError(failure)
+              : new Error(typeof failure === 'string' ? failure : `文件上传失败：HTTP ${request.status}`))
+          }
+        }
+        request.send(form)
+      })
       if (typeof result !== 'object' || result === null || !('tokens' in result) || !Array.isArray(result.tokens) || result.tokens.length !== 1 || typeof result.tokens[0] !== 'string') throw new Error('Invalid Linguist file staging response')
       tokens.push(result.tokens[0])
+      report(1)
+      completedBytes += file.size
     }
     return tokens
   } catch (error) {
@@ -95,6 +121,35 @@ export async function stageFiles(files: readonly File[]): Promise<readonly strin
     }
     throw error
   }
+}
+
+export function subscribeImport(projectId: string, requestId: string, onProgress: (event: LinguistImportProgress) => void, onError: () => void): Promise<() => void> {
+  const source = new EventSource(`${base}/events?projectId=${encodeURIComponent(projectId)}`)
+  return new Promise((resolve, reject) => {
+    let ready = false
+    const fail = () => {
+      clearTimeout(timeout)
+      source.close()
+      if (ready) onError()
+      else reject(new Error('无法连接导入进度，请确认 DSH 正在运行后重试。尚未开始解析或写入。'))
+    }
+    const timeout = setTimeout(fail, 10_000)
+    source.addEventListener('snapshot', () => {
+      clearTimeout(timeout)
+      ready = true
+      resolve(() => source.close())
+    })
+    source.addEventListener('import-progress', message => {
+      try {
+        const event = JSON.parse((message as MessageEvent).data)
+        if (event.projectId !== projectId || event.requestId !== requestId) return
+        if (typeof event.filename !== 'string' || !Number.isInteger(event.index) || !Number.isInteger(event.total)
+          || event.index < 1 || event.index > event.total || !['reading', 'matching', 'parsing', 'writing', 'scanning'].includes(event.phase)) throw new Error('Invalid import progress')
+        onProgress(event)
+      } catch { fail() }
+    })
+    source.onerror = fail
+  })
 }
 
 export async function discardStagedFiles(tokens: readonly string[]): Promise<void> {

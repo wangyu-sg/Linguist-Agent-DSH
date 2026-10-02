@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ServerResponse } from 'node:http'
-import type { LinguistMigrationProgress } from '@linguist/domain-service/contracts'
+import type { LinguistImportProgress, LinguistMigrationProgress } from '@linguist/domain-service/contracts'
 
 interface ProjectEvent { projectId: string; revision: number; [key: string]: unknown }
 
@@ -55,6 +55,17 @@ export class MutationBus {
     if (set === undefined) { set = new Set(); this.clients.set(projectId, set) }
     set.add(response)
     return () => { set?.delete(response) }
+  }
+
+  publishImport(projectId: string, requestId: string, progress: LinguistImportProgress): void {
+    for (const response of this.clients.get(projectId) ?? []) {
+      try { response.write(`event: import-progress\ndata: ${JSON.stringify({ ...progress, projectId, requestId })}\n\n`) }
+      catch (error) {
+        this.clients.get(projectId)?.delete(response)
+        this.lastError = error instanceof Error ? error.name : typeof error
+        console.error('[Linguist] import progress SSE delivery failed', this.lastError)
+      }
+    }
   }
 
   publishMigration(workspaceId: string, scanId: string, progress: LinguistMigrationProgress): void {

@@ -28,6 +28,7 @@ import type {
   CatFormatRegistry,
   ImportWarning,
 } from '@linguist/cat-formats'
+import type { LinguistImportProgress } from './contracts'
 import type {
   ApprovedExemplar,
   ContextDoc,
@@ -206,6 +207,7 @@ export interface LinguistRestoreResult {
 export interface ImportAssetInput {
   bytes: Uint8Array
   filename: string
+  onProgress?: (phase: LinguistImportProgress['phase']) => Promise<void>
   /** XLSX is only imported after the main process has verified this explicit user mapping. */
   xlsxMapping?: XlsxImportMapping
   /** Phrase split 的 master XLIFF 同伴；只在 Host 内传字节，不暴露路径。 */

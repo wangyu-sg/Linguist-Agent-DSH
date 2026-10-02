@@ -9,12 +9,22 @@ import test from 'node:test'
 import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 import { ManagedFiles } from './files'
 
-function upload(bytes: number): IncomingMessage {
+function upload(bytes: number, filename = 'synthetic.txt'): IncomingMessage {
   return Object.assign(Readable.from([
-    Buffer.from('--files-test\r\nContent-Disposition: form-data; name="files"; filename="synthetic.txt"\r\n\r\n'),
+    Buffer.from(`--files-test\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\n\r\n`),
     Buffer.alloc(bytes, 'x'), Buffer.from('\r\n--files-test--\r\n'),
   ]), { headers: { 'content-type': 'multipart/form-data; boundary=files-test' } }) as IncomingMessage
 }
+
+test('browser multipart preserves UTF-8 filenames for import results and errors', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-upload-unicode-')))
+  try {
+    const files = new ManagedFiles(root)
+    const filename = '合成导入-游戏🎮.mxliff'
+    const [token] = await files.stage(upload(12, filename))
+    assert.equal(files.takeUpload(token!).filename, filename)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('streaming upload accepts the exact inclusive limit and rejects one more byte without retaining staging', async () => {
   assert.equal(LINGUIST_FILE_MAX_BYTES, 536_870_912)

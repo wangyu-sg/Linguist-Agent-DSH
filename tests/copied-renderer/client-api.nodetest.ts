@@ -1,7 +1,18 @@
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { bindSession, fileUrl, getBinding, invoke, LinguistRequestError, required, stageFiles, subscribeProject } from '../../packages/dsh-linguist/src/client/api.ts'
+import { bindSession, fileUrl, getBinding, invoke, LinguistRequestError, required, stageFiles, subscribeImport, subscribeProject } from '../../packages/dsh-linguist/src/client/api.ts'
 import { LINGUIST_FILE_MAX_BYTES } from '../../packages/linguist-domain-service/src/contracts.ts'
+import { describeProjectError } from '../../packages/dsh-linguist/src/client/project-errors.ts'
+
+test('Phrase parse error explains the missing companion and the next file selection in Chinese', () => {
+  const text = describeProjectError(new LinguistRequestError({ code: 'FORMAT_PARSE_ERROR', message: 'Could not parse', formatDetails: {
+    code: 'FORMAT_PARSE_ERROR', category: 'vendor_structure_incomplete', adapterId: 'phrase_mxliff_1_2', filename: '合成游戏.mxliff', detail: 'The source file could not be parsed.', reason: 'phrase-master-required',
+  } }), (key, params) => key.replace(/\{(\w+)\}/g, (_, name) => String(params?.[name])))
+  assert.match(text, /合成游戏\.mxliff/)
+  assert.match(text, /master XLIFF/)
+  assert.match(text, /同时选中.*\.xlf \/ \.xliff/)
+  assert.doesNotMatch(text, /vendor_structure_incomplete|FORMAT_PARSE_ERROR|could not be parsed/)
+})
 
 test('Client 通过同源 HTTP 使用 native Session 绑定和 operation 信封，并核对返回身份', async () => {
   const original = globalThis.fetch
@@ -37,52 +48,55 @@ test('Client 通过同源 HTTP 使用 native Session 绑定和 operation 信封�
   }
 })
 
-test('Client 上传文件只传浏览器 File，返回受管 token，不传本机路径', async () => {
-  const original = globalThis.fetch
-  let captured: { url: string; options?: RequestInit } | undefined
-  globalThis.fetch = async (url, options) => {
-    captured = { url: String(url), options }
-    return Response.json({ tokens: ['opaque-synthetic-token'] })
+function mockUploads(context: TestContext, respond: (form: FormData) => { status: number; body: unknown }) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'XMLHttpRequest')
+  class FakeRequest {
+    upload: { onprogress?: (event: { lengthComputable: boolean; loaded: number; total: number }) => void } = {}
+    responseType = ''
+    response: unknown
+    status = 0
+    onload?: () => void
+    open(method: string, url: string) { assert.equal(method, 'POST'); assert.equal(url, '/la/v1/files/stage') }
+    send(form: FormData) {
+      assert.equal(this.responseType, 'json')
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 })
+      const result = respond(form)
+      this.response = result.body
+      this.status = result.status
+      queueMicrotask(() => this.onload?.())
+    }
   }
-  try {
-    const tokens = await stageFiles([new File(['synthetic only'], 'synthetic.txt', { type: 'text/plain' })])
-    assert.deepEqual(tokens, ['opaque-synthetic-token'])
-    assert.equal(captured?.url, '/la/v1/files/stage')
-    assert.equal(captured?.options?.credentials, 'same-origin')
-    const files = (captured?.options?.body as FormData).getAll('files')
-    assert.equal(files.length, 1)
-    assert.equal((files[0] as File).name, 'synthetic.txt')
-    assert.equal((files[0] as File).size, 14)
-  } finally {
-    globalThis.fetch = original
-  }
-})
+  Object.defineProperty(globalThis, 'XMLHttpRequest', { configurable: true, value: FakeRequest })
+  context.after(() => { if (original) Object.defineProperty(globalThis, 'XMLHttpRequest', original); else Reflect.deleteProperty(globalThis, 'XMLHttpRequest') })
+}
 
-test('Client 分请求上传，收齐同一批 token 后才交给导入', async () => {
-  const original = globalThis.fetch
+test('Client uploads browser Files separately, reports actual bytes, and keeps Phrase tokens in one logical batch', async context => {
   const names: string[][] = []
-  globalThis.fetch = async (_url, options) => {
-    names.push((options!.body as FormData).getAll('files').map(file => (file as File).name))
-    return Response.json({ tokens: [`token-${names.length}`] })
-  }
-  try {
-    const files = [new File(['split'], 'split.mxliff'), new File(['master'], 'master.mxliff')]
-    for (const file of files) Object.defineProperty(file, 'size', { value: 300 * 1024 * 1024 })
-    assert.deepEqual(await stageFiles(files), ['token-1', 'token-2'])
-    assert.deepEqual(names, [['split.mxliff'], ['master.mxliff']])
-  } finally { globalThis.fetch = original }
+  const progress: { filename: string; loadedBytes: number; totalBytes: number }[] = []
+  mockUploads(context, form => {
+    names.push(form.getAll('files').map(file => (file as File).name))
+    return { status: 200, body: { tokens: [`token-${names.length}`] } }
+  })
+  const files = [new File(['split'], '合成拆分.mxliff'), new File(['master'], '配套原件.xliff')]
+  for (const file of files) Object.defineProperty(file, 'size', { value: 300 * 1024 * 1024 })
+  assert.deepEqual(await stageFiles(files, value => progress.push(value)), ['token-1', 'token-2'])
+  assert.deepEqual(names, [['合成拆分.mxliff'], ['配套原件.xliff']])
+  assert.deepEqual(progress.map(value => value.loadedBytes / value.totalBytes), [0, .25, .5, .5, .75, 1])
+  assert.equal(progress[1]!.filename, '合成拆分.mxliff')
 })
 
-test('Client accepts inclusive File.size metadata, rejects overflow before upload, and releases a partially staged batch', async (context) => {
+test('Client rejects overflow before upload, releases partially uploaded batches, and rejects malformed staging responses', async context => {
   let count = 0
   const cleanup: string[][] = []
-  context.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
-    if (String(url).endsWith('/discard')) {
-      cleanup.push(JSON.parse(String(options.body)).tokens)
-      return Response.json({ discarded: true })
-    }
+  mockUploads(context, () => {
     count++
-    return count === 3 ? Response.json({ error: { code: 'IMPORT_TOO_LARGE', message: 'synthetic overflow' } }, { status: 413 }) : Response.json({ tokens: [`token-${count}`] })
+    return count === 3 ? { status: 413, body: { error: { code: 'IMPORT_TOO_LARGE', message: 'synthetic overflow' } } }
+      : { status: 200, body: count === 4 ? null : { tokens: [`token-${count}`] } }
+  })
+  context.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    assert.ok(String(url).endsWith('/discard'))
+    cleanup.push(JSON.parse(String(options.body)).tokens)
+    return Response.json({ discarded: true })
   })
   const file = new File(['synthetic'], 'boundary.txt')
   Object.defineProperty(file, 'size', { configurable: true, value: LINGUIST_FILE_MAX_BYTES })
@@ -92,6 +106,7 @@ test('Client accepts inclusive File.size metadata, rejects overflow before uploa
   assert.equal(count, 1)
   await assert.rejects(stageFiles([new File(['a'], 'a.txt'), new File(['b'], 'b.txt')]), /synthetic overflow/)
   assert.deepEqual(cleanup, [['token-2']])
+  await assert.rejects(stageFiles([new File(['a'], 'bad.txt')]), /Invalid Linguist file staging response/)
 })
 
 test('Project mutation SSE 只接受请求项目的事件并在卸载时关闭', () => {
@@ -123,4 +138,36 @@ test('Project mutation SSE 只接受请求项目的事件并在卸载时关闭',
     if (original) Object.defineProperty(globalThis, 'EventSource', original)
     else Reflect.deleteProperty(globalThis, 'EventSource')
   }
+})
+
+test('Import progress waits for the subscription, isolates concurrent requests, and reports lost progress separately from the import result', async context => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'EventSource')
+  const instances: FakeSource[] = []
+  class FakeSource {
+    listeners = new Map<string, (event: { data: string }) => void>()
+    closed = false
+    onerror?: () => void
+    constructor(readonly url: string) { instances.push(this) }
+    addEventListener(name: string, listener: (event: { data: string }) => void) { this.listeners.set(name, listener) }
+    close() { this.closed = true }
+  }
+  Object.defineProperty(globalThis, 'EventSource', { configurable: true, value: FakeSource })
+  context.after(() => { if (original) Object.defineProperty(globalThis, 'EventSource', original); else Reflect.deleteProperty(globalThis, 'EventSource') })
+  const phases: string[] = []
+  let lost = 0
+  const waiting = subscribeImport('project-A', 'import-A', event => phases.push(event.phase), () => lost++)
+  const source = instances[0]!
+  source.listeners.get('snapshot')!({ data: JSON.stringify({ projectId: 'project-A' }) })
+  const close = await waiting
+  const event = { projectId: 'project-A', requestId: 'import-A', filename: '合成.mxliff', index: 1, total: 2, phase: 'matching' }
+  for (const value of [{ ...event, requestId: 'other' }, { ...event, projectId: 'other' }, event]) source.listeners.get('import-progress')!({ data: JSON.stringify(value) })
+  assert.deepEqual(phases, ['matching'])
+  source.onerror!()
+  assert.equal(lost, 1)
+  close()
+  assert.equal(source.closed, true)
+  const failure = subscribeImport('project-A', 'import-B', () => {}, () => lost++)
+  instances[1]!.onerror!()
+  await assert.rejects(failure, /尚未开始解析或写入/)
+  assert.equal(lost, 1)
 })

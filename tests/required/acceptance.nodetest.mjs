@@ -440,6 +440,10 @@ test('invoke error preserves only safe typed counts and format classification', 
   assert.equal(format.formatDetails?.code, 'FORMAT_PARSE_ERROR')
   assert.equal(format.formatDetails?.filename, 'sample.csv')
   assert.doesNotMatch(JSON.stringify(format), /private|<secret>|Customer text/)
+  const phrase = invokeError(new FormatParseError('phrase_mxliff_1_2', '/private/customer/合成.mxliff', 'Phrase markers require a verified master XLIFF companion'))
+  assert.equal(phrase.formatDetails.reason, 'phrase-master-required')
+  assert.equal(phrase.formatDetails.filename, '合成.mxliff')
+  assert.doesNotMatch(JSON.stringify(phrase), /private|customer/)
 })
 
 test('Session copy HTTP errors expose residual identity and cleanup state without underlying exception data', () => {

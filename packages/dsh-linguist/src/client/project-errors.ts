@@ -53,8 +53,14 @@ export function describeProjectError(cause: unknown, t: Translate): string {
         description = t('文件 {filename} 同时符合多种格式：{adapters}；请确认来源格式。', { filename: details.filename, adapters: details.adapterIds.join('、') })
         break
       case 'FORMAT_PARSE_ERROR':
-        description = t('文件 {filename} 解析失败（{category}）：{detail}', { filename: details.filename, category: details.category, detail: details.detail })
-        break
+        if (details.reason === 'phrase-master-required') return t('“{filename}”中的 Phrase 占位标记需要原始 master XLIFF 才能核对。请在“选择文件”中同时选中此文件与配套的 .xlf / .xliff；如果手头没有，请向文件提供方索取。此文件尚未导入。', { filename: details.filename })
+        if (details.reason === 'phrase-marker-mismatch') return t('“{filename}”存在未配对、或仅在译文中出现的 Phrase 标记，已停止导入。请在 Phrase 中检查源文与译文标签后重新导出，再选择修正后的文件。', { filename: details.filename })
+        if (details.reason === 'phrase-master-mismatch') return t('“{filename}”与所选 master XLIFF 无法核对一致。请重新选择同一任务对应的原始 .xlf / .xliff 与此文件。此文件尚未导入。', { filename: details.filename })
+        return t('“{filename}”解析失败：{reason}', { filename: details.filename, reason: t({
+          unsupported_version: '此文件的格式版本暂不支持，请换用受支持的导出版本。',
+          vendor_structure_incomplete: '文件中的专有格式结构不完整或无法识别，请在原工具中重新导出双语文件。',
+          file_corrupt: '文件编码或内容结构无法读取，请检查文件是否损坏，或从原工具重新导出。',
+        }[details.category]) })
       case 'FORMAT_EXPORT_ERROR':
         description = t('导出失败：{detail}', { detail: details.detail })
         break

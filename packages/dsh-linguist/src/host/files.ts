@@ -32,7 +32,7 @@ export class ManagedFiles {
   async stage(request: IncomingMessage): Promise<string[]> {
     this.collectExpired()
     // Busboy marks a stream truncated at equality; reserve one byte for our inclusive limit.
-    const parser = Busboy({ headers: request.headers, limits: { fileSize: this.maxFileBytes + 1, files: 500, fields: 0, parts: 500 } })
+    const parser = Busboy({ headers: request.headers, defParamCharset: 'utf8', limits: { fileSize: this.maxFileBytes + 1, files: 500, fields: 0, parts: 500 } })
     const staged: Array<{ token: string; path: string; filename: string }> = []
     const writes: Promise<PromiseSettledResult<void>>[] = []
     let total = 0
