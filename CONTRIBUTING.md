@@ -18,7 +18,7 @@ pnpm pack:plugin
 
 检查使用当前源码、已声明的官方 SDK、Node 回归、Bun 格式回归和合成样本。失败立即报错；不读取旧源码快照、功能清单或人工安装回执。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.1.2.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.1.3.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
 LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill。
 

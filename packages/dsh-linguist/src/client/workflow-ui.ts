@@ -54,5 +54,5 @@ export function nextStageItemLabel(stage: LinguistWorkflowStage): string {
 
 export function segmentStatusBadgeTitle(stage: LinguistWorkflowStage, state: LinguistCurrentStageState, status: LinguistSegmentStatus, hasTarget: boolean, t: (value: string) => string): string {
   const description = stage === 'translation' && state === 'untouched' && hasTarget ? '已有译文，等待确认翻译' : descriptions[stage][state]
-  return `${t(stageName(stage))}${t('阶段')} · ${t(stageProgressLabel(stage, state, hasTarget))}：${t(description)}\n${t('徽标颜色对应整体状态')}：${t(statusLabels[status])}`
+  return `${t(stageName(stage))}${t('阶段')} · ${t(stageProgressLabel(stage, state, hasTarget))}：${t(description)}\n${t('文件状态')}：${t(statusLabels[status])}`
 }

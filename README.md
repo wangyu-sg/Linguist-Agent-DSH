@@ -12,7 +12,7 @@
 
 1. 打开官方 DeepSeek Harness，完成首次初始化与模型登录。
 2. 在 DSH 插件管理中安装并启用官方自动化组件 `@deepseek-ai/dsh-experimental-schedule-bundle@0.2.0-rc.2`。它提供 LA 必需的原生调度服务；缺少它时 LA 无法加载。
-3. 在插件管理中选择维护者提供的 **linguist-dsh-plugin-1.1.2.tgz** 本地安装包。安装后按 DSH 提示重新加载或重开应用。
+3. 在插件管理中选择维护者提供的 **linguist-dsh-plugin-1.1.3.tgz** 本地安装包。安装后按 DSH 提示重新加载或重开应用。
 4. 打开左侧 **Linguist**。首次使用会自动建立数据目录与持久安装标识，无需填写作者路径；已配置的目录、标识和通知设置继续使用。
 
 截至 2026-10-02，仓库提供公开源码，没有 GitHub Release 安装包；本轮产物在本机生成。构建方式见 [开发说明](CONTRIBUTING.md)。

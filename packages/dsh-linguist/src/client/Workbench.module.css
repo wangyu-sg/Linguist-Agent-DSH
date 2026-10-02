@@ -48,6 +48,9 @@
 .segment:focus-visible, .segmentSelected:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: -2px; }
 .rowMeta { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .rowMeta button { max-width: 100%; height: auto; min-height: 28px; font-size: 11px; line-height: 16px; padding: 2px 4px; }
+.stageStatus { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; line-height: 18px; }
+.stageStatus[data-confirmed='true'] { color: var(--dsw-alias-state-success-primary); font-weight: 600; }
+.stageStatus svg { flex: none; }
 .source, .target { min-width: 0; min-height: 28px; padding: 6px 12px; font-size: 14px; line-height: 1.65; }
 .source { border-right: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); }
 .targetButton { display: block; width: 100%; min-height: 28px; padding: 0; border: 0; border-radius: var(--dsw-radius-xs); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; text-align: start; white-space: pre-wrap; cursor: text; }
