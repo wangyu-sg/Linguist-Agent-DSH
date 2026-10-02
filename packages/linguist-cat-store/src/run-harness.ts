@@ -205,6 +205,7 @@ export interface RunUndoResult {
 
 export interface UndoRunOptions {
   actorId: string
+  excludedSegmentIds?: readonly string[]
 }
 
 export interface RunMutationOutcome<TResult> {
@@ -816,9 +817,12 @@ export class RunHarnessRepository {
       const segmentIds = new Set<string>()
       const proposalIds: string[] = []
       const undoneAt = this.now()
+      const excludedSegmentIds = new Set(options.excludedSegmentIds)
       for (const row of pending) {
         const entityType = row.entity_type === 'critic-artifact' ? 'legacy-record' : row.entity_type
-        const reason = this.undoChange(row)
+        const reason = excludedSegmentIds.has(row.segment_id ?? row.entity_id)
+          ? 'segment has an unsaved draft'
+          : this.undoChange(row)
         if (reason !== undefined) {
           refused.push({
             entityType,
@@ -1124,8 +1128,8 @@ export class RunHarnessRepository {
       `).get(row.entity_id, after.revision)
       if (revision === undefined) return 'segment revision entry no longer exists'
       this.db.db.prepare(`
-        UPDATE segments SET target = ?, status = ?, revision = ? WHERE id = ?
-      `).run(before.target, before.status, before.revision, row.entity_id)
+        UPDATE segments SET target = ?, status = ?, current_stage_state = ?, revision = ? WHERE id = ?
+      `).run(before.target, before.status, before.currentStageState ?? 'untouched', before.revision, row.entity_id)
       this.db.db.prepare(`
         DELETE FROM segment_revisions WHERE segment_id = ? AND revision = ?
       `).run(row.entity_id, after.revision)

@@ -168,6 +168,16 @@ export class SegmentsRepository {
     return row === undefined ? undefined : segmentFromRow(row)
   }
 
+  /** 同一批次内正文、标签和语言对完全相同的其他句段。 */
+  listExactRepetitions(segment: Segment): Segment[] {
+    const rows = this.db.db.prepare(`
+      SELECT * FROM segments
+      WHERE asset_id = ? AND source = ? AND source_locale = ? AND target_locale = ? AND id <> ?
+      ORDER BY ordinal, key, id
+    `).all(segment.assetId, segment.source, segment.sourceLocale, segment.targetLocale, segment.id) as SegmentRow[]
+    return rows.map(segmentFromRow)
+  }
+
   /** 同一资产内的稳定邻接快照；不加载整份资产。 */
   neighbors(
     segmentId: SegmentId | string,

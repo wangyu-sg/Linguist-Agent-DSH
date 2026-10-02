@@ -95,7 +95,7 @@ test('导出引用阻止撤销导入，拒绝时保留资产、原件、导出�
       assert.deepEqual(readFileSync(staged.stagingPath), original)
     }
 
-    const edited = service.editSegment(project.id, segments[0]!.id, '开启', segments[0]!.revision)
+    const { segment: edited } = service.editSegment(project.id, segments[0]!.id, '开启', segments[0]!.revision)
     const revisions = db.segments.listRevisions(edited.id)
     const editedEvents = db.runs.listEvents()
     assert.equal(revisions.length, 1)

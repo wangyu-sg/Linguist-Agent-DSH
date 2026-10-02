@@ -137,6 +137,23 @@ export interface StageMutationBatchResult {
   failed: StageMutationFailure[]
 }
 
+export interface EditSegmentOptions {
+  propagateRepeated?: boolean
+  excludedSegmentIds?: readonly string[]
+}
+
+export interface EditSegmentResult {
+  segment: Segment
+  repetition?: {
+    runId: string
+    updatedSegmentIds: string[]
+    skipped: Array<{
+      segmentId: string
+      reason: 'locked' | 'confirmed' | 'draft' | 'different-target' | 'same-target' | 'unsafe-target'
+    }>
+  }
+}
+
 export interface LinguistProjectHealthCheck {
   id: 'project_json' | 'cat_db_open' | 'schema_version' | 'asset_sources'
   ok: boolean

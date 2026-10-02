@@ -6,6 +6,7 @@ import type {
   LinguistAssetInfo,
   LinguistCatConfirmStageBulkResult,
   LinguistCatContextResult,
+  LinguistCatEditResult,
   LinguistCatListQaFindingsResult,
   LinguistCatQueryResult,
   LinguistAssetsQueryResult,
@@ -16,6 +17,7 @@ import type {
   LinguistProjectSummary,
   LinguistQaFindingInfo,
   LinguistProposalInfo,
+  LinguistRunUndoResult,
   LinguistSegmentInfo,
   LinguistStyleGuideRuleInfo,
   LinguistTurnContextV1,
@@ -35,7 +37,7 @@ import { requestCatNavigation, useCatNavigation, type CatDock } from './cat-navi
 import { TERM_STATUS_LABELS, nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
 import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
-import { getCatEditorState, type CatEditorState } from './cat-editor-state'
+import { getCatEditorState, protectedCatDraftSegmentIds, type CatEditorState } from './cat-editor-state'
 import { Splitter } from './Splitter'
 import { CatStatusBar } from './CatStatusBar'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
@@ -54,6 +56,17 @@ const dockItems: readonly { id: Dock; label: string }[] = [
 
 interface Dataset { signature: string; total: number; ids: string[]; rows: ReadonlyMap<number, LinguistSegmentInfo> }
 interface RowSignal { proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingInfo['severity'] }
+const repetitionSkipLabels = {
+  locked: '已锁定', confirmed: '已确认', draft: '有未保存草稿',
+  'different-target': '已有不同译文', 'same-target': '译文已相同', 'unsafe-target': '译文未通过联动检查',
+} satisfies Record<NonNullable<LinguistCatEditResult['repetition']>['skipped'][number]['reason'], string>
+const repetitionUndoLabels: Record<string, string> = {
+  'segment has an unsaved draft': '有未保存草稿',
+  'segment changed after this run': '联动后已修改',
+  'segment no longer exists': '句段已不存在',
+  'segment update is missing its snapshots': '缺少撤销快照',
+  'segment revision entry no longer exists': '缺少修订记录',
+}
 
 export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
   const editorState = getCatEditorState(sessionId, projectId)
@@ -70,6 +83,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [queryError, setQueryError] = React.useState('')
   const [openRetry, setOpenRetry] = React.useState(0)
   const [notice, setNotice] = React.useState('')
+  const [propagateRepeated, setPropagateRepeated] = useAtom(editorState.propagateRepeated)
+  const [repeatResult, setRepeatResult] = React.useState<NonNullable<LinguistCatEditResult['repetition']> & { undo?: LinguistRunUndoResult; error?: string }>()
+  const [repeatUndoBusy, setRepeatUndoBusy] = React.useState(false)
   const [assetId, setAssetId] = React.useState<string | undefined>(storedLocation.value.assetId)
   const [assetSearch, setAssetSearch] = React.useState('')
   const [search, setSearch] = React.useState('')
@@ -336,20 +352,36 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
   const save = React.useCallback(async (segment: LinguistSegmentInfo, target: string): Promise<TargetSaveResult> => {
     try {
-      const result = await invoke<LinguistSegmentInfo>('linguistCatEditSegment', {
+      const result = await invoke<LinguistCatEditResult>('linguistCatEditSegment', {
         projectId, segmentId: segment.id, target, expectedRevision: segment.revision,
+        propagateRepeated, excludedSegmentIds: protectedCatDraftSegmentIds(projectId).filter((id) => id !== segment.id),
       })
       if (!result.ok) {
         setNotice(result.error.message)
         return result.error.code === 'REVISION_CONFLICT' ? 'conflict' : 'failed'
       }
-      updateRow(result.data)
+      updateRow(result.data.segment)
+      if (result.data.repetition) setRepeatResult(result.data.repetition)
       setRowSignalRefresh((value) => value + 1)
       void refreshSummary().catch((error: unknown) => setNotice(String(error)))
-      setNotice(t("译文已保存"))
+      setNotice(result.data.repetition ? '' : t("译文已保存"))
       return 'saved'
     } catch (error) { setNotice(String(error)); return 'failed' }
-  }, [projectId, refreshSummary, updateRow])
+  }, [projectId, propagateRepeated, refreshSummary, updateRow])
+
+  const undoRepetition = async (repetition: NonNullable<typeof repeatResult>) => {
+    setRepeatUndoBusy(true)
+    try {
+      const undo = await required<LinguistRunUndoResult>('linguistCatUndoLatestRun', {
+        projectId, sessionId, expectedRunId: repetition.runId, excludedSegmentIds: protectedCatDraftSegmentIds(projectId),
+      })
+      setRepeatResult((current) => current?.runId === repetition.runId ? { ...current, undo, error: undefined } : current)
+      setRowSignalRefresh((value) => value + 1)
+      void refreshSummary().catch((error: unknown) => setNotice(String(error)))
+    } catch (error) {
+      setRepeatResult((current) => current?.runId === repetition.runId ? { ...current, error: String(error) } : current)
+    } finally { setRepeatUndoBusy(false) }
+  }
 
   const mutateStage = React.useCallback(async (segment: LinguistSegmentInfo, confirm: boolean) => {
     const requestRevision = navigationRevision.current
@@ -584,6 +616,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <select className={styles.statusSelect} aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
           <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
         </select>
+        <Checkbox className={styles.repeatToggle} label={t('重复句联动')} checked={propagateRepeated} onChange={setPropagateRepeated} disabled={project.archivedAt !== undefined || repeatUndoBusy} title={t('保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。')} />
         <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t(nextStageItemLabel(workflowStage))} disabled={jumpBusy} onClick={() => void nextUntouched()}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip>
         <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} ref={displayTrigger} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : [])]} items={[
           { id: 'refresh', label: t('刷新') },
@@ -604,6 +637,18 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>
       </div>}
     </header>
+    {repeatResult && <div className={styles.repeatFeedback} role="status" aria-live="polite">
+      <div className={styles.repeatSummary}>
+        <span>{t('译文已保存，已联动 {count} 段', { count: repeatResult.updatedSegmentIds.length })}{repeatResult.skipped.length > 0 && <>{t('；跳过 {count} 段：', { count: repeatResult.skipped.length })}{Object.entries(repetitionSkipLabels).flatMap(([reason, label]) => {
+          const count = repeatResult.skipped.filter((entry) => entry.reason === reason).length
+          return count ? [t('{reason} {count} 段', { reason: t(label), count })] : []
+        }).join(' · ')}</>}</span>
+        {(!repeatResult.undo || repeatResult.undo.refused.length > 0) && repeatResult.updatedSegmentIds.length > 0 && <Button variant="outline" size="sm" disabled={repeatUndoBusy || project.archivedAt !== undefined} onClick={() => void undoRepetition(repeatResult)}>{t(repeatUndoBusy ? '正在撤销联动…' : '撤销本次联动')}</Button>}
+        <Button variant="ghost" size="sm" aria-label={t('关闭联动提示')} disabled={repeatUndoBusy} onClick={() => setRepeatResult(undefined)}>×</Button>
+      </div>
+      {repeatResult.undo && <span>{repeatResult.undo.status === 'already-undone' ? t('本次联动已撤销') : t('已撤销联动 {count} 段，跳过 {skipped} 段', { count: repeatResult.undo.reverted.filter((entry) => entry.entityType === 'segment').length, skipped: repeatResult.undo.refused.length })}{repeatResult.undo.refused.length > 0 && `：${[...new Set(repeatResult.undo.refused.map((entry) => t(repetitionUndoLabels[entry.reason] ?? entry.reason)))].join(' · ')}`}</span>}
+      {repeatResult.error && <span role="alert">{repeatResult.error}</span>}
+    </div>}
     <ProposalReviewConfirmation plan={proposalReview} archived={project.archivedAt !== undefined} busy={bulkBusy} error={proposalReviewError} onConfirm={() => void confirmSelectedProposals()} onClose={() => setProposalReview(undefined)} />
     {agentReference && <div className={styles.agentReference} role="status" title={agentReference.segmentId}>{t('已为 Agent 引用句段')} {`#${agentReference.ordinal + 1}`}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}

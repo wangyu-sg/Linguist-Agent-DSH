@@ -2,6 +2,16 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  '重复句联动': 'Sync repetitions',
+  '保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。': 'On save, sync segments in the edited segment’s batch with exactly matching source text and tags. Only unlocked, unconfirmed segments with an empty target or the previous target are updated. Unsaved drafts are skipped.',
+  '译文已保存，已联动 {count} 段': 'Target saved; synced {count} segments',
+  '；跳过 {count} 段：': '; skipped {count}: ', '{reason} {count} 段': '{reason}: {count}',
+  '已锁定': 'Locked', '有未保存草稿': 'Unsaved draft', '已有不同译文': 'Different target',
+  '译文已相同': 'Target already matches', '译文未通过联动检查': 'Target failed repetition safety checks',
+  '撤销本次联动': 'Undo this sync', '正在撤销联动…': 'Undoing sync…', '关闭联动提示': 'Dismiss repetition feedback',
+  '已撤销联动 {count} 段，跳过 {skipped} 段': 'Undid sync for {count} segments; skipped {skipped}',
+  '本次联动已撤销': 'This sync has already been undone', '联动后已修改': 'Changed after this sync',
+  '句段已不存在': 'Segment no longer exists', '缺少撤销快照': 'Undo snapshot is missing', '缺少修订记录': 'Revision record is missing',
   '启用中': 'Active', '已暂停': 'Paused', '调度已结束': 'Schedule ended',
   '复制': 'Copy', '已复制': 'Copied',
   '脚注': 'Footnotes', 'Markdown 预览': 'Markdown preview', '图片预览失败': 'Could not preview image',

@@ -43,7 +43,7 @@ test('project service creates versioned metadata and preserves import/CAS/archiv
     const db = service.openProject(project.id)
     const segment = db.segments.query({ limit: 1 })[0]
     assert.ok(segment)
-    const changed = service.editSegment(project.id, segment.id, 'Start', segment.revision)
+    const changed = service.editSegment(project.id, segment.id, 'Start', segment.revision).segment
     assert.equal(changed.target, 'Start')
     assert.throws(() => service.editSegment(project.id, segment.id, 'Stale', segment.revision))
     const backup = service.backupProject(project.id)
@@ -51,6 +51,104 @@ test('project service creates versioned metadata and preserves import/CAS/archiv
     assert.equal(service.previewRestore(project.id, backup.backupName).verification?.ok, true)
     service.archiveProject(project.id)
     assert.throws(() => service.editSegment(project.id, segment.id, 'Closed', changed.revision))
+  } finally {
+    service.closeAll()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('CAT repeated saves preserve exact scope, protected targets, CAS and safe undo', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-repetitions-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Repetitions', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    const path = join(root, 'repetitions.csv')
+    writeFileSync(path, [
+      'key,source,target',
+      'primary,Hello {0},Initial {0}',
+      'empty,Hello {0},',
+      'same-before,Hello {0},Old {0}',
+      'later-edit,Hello {0},Old {0}',
+      'restore,Hello {0},',
+      'locked,Hello {0},',
+      'confirmed,Hello {0},Old {0}',
+      'draft,Hello {0},',
+      'different,Hello {0},Different {0}',
+      'same-target,Hello {0},New {0}',
+      'other-tags,Hello {1},',
+      'other-whitespace,Hello {0} ,',
+      'other-locale,Hello {0},',
+      'unsafe-primary,Unsafe {0},',
+      'unsafe-repeat,Unsafe {0},',
+    ].join('\n'))
+    await service.importResourcesFromPaths(project.id, root, { paths: [path], recursive: false, kind: 'batch', dryRun: false })
+    const db = service.openProject(project.id)
+    const asset = db.assets.listByProject()[0]!
+    const byKey = new Map(db.segments.query({ assetId: asset.id }).map(segment => [segment.key, segment]))
+    const primary = byKey.get('primary')!
+    const empty = byKey.get('empty')!
+    const sameBefore = byKey.get('same-before')!
+    const laterEdit = byKey.get('later-edit')!
+    const restore = byKey.get('restore')!
+    db.segments.setLocked(byKey.get('locked')!.id, true)
+    service.confirmCurrentStage(project.id, byKey.get('confirmed')!.id, 0)
+    db.catDb.db.prepare('UPDATE segments SET target_locale = ? WHERE id = ?').run('ja-JP', byKey.get('other-locale')!.id)
+    const otherPath = join(root, 'other-batch.csv')
+    writeFileSync(otherPath, 'key,source,target\nother,Hello {0},\n')
+    await service.importResourcesFromPaths(project.id, root, { paths: [otherPath], recursive: false, kind: 'batch', dryRun: false })
+    const otherBatch = db.segments.query().find(segment => segment.key === 'other')!
+
+    const disabled = service.editSegment(project.id, primary.id, 'Old {0}', 0, { propagateRepeated: false })
+    assert.equal(disabled.repetition, undefined)
+    assert.equal(db.segments.getById(empty.id)!.target, '')
+    const saved = service.editSegment(project.id, primary.id, 'New {0}', disabled.segment.revision, {
+      propagateRepeated: true,
+      excludedSegmentIds: [byKey.get('draft')!.id],
+    })
+    assert.ok(saved.repetition)
+    assert.deepEqual(saved.repetition.updatedSegmentIds, [empty.id, sameBefore.id, laterEdit.id, restore.id])
+    assert.deepEqual(saved.repetition.skipped, [
+      { segmentId: byKey.get('locked')!.id, reason: 'locked' },
+      { segmentId: byKey.get('confirmed')!.id, reason: 'confirmed' },
+      { segmentId: byKey.get('draft')!.id, reason: 'draft' },
+      { segmentId: byKey.get('different')!.id, reason: 'different-target' },
+      { segmentId: byKey.get('same-target')!.id, reason: 'same-target' },
+    ])
+    for (const segment of [byKey.get('other-tags')!, byKey.get('other-whitespace')!, byKey.get('other-locale')!, otherBatch]) {
+      assert.equal(db.segments.getById(segment.id)!.target, '')
+      assert.equal(db.segments.getById(segment.id)!.revision, 0)
+    }
+    const event = db.runs.listEvents(0, 100).at(-1)!
+    assert.equal(event.runId, saved.repetition.runId)
+    assert.deepEqual(event.segmentIds, [primary.id, ...saved.repetition.updatedSegmentIds])
+    const beforeConflict = db.segments.query()
+    assert.throws(() => service.editSegment(project.id, primary.id, 'Stale {0}', disabled.segment.revision, { propagateRepeated: true }))
+    assert.deepEqual(db.segments.query(), beforeConflict)
+    assert.equal(db.runs.getRunChangeSummary(saved.repetition.runId).changes.total, 4)
+
+    service.confirmCurrentStage(project.id, sameBefore.id, 1)
+    service.editSegment(project.id, laterEdit.id, 'Later {0}', 1)
+    const undone = db.runs.undoRun(saved.repetition.runId, { actorId: 'synthetic-user', excludedSegmentIds: [empty.id] })
+    assert.equal(undone.status, 'partial')
+    assert.deepEqual(undone.reverted.map(item => item.entityId), [restore.id])
+    assert.deepEqual(new Set(undone.refused.map(item => item.entityId)), new Set([empty.id, sameBefore.id, laterEdit.id]))
+    assert.deepEqual(db.segments.getById(restore.id), restore)
+    assert.deepEqual(db.segments.listRevisions(restore.id), [])
+    assert.equal(db.segments.getById(primary.id)!.target, 'New {0}')
+    assert.equal(db.segments.getById(sameBefore.id)!.currentStageState, 'confirmed')
+    assert.equal(db.segments.getById(laterEdit.id)!.target, 'Later {0}')
+    assert.equal(db.segments.getById(empty.id)!.target, 'New {0}')
+    const retry = db.runs.undoRun(saved.repetition.runId, { actorId: 'synthetic-user' })
+    assert.deepEqual(retry.reverted.map(item => item.entityId), [empty.id])
+    assert.deepEqual(db.segments.getById(empty.id), empty)
+
+    const unsafe = service.editSegment(project.id, byKey.get('unsafe-primary')!.id, 'Missing placeholder', 0, { propagateRepeated: true })
+    assert.equal(unsafe.segment.target, 'Missing placeholder')
+    assert.deepEqual(unsafe.repetition!.updatedSegmentIds, [])
+    assert.deepEqual(unsafe.repetition!.skipped, [{ segmentId: byKey.get('unsafe-repeat')!.id, reason: 'unsafe-target' }])
+    assert.equal(db.segments.getById(byKey.get('unsafe-repeat')!.id)!.target, '')
+    assert.equal(db.runs.getLatestRunChangeSummary()?.runId, saved.repetition.runId, 'zero propagated edits must not replace the latest reversible run')
   } finally {
     service.closeAll()
     rmSync(root, { recursive: true, force: true })

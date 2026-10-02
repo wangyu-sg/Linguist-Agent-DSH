@@ -126,6 +126,8 @@ import type {
   ApproveSegmentExemplarInput,
   CreateLinguistProjectInput,
   DeleteLinguistProjectResult,
+  EditSegmentOptions,
+  EditSegmentResult,
   ImportAssetInput,
   ImportAssetResult,
   ImportContextDocInput,
@@ -1274,12 +1276,14 @@ export class LinguistProjectService {
     segmentId: string,
     target: string,
     expectedRevision: number,
-  ): Segment {
+    options?: EditSegmentOptions,
+  ): EditSegmentResult {
     return this.quality.editSegment(
       projectId,
       segmentId,
       target,
       expectedRevision,
+      options,
     )
   }
 

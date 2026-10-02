@@ -12,6 +12,10 @@
 .controls > .batchSelect { width: 160px; flex: 0 1 160px; }
 .controls > .statusSelect { width: 108px; flex: 0 1 108px; }
 .controls > .search { flex: 1 1 96px; min-width: 96px; }
+.repeatToggle { flex: none; font-size: 12px; }
+.repeatFeedback { display: flex; flex: none; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); padding: 6px 12px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.repeatSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.repeatSummary > span { flex: 1; min-width: 160px; }
 .iconButton { width: 28px; min-width: 28px; flex: none; padding: 0; }
 .controls > .iconButton, .controls > div .iconButton { width: 32px; min-width: 32px; height: 32px; }
 .selectionActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 12px 8px; }
@@ -114,6 +118,7 @@
 .scheduleGroupHeading { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--dsw-alias-label-secondary); font-size: 13px; font-weight: 600; }
 .scheduleGroupHeading > span { color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; }
 @container workbench (max-width: 980px) { .assets { position: absolute; z-index: 3; top: 0; bottom: 0; left: 0; max-width: 86%; box-shadow: var(--dsw-elevation-prominent); } .inspector { position: absolute; z-index: 3; top: 0; right: 0; bottom: 0; max-width: 90%; box-shadow: var(--dsw-elevation-prominent); } }
+@container workbench (max-width: 640px) { .controls { flex-wrap: wrap; } }
 @container workbench (max-width: 420px) { .controls { flex-wrap: wrap; } .controls > .search { order: 1; flex-basis: 100%; } .title { flex-wrap: wrap; } .workbenchLabel { display: none; } }
 @container segments (max-width: 420px) { .gridHeading { grid-template-columns: 64px 1fr; } .gridHeading > span:nth-child(3), .gridHeading > span:last-child { display: none; } .segment, .segmentSelected { grid-template-columns: 64px minmax(0, 1fr); } .rowMeta { grid-row: span 2; } .source { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l2); } .target, .rowActions, .inlineProposal { grid-column: 2; } .inlineProposal > .inlineCompare { grid-template-columns: 1fr; } .source::before, .target::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .workbench * { scroll-behavior: auto !important; } }

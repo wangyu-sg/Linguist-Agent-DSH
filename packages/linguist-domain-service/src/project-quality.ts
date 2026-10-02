@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import {
   InvalidStateTransitionError,
   matchTmCandidates,
   normalizeQaProfile,
+  runDeterministicHardRules,
   UnknownSegmentError,
   type QaFindingDisposition,
   type QaFindingSeverity,
@@ -14,6 +16,7 @@ import {
   type ApprovedExemplar,
   type PersistedQaFinding,
   type ProjectDatabase,
+  type RunMutationChange,
   type StageDecisionCoverage,
 } from '@linguist/cat-store'
 import {
@@ -27,6 +30,8 @@ import type {
   CatWorkspacePage,
   CatWorkspaceQuery,
   ApproveSegmentExemplarInput,
+  EditSegmentOptions,
+  EditSegmentResult,
   StageMutationBatchResult,
   StageMutationFailure,
   StageMutationItem,
@@ -347,24 +352,64 @@ export class ProjectQuality {
     segmentId: string,
     target: string,
     expectedRevision: number,
-  ): Segment {
+    options: EditSegmentOptions = {},
+  ): EditSegmentResult {
     const project = this.context.getProject(projectId)
     if (project.archivedAt !== undefined) {
       throw new LinguistProjectArchivedError(projectId)
     }
     const db = this.context.openProject(projectId)
-    return this.context.call(
-      () => db.segments.applyTargetEdit(
-        segmentId,
-        target,
-        expectedRevision,
-        {
-          source: 'human',
-          now: this.context.now(),
+    return this.context.call(() => db.catDb.transaction('save CAT target', () => {
+      const editOptions = { source: 'human' as const, now: this.context.now() }
+      if (options.propagateRepeated !== true) {
+        return { segment: db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment }
+      }
+      const runId = `repeat-save:${randomUUID()}`
+      const previous = db.segments.getById(segmentId)
+      if (previous === undefined) throw new UnknownSegmentError(segmentId)
+      const repeated = db.segments.listExactRepetitions(previous)
+      const segment = db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment
+      const safe = runDeterministicHardRules({
+        segment: previous,
+        proposedTarget: target,
+        ...(project.tagProfile === undefined ? {} : { tagProfile: project.tagProfile }),
+      }).ok
+      const excluded = new Set(options.excludedSegmentIds)
+      const repetition: NonNullable<EditSegmentResult['repetition']> = { runId, updatedSegmentIds: [], skipped: [] }
+      const eligible = repeated.filter(candidate => {
+        const reason = candidate.locked ? 'locked'
+          : candidate.currentStageState === 'confirmed' ? 'confirmed'
+            : excluded.has(candidate.id) ? 'draft'
+              : candidate.target === target ? 'same-target'
+                : candidate.target !== '' && candidate.target !== previous.target ? 'different-target'
+                  : !safe ? 'unsafe-target'
+                    : undefined
+        if (reason !== undefined) repetition.skipped.push({ segmentId: candidate.id, reason })
+        return reason === undefined
+      })
+      if (eligible.length === 0) return { segment, repetition }
+      return db.runs.executeMutation({
+        identity: { runId, toolCallId: runId, idempotencyKey: runId },
+        operation: 'propagate-repeated-segments',
+        payload: { segmentId, target, expectedRevision, ...options },
+        mutate: () => {
+          const changes: RunMutationChange[] = []
+          for (const candidate of eligible) {
+            const updated = db.segments.applyTargetEdit(candidate.id, target, candidate.revision, editOptions).segment
+            repetition.updatedSegmentIds.push(updated.id)
+            changes.push({
+              entityType: 'segment', entityId: updated.id, changeKind: 'updated', segmentId: updated.id,
+              expectedRevision: updated.revision, before: candidate, after: updated,
+            })
+          }
+          return {
+            result: { segment, repetition },
+            changes,
+            event: { kind: 'segment-updated', segmentIds: [segment.id, ...repetition.updatedSegmentIds] },
+          }
         },
-      ).segment,
-      projectId,
-    )
+      }).result
+    }), projectId)
   }
 
   /** 人工确认当前 T/E/P 阶段；CAS 失败不会前进或覆盖。 */

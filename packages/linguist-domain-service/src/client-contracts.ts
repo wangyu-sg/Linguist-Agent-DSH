@@ -476,6 +476,18 @@ export interface LinguistSegmentInfo {
   }
 }
 
+export interface LinguistCatEditResult {
+  segment: LinguistSegmentInfo
+  repetition?: {
+    runId: string
+    updatedSegmentIds: string[]
+    skipped: Array<{
+      segmentId: string
+      reason: 'locked' | 'confirmed' | 'draft' | 'different-target' | 'same-target' | 'unsafe-target'
+    }>
+  }
+}
+
 export interface LinguistCatQueryResult {
   assets: LinguistAssetMetadata[]
   segments: LinguistSegmentInfo[]

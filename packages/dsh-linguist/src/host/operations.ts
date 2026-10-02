@@ -512,8 +512,11 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     case 'linguistCatEditSegment': {
       const id = projectId(payload)
       if (typeof payload.target !== 'string') throw new TypeError('target must be a string')
-      const result = service.editSegment(id, segmentId(payload), payload.target, revision(payload))
-      notify(mutations, id, 'segment-updated', { segmentIds: [result.id] })
+      const result = service.editSegment(id, segmentId(payload), payload.target, revision(payload), {
+        propagateRepeated: boolean(payload.propagateRepeated, 'propagateRepeated', false),
+        excludedSegmentIds: payload.excludedSegmentIds === undefined ? [] : strings(payload.excludedSegmentIds, 'excludedSegmentIds', 10_000, SEGMENT_ID, true),
+      })
+      notify(mutations, id, 'segment-updated', { segmentIds: [result.segment.id, ...(result.repetition?.updatedSegmentIds ?? [])] })
       return result
     }
     case 'linguistCatConfirmStage':
@@ -603,7 +606,10 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const runs = service.openProject(id).runs
       const summary = runs.getLatestRunChangeSummary()
       if (summary === undefined || summary.runId !== expectedRunId) throw new TypeError('Latest run changed; refresh before undo')
-      const result = runs.undoRun(summary.runId, { actorId: `workbench:${sessionId}` })
+      const result = runs.undoRun(summary.runId, {
+        actorId: `workbench:${sessionId}`,
+        excludedSegmentIds: payload.excludedSegmentIds === undefined ? [] : strings(payload.excludedSegmentIds, 'excludedSegmentIds', 10_000, SEGMENT_ID, true),
+      })
       if (result.event !== undefined) notify(mutations, id, 'run-undone', { runId: summary.runId })
       return { runId: result.runId, status: result.status, reverted: result.reverted, refused: result.refused }
     }
