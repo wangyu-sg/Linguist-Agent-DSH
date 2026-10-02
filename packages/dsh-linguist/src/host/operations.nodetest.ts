@@ -221,9 +221,9 @@ test('reference XLSX mapping previews explicit columns, binds the choice and con
       const preview = await dispatchOperation({ ...deps, operation: 'linguistReferencesMapXlsxCandidate', payload: mapping }) as Extract<LinguistReferenceImportResult, { requiresXlsxMapping: false; requiresConfirmation: true }>
       assert.equal(preview.summary.entryCount, 2)
       assert.equal(query().total, 0)
-      const original = await dispatchOperation({ ...deps, operation: 'linguistReferencesPreviewCandidate', payload: bound }) as { kind: string; html: string }
-      assert.equal(original.kind, 'html')
-      assert.match(original.html, /Ouvrir/)
+      const original = await dispatchOperation({ ...deps, operation: 'linguistReferencesPreviewCandidate', payload: bound }) as { kind: string; path: string }
+      assert.equal(original.kind, 'native')
+      assert.deepEqual(readFileSync(original.path), bytes)
       const upload = files.takeUpload(token!)
       writeFileSync(upload.path, Buffer.from('changed after mapping'))
       await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistReferencesConfirmImport', payload: bound }), /bytes changed/)

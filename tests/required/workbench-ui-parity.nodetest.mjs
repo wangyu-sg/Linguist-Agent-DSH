@@ -17,13 +17,14 @@ const panelHelpers = {}
 runInNewContext(ts.transpileModule(readFileSync(new URL('Panels.tsx', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: panelHelpers, require: () => ({}) })
 
 // Execute each production component and its hooks; only external I/O and native primitives are substituted.
-function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard } = {}) {
+function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard, openNative } = {}) {
   const state = [], memo = [], effects = [], pending = []
   let cursor, memoCursor, effectCursor, tree
   const exports = {}
   const code = ts.transpileModule(readFileSync(new URL(file, client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText
   runInNewContext(`${code}\nexports.testComponent = ${symbol};`, { exports, fetch, Intl, EventSource: class { addEventListener() {} close() {} }, crypto: { randomUUID: () => 'synthetic-key' }, require: name => {
     if (name === 'react') return { ...React,
+      useContext() { return openNative },
       useSyncExternalStore(_subscribe, getSnapshot) { return getSnapshot() },
       useState(initial) { const i = cursor++; if (!(i in state)) state[i] = typeof initial === 'function' ? initial() : initial; return [state[i], value => { state[i] = typeof value === 'function' ? value(state[i]) : value }] },
       useMemo(factory, deps) { const i = memoCursor++; if (!memo[i] || deps.some((value, j) => value !== memo[i].deps[j])) memo[i] = { deps, value: factory() }; return memo[i].value },
@@ -424,14 +425,20 @@ test('Run panel shows true job progress, reconciles the scoped job, and explicit
   component.dispose()
 })
 
-test('file preview clears failed state for retry and keeps sandbox and CSP on HTML', async () => {
+test('file preview retries and opens native documents through the current DSH session', async () => {
   let failed = true
-  const component = mount('PreviewView.tsx', 'PreviewView', { request: { operation: 'linguistProjectsPreviewAssetSource', input: { projectId: 'p' } }, onClose() {} }, { required: async () => { if (failed) throw new Error('Synthetic missing'); return { kind: 'html', filename: 'synthetic.html', html: '<p>Preview</p>' } } })
+  const opened = []
+  const component = mount('PreviewView.tsx', 'PreviewView', { request: { operation: 'linguistProjectsPreviewAssetSource', input: { projectId: 'p' } }, onClose() {} }, {
+    required: async () => { if (failed) throw new Error('Synthetic missing'); return { kind: 'native', filename: 'synthetic.docx', path: '/managed/preview/synthetic.docx' } },
+    openNative: path => opened.push(path),
+  })
   component.render(); await tick(); assert.match(component.render(), /原文件预览失败/)
-  failed = false; component.click('重试'); component.render(); await tick(); component.render()
-  const iframe = component.nodes().find(node => node.type === 'iframe')
-  assert.equal(iframe.props.sandbox, '')
-  assert.match(iframe.props.srcDoc, /default-src 'none'/)
+  failed = false; component.click('重试'); component.render(); await tick()
+  assert.match(component.render(), /DSH 文档标签/)
+  assert.deepEqual(opened, ['/managed/preview/synthetic.docx'])
+  component.click('打开文档预览')
+  assert.equal(opened.length, 2)
+  assert(!component.nodes().some(node => node.type === 'iframe'))
   component.dispose()
 })
 

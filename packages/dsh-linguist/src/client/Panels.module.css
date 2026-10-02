@@ -37,7 +37,6 @@
 .preview { display: block; max-height: 120px; max-width: 180px; object-fit: contain; }
 .previewPane { background: var(--dsw-alias-bg-document-preview); color: var(--dsw-alias-label-document-preview); composes: surface from './Controls.module.css'; display: flex; flex-direction: column; min-width: 0; gap: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); padding: 12px; }
 .previewPane pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--ds-font-family-code); }
-.previewPane iframe { box-sizing: border-box; width: 100%; height: 320px; min-height: 160px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); background: white; }
 .batchTargets { max-height: 360px; overflow: auto; display: grid; gap: 12px; }
 .batchTargets label { display: grid; gap: 4px; }
 .batchTargets span { max-height: 80px; overflow: auto; font-size: 13px; }

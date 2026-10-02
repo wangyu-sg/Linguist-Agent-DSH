@@ -21,7 +21,6 @@ import {
   LinguistProjectService,
   LinguistDeliveryNotReadyError,
   LinguistExportBlockedByQaError,
-  convertOfficePreviewToHtml,
   deriveImportProjectId,
   listDefaultFormatQualifications,
   parseTermReference,
@@ -54,8 +53,8 @@ const REFERENCE_IMPORT_ID = /^rfi(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
 const BACKUP_NAME = /^(?:backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z|cat-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.db)$/
 const XLSX_DETECTOR = new XlsxAdapter()
 const TEXT_PREVIEW_EXTENSIONS = new Set(['.xliff', '.xlf', '.mqxliff', '.sdlxliff', '.mxliff', '.csv', '.tsv', '.json', '.md', '.markdown', '.txt', '.text', '.log'])
-const OFFICE_PREVIEW_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx'])
-const LEGACY_OFFICE_PREVIEW_EXTENSIONS = new Set(['.doc', '.dot', '.wps', '.wpt', '.rtf'])
+const OFFICE_PREVIEW_EXTENSIONS = new Set(['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'])
+const LEGACY_OFFICE_PREVIEW_EXTENSIONS = new Set(['.dot', '.wps', '.wpt', '.rtf'])
 const SINGLE_RESOURCE_EXTENSIONS = new Set(['.csv', '.tmx', '.tbx', '.sdltm', '.sdltb', '.pdf', '.doc', '.docx', '.rtf', '.pptx', '.md', '.markdown', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'])
 
 type Data = Record<string, unknown>
@@ -768,9 +767,7 @@ async function previewManagedFile(files: ManagedFiles, sourcePath: string, filen
     return { kind: 'text', text: text.slice(0, 200_000), truncated: text.length > 200_000, filename }
   }
   if (OFFICE_PREVIEW_EXTENSIONS.has(ext)) {
-    const { bytes } = await readPickedFileWithinLimit(sourcePath, LINGUIST_FILE_MAX_BYTES)
-    const converted = await convertOfficePreviewToHtml(bytes, filename)
-    return { kind: 'html', ...converted, filename }
+    return { kind: 'native', path: await files.nativePreview(sourcePath, filename), filename }
   }
   if (LEGACY_OFFICE_PREVIEW_EXTENSIONS.has(ext)) {
     const { bytes } = await readPickedFileWithinLimit(sourcePath, LINGUIST_FILE_MAX_BYTES)
@@ -911,7 +908,7 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       const kind = referenceKind(payload.kind)
       requirePending(files, token, id, kind, string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/))
       const upload = readUpload(files, token)
-      if (OFFICE_PREVIEW_EXTENSIONS.has(extname(upload.filename).toLowerCase())) return previewManagedFile(files, upload.path, upload.filename)
+      if (OFFICE_PREVIEW_EXTENSIONS.has(extname(upload.filename).toLowerCase())) return files.useUploads([token], () => previewManagedFile(files, upload.path, upload.filename))
       const { bytes } = await readPickedFileWithinLimit(upload.path, LINGUIST_FILE_MAX_BYTES)
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       return { kind: 'text', text: text.slice(0, 200_000), truncated: text.length > 200_000, filename: upload.filename }

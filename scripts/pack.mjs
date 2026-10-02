@@ -9,10 +9,11 @@ const source = join(root, 'packages/dsh-linguist')
 const stage = join(root, 'artifacts/pack-stage')
 const artifacts = join(root, 'artifacts')
 const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
 const tarball = join(artifacts, `linguist-dsh-plugin-${manifest.version}.tgz`)
 if (!process.env.npm_execpath) throw new Error('Run this script with pnpm pack:plugin')
-const browserSource = join(root, 'integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz')
-const browserTarball = join(artifacts, 'browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz')
+const browserSource = join(root, `integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
+const browserTarball = join(artifacts, `browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
 if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/client.cjs')) || !existsSync(join(source, 'lib/cat-job-worker.js')) || !existsSync(join(source, 'lib/integrity-scrub-worker.js')) || !existsSync(join(source, 'lib/pdf.worker.mjs'))) throw new Error('Build the complete plugin before packing')
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
@@ -24,7 +25,7 @@ delete manifest.scripts
 writeFileSync(join(stage, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 execFileSync(process.execPath, [process.env.npm_execpath, 'pack', '--out', tarball], { cwd: stage, stdio: 'inherit' })
 const entries = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).trim().split('\n')
-for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'package/lib/cat-job-worker.js', 'package/lib/integrity-scrub-worker.js', 'package/lib/pdf.worker.mjs', 'package/resources/linguist-roles/general.md', 'package/resources/linguist-roles/translator.md', 'package/resources/linguist-roles/reviewer.md', 'package/resources/linguist-roles/proofreader.md', 'package/resources/skills/phrase-platform-review-ops/SKILL.md', 'package/resources/skills/phrase-platform-review-ops/references/workspace-update.md', 'package/cordis.patch.yml', 'package/LICENSE']) {
+for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'package/lib/cat-job-worker.js', 'package/lib/integrity-scrub-worker.js', 'package/lib/pdf.worker.mjs', 'package/resources/linguist-roles/general.md', 'package/resources/linguist-roles/translator.md', 'package/resources/linguist-roles/reviewer.md', 'package/resources/linguist-roles/proofreader.md', 'package/resources/skills/phrase-platform-review-ops/SKILL.md', 'package/resources/skills/phrase-platform-review-ops/references/workspace-update.md', 'package/resources/professional-judgment/standard.v1.json', 'package/resources/professional-judgment/examples.v1.json', 'package/cordis.patch.yml', 'package/LICENSE']) {
   if (!entries.includes(required)) throw new Error(`Plugin tarball omits ${required}`)
 }
 for (const name of ['phrase-platform-review-ops', 'cultural-lqa', 'game-localization', 'localization-readiness', 'release-lqa', 'terminology-candidate-mining', 'translator-brief']) {
@@ -38,7 +39,6 @@ for (const entry of entries.filter(name => name.startsWith('package/lib/') && /\
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 let browserSkill
 if (existsSync(browserSource)) {
-  const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
   if (digest(browserSource) !== baseline.adaptedTarballSha256) throw new Error('BrowserSkill tarball differs from the fixed baseline')
   cpSync(browserSource, browserTarball)
   browserSkill = { path: browserTarball, sha256: digest(browserTarball), version: baseline.adaptedPluginVersion }

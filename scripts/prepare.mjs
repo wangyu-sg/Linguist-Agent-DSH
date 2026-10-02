@@ -9,7 +9,7 @@ const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/
 const files = {
   desktopDmg: join(root, '.toolchain/desktop/deepseek-harness-0.2.0-rc.2-mac-arm64.dmg'),
   browserSkillCli: join(root, '.toolchain/browser-skill/bin/bsk'),
-  browserSkillExtension: join(root, '.toolchain/browser-skill/downloads/browser-skill-extension-v0.3.1-chrome.zip'),
+  browserSkillExtension: join(root, '.toolchain/browser-skill/downloads', baseline.cliRelease.version, baseline.extensionRelease.archive),
   bun: join(root, '.toolchain/bun-1.3.14/bun-darwin-aarch64/bun'),
   pnpm: join(root, '.toolchain/pnpm-11.7.0/node_modules/pnpm/bin/pnpm.mjs'),
   dsh: join(root, '.toolchain/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh/package.json'),
@@ -38,7 +38,7 @@ const versions = {
   dsh: JSON.parse(readFileSync(files.dsh, 'utf8')).version,
   browserSkill: version(files.browserSkillCli),
 }
-if (versions.node !== 'v24.21.0' || versions.pnpm !== '11.7.0' || versions.bun !== '1.3.14' || versions.dsh !== '0.2.0-rc.2' || !versions.browserSkill.includes('0.3.1')) {
+if (versions.node !== 'v24.21.0' || versions.pnpm !== '11.7.0' || versions.bun !== '1.3.14' || versions.dsh !== '0.2.0-rc.2' || versions.browserSkill !== `bsk ${baseline.cliRelease.version}`) {
   throw new Error(`fixed toolchain version mismatch: ${JSON.stringify(versions)}`)
 }
 version(files.desktopNode, ['-e', 'require("node:sqlite")'])

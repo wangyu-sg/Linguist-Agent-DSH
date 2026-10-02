@@ -3,6 +3,7 @@ import {
   matchTmCandidates,
   scanTagTokens,
   selectTmAgentEvidence,
+  selectProfessionalContext,
   type Segment,
   type StageEvidenceReceipt,
   type SegmentTermPolicyEvaluation,
@@ -64,30 +65,29 @@ function translationContextCursorKey(
   neighborCount: number,
   tmLimit: number,
   termLimit: number,
+  judgmentFocus: readonly string[],
+  functionHints: unknown,
 ): string {
   return fnv1a64(JSON.stringify([
     segmentIds,
     neighborCount,
     tmLimit,
     termLimit,
+    judgmentFocus,
+    functionHints,
   ]))
 }
 
-/** v3 绑定尚未提供的真实上下文；已有有效 v2 游标继续按其原快照校验。 */
+/** 游标绑定真实内容和当前专业标准；更新后必须重新读取，不能拼接旧版本。 */
 function translationContextCursorOffset(
   cursor: string | undefined,
   key: string,
   total: number,
-  latestEventSequence: number,
 ): { offset: number; snapshot?: string; fragmentOffset?: number } {
   if (cursor === undefined) return { offset: 0 }
-  const match = /^ctx([234])-([0-9a-f]{16})-([0-9a-f]+)-(\d+)(?:-(\d+))?$/.exec(cursor)
+  const match = /^ctx([34])-([0-9a-f]{16})-([0-9a-f]+)-(\d+)(?:-(\d+))?$/.exec(cursor)
   if (match === null || match[2] !== key || Number(match[4]) >= total || (match[1] === '4') !== (match[5] !== undefined)) {
     throw new LinguistCatInvalidArgumentError('cursor', 'does not belong to this translation-context request')
-  }
-  if (match[1] === '2') {
-    if (!/^\d+$/.test(match[3]!) || Number(match[3]) !== latestEventSequence) throw new LinguistCatContextDriftError()
-    return { offset: Number(match[4]) }
   }
   return { offset: Number(match[4]), snapshot: match[3], ...(match[1] === '4' ? { fragmentOffset: Number(match[5]) } : {}) }
 }
@@ -103,6 +103,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
     promptSnippet: 'Read bounded batch translation context from the bound CAT project',
     parameters: Type.Object({
       segmentIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 50, description: 'The current page of 1-50 existing segment IDs, in input order. For a full batch/project execution task, declare its full stageScope on the first read; this page does not redefine the whole task. Keep the same full array when continuing its nextCursor or rules-only pages.' }),
+      judgmentFocus: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 6, description: 'Optional teaching-case topics from professionalJudgment.availableCaseTopics. Request only relevant topics; ordinary strings need no cases. Keep unchanged across a cursor.' })),
+      functionHints: Type.Optional(Type.Array(Type.Object({ segmentId: Type.String(), functions: Type.Array(Type.Union((['mechanics', 'ui', 'quest', 'dialogue', 'item', 'marketing'] as const).map(id => Type.Literal(id))), { maxItems: 6 }) }), { maxItems: 50, description: 'Optional reasoned text-function hints for these segmentIds when project metadata is missing. Hints are marked model-hint, never confirmed project facts. Keep unchanged across a cursor.' })),
       includeNeighbors: Type.Optional(Type.Boolean({ description: 'Include adjacent context when useful. Omitted=true behavior remains unchanged. This affects returned context, not the task scope.' })),
       neighborCount: Type.Optional(Type.Integer({ minimum: 0, maximum: 5, description: 'Number of adjacent segments on each side, 0-5. Keep unchanged when continuing a text cursor.' })),
       tmLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Maximum optional TM evidence per segment, 0-10; keep unchanged with a text cursor. A match is reference evidence, not automatic approval.' })),
@@ -124,6 +126,9 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const neighborCount = params.includeNeighbors === false ? 0 : params.neighborCount ?? 1
       const tmLimit = params.tmLimitPerSegment ?? 5
       const termLimit = params.termLimitPerSegment ?? 10
+      const judgmentFocus = params.judgmentFocus ?? []
+      const functionHints = Object.fromEntries((params.functionHints ?? []).map(item => [item.segmentId, item.functions]))
+      if (Object.keys(functionHints).some(id => !params.segmentIds.includes(id))) throw new LinguistCatInvalidArgumentError('functionHints', 'must refer to requested segmentIds')
       const maxBytes = params.maxBytes ?? 65_536
       if (!Number.isInteger(neighborCount) || neighborCount < 0 || neighborCount > 5) {
         throw new LinguistCatInvalidArgumentError('neighborCount', 'expected an integer from 0 to 5')
@@ -156,12 +161,13 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         neighborCount,
         tmLimit,
         termLimit,
+        judgmentFocus,
+        functionHints,
       )
       const { offset: cursorOffset, snapshot, fragmentOffset } = translationContextCursorOffset(
         params.cursor,
         cursorKey,
         params.segmentIds.length,
-        db.runs.latestEventSequence,
       )
       const segments = db.segments.getByIds(params.segmentIds)
       if (segments.length !== params.segmentIds.length) {
@@ -382,7 +388,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           const relevant = links.filter(link => link.relation.kind === 'segment' ? ids.has(link.relation.segmentId) : batches.has(link.relation.assetId))
           return relevant.length === 0 ? [] : [{ docId: doc.id, version, links: relevant }]
         })
-        return fnv1a64(JSON.stringify({ contexts: items, rules: allRules, documents }))
+        return fnv1a64(JSON.stringify({ contexts: items, rules: allRules, documents,
+          professional: deps.professionalJudgment && [deps.professionalJudgment.standardHash, deps.professionalJudgment.examplesHash] }))
       }
       const measured = (value: CatGetTranslationContextResult): number => {
         const details = deps.resultProjectId === undefined
@@ -456,6 +463,9 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         presented: completion.presentation.presented,
         pending: completion.presentation.pending.length,
       }
+      let caseLimit: 0 | 2 = 2
+      const professionalFor = (items: readonly ResolvedTranslationContext[], limit: 0 | 2 = caseLimit) => deps.professionalJudgment === undefined || items.length === 0 ? {}
+        : { professionalJudgment: selectProfessionalContext(deps.professionalJudgment, items.map(item => segments.find(segment => segment.id === item.segmentId)!), judgmentFocus, limit, functionHints) }
       const page = (items: ResolvedTranslationContext[]): CatGetTranslationContextResult => {
         const nextIndex = cursorOffset + items.length
         const truncated = !params.rulesOnly && nextIndex < params.segmentIds.length
@@ -463,6 +473,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         const result: CatGetTranslationContextResult = {
           contextFormatVersion: 2,
           ...shareTranslationContexts(items),
+          ...professionalFor(items),
           totalRequested: params.segmentIds.length,
           cursor: params.cursor ?? null,
           truncated,
@@ -507,6 +518,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       ]))
       if (snapshot !== undefined && snapshot !== (fragmentOffset === undefined ? snapshotFor(contexts) : fragmentSnapshot())) throw new LinguistCatContextDriftError()
       // 规则有独立续读；普通上下文先给必要句段，规则页则只受自身预算限制。
+      if (contexts[0] && measured(page([minimalCore(contexts[0])])) > maxBytes) caseLimit = 0
       while (projectRules.length > 0 && measured(page(params.rulesOnly || contexts[0] === undefined ? [] : [minimalCore(contexts[0])])) > maxBytes) projectRules = projectRules.slice(0, -1)
       const oversizedRule = params.rulesOnly && projectRules.length === 0 && rulesOffset < allRules.length
       // 逐段装页：优先全量段；全量放不下先核最小核心；核心也超预算即停止装页。
@@ -518,6 +530,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           selected = candidate
           continue
         }
+        caseLimit = 0
+        if (measured(page(candidate)) <= maxBytes) { selected = candidate; continue }
         const coreCandidate = [...selected, minimalCore(context, selected)]
         const coreBytes = measured(page(coreCandidate))
         if (coreBytes > maxBytes) {
@@ -536,6 +550,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         receiptContexts = contexts.slice(0, 1).map(context => minimalCore(context))
         receiptRules = allRules.slice(rulesOffset, rulesOffset + PROJECT_RULES_LIMIT)
         const payload = JSON.stringify({ contextFormatVersion: 2, ...shareTranslationContexts(receiptContexts), projectRules: receiptRules,
+          ...professionalFor(receiptContexts, 0),
           unprovidedReferences: unprovidedFor(receiptContexts) })
         const start = fragmentOffset ?? 0
         if (!Number.isSafeInteger(start) || start < 0 || start >= payload.length) throw new LinguistCatInvalidArgumentError('cursor', 'invalid fragment offset')

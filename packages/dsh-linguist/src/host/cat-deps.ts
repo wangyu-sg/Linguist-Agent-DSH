@@ -1,3 +1,4 @@
+import type { ProfessionalResources } from '@linguist/cat-core'
 import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -9,6 +10,7 @@ import { runLinguistConsistencyWorker, runLinguistQaWorker, type ContextImageMet
 import type { ProjectDiscoveryScope } from '@linguist/domain-service/contracts'
 
 export interface CreateCatDepsInput {
+  professional: ProfessionalResources
   service: LinguistProjectService
   projectId: string
   sessionId: string
@@ -47,6 +49,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
       return { project, db }
     },
     resultProjectId: projectId,
+    professionalJudgment: input.professional,
     sessionId: input.sessionId,
     linguistRole: input.role,
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),

@@ -281,3 +281,4 @@ export {
   type ForbiddenTermRule,
   type RequiredTerminologyRule,
 } from './hard-rules'
+export { professionalHash, professionalCaseHash, renderProfessionalStandard, selectProfessionalContext, type ProfessionalStandard, type ProfessionalCase, type ProfessionalResources, type ProfessionalContext, type TextFunction } from './professional-judgment'

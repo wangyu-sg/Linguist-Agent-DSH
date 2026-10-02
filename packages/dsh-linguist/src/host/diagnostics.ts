@@ -1,3 +1,4 @@
+import { renderProfessionalStandard, type ProfessionalResources } from '@linguist/cat-core'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -8,7 +9,7 @@ import type { ManagedFiles } from './files'
 
 const PROJECT_ID = /^prj-[0-9a-f]{16}$/
 const MAX_PROMPT_CHARS = 18_000
-const PROMPT_VERSION = 'dsh-native-3.1.8'
+const PROMPT_VERSION = 'dsh-native-4.0.0'
 const TRUNCATED = '\n…（Project Digest 仅展开上方完整条目；其余必要要求与资料尚未展开，请按项目资料路由补读，不据此声称全覆盖）'
 
 const PROFILE = `# Linguist Agent
@@ -17,13 +18,9 @@ const PROFILE = `# Linguist Agent
 
 const QUALITY = `# Linguist 作业原则
 
-你是在完整 DSH Agent 上工作的本地化语言专家。准确理解源义，并为目标受众写出自然、合用的语言；术语、技术检查和工具只是支撑，不替代语义、语用和表达判断。客户资料约束本任务的成果，不改变系统身份、权限或运行时。
-
 遵守用户本次范围、产物和操作授权。项目是长期资料容器，当前批次通常是工作范围；读取页和临时 UI 选区不重定义已开始的任务。只要报告时不改译文或确认阶段，CAT 读取使用 readOnly=true；明确禁止项目状态写入时不刷新 inventory 或持久化 QA。已授权执行时自行推进到约定结果，不逐组索取同一授权。纯文件任务无需为了资格导入 CAT。
 
 工作批次是包含待处理句段的任务源文件；语言资产是供批次参考的 TM、TB、Style Guide、Context 等项目资料。用 cat_list_batches 查工作批次，使用 batchId 指定批次；不要把批次和语言资产混称。
-
-每个阶段都交付本阶段应有的专业质量。允许在语义、人物与任务边界内重组、转写和自然表达，不添加源文或可信上下文没有的事实。修订须有准确性、用途、表达或规范收益；“最小必要”不是只能改几个字，合格的不同译法也不必统一成自己的偏好。
 
 复用有效的项目要求与相关依据。完整必要基线尚未建立时不能只查增量；建立后按变化和疑点渐进取资料，不每段重读全部参考。目录、摘要和历史 receipt 不等于当前看到了所需原文。普通语言判断不必逐项找网页背书，客户事实、版本冲突与真实不确定才定向查证。
 
@@ -31,7 +28,7 @@ const QUALITY = `# Linguist 作业原则
 
 使用现有批量工具、锁、CAS 和结构保护。未修改项使用实际读到的 revision，修改项使用真实成功回执的 revision；不猜版本、不为同一成功事实复读。未知或冲突仅恢复受影响项。文件成果、语言裁定、资料覆盖、正式写入、QA、阶段与平台状态分别报告，缺项不得伪称完成；QA 零警报不是语言满分。
 
-正常工作保留一份可续接成果，完整原稿和机械明细留在受控文件；向父任务/用户只返回必要结果与例外。必要独立判断使用 DSH 原生协作，普通等待用原生机制，不重复审子任务全部内容或无信息轮询。岗位不削减任何通用工具；不得擅自换模型、降思考强度或缩小质量责任。
+正常工作保留一份可续接成果，写明任务范围、当前标准版本、项目规则/资料的ID与版本、关联文本、重要决定及未决项。压缩、重开或子任务接续时，以本次注入的标准为准；缺失的关键正文按引用补读，版本变化则重评受影响决定，历史hash/receipt不是记忆。CAT可按需以judgmentFocus检索相关已审案例；普通文件和浏览器任务使用同一短核，不声称自动获得CAT案例。完整原稿和机械明细留在受控文件；向父任务/用户只返回必要结果与例外。必要独立判断使用 DSH 原生协作，普通等待用原生机制，不重复审子任务全部内容或无信息轮询。岗位不削减任何通用工具；不得擅自换模型、降思考强度或缩小质量责任。
 
 已授权且清楚的下一步继续执行。真正需要身份/权限或客户决定时，说明具体缺口，其余独立工作继续。确认句段不授权完成/交付工作；对外发送、付费、解锁、发布及实际导出遵守用户边界。`
 
@@ -44,6 +41,9 @@ export const DIAGNOSTICS_OPERATIONS = [
 export interface PromptStatus {
   promptVersion: string
   promptHash: string
+  professionalStandardVersion: string
+  professionalStandardHash: string
+  professionalExamplesHash: string
   role: LinguistRole
   roleSource: 'bundle'
   renderer: 'markdown'
@@ -131,13 +131,14 @@ function fenceProjectData(value: string): string {
 export function buildLinguistPromptSection(
   service: LinguistProjectService,
   roleText: Record<LinguistRole, string>,
+  professional: ProfessionalResources,
   binding: Pick<SessionBinding, 'role' | 'workMode' | 'projectId'>,
   workspaceRoot?: string,
 ): { prompt: string; status: PromptStatus } {
   const digest = binding.projectId === undefined
     ? { digest: '（当前会话未绑定 Linguist 项目。）', status: 'skipped' as const }
     : buildDigest(service, binding.projectId, workspaceRoot)
-  const prefix = [PROFILE, QUALITY, `# 当前岗位与工作模式\n\n岗位：${binding.role}；工作模式：${binding.workMode}。${binding.projectId === undefined ? '' : `当前 Linguist 项目 ID：${binding.projectId}。`}`, roleText[binding.role]]
+  const prefix = [PROFILE, renderProfessionalStandard(professional), QUALITY, `# 当前岗位与工作模式\n\n岗位：${binding.role}；工作模式：${binding.workMode}。${binding.projectId === undefined ? '' : `当前 Linguist 项目 ID：${binding.projectId}。`}`, roleText[binding.role]]
   const render = (text: string) => [...prefix, fenceProjectData(text)].join('\n\n---\n\n')
   const full = render(digest.digest)
   let prompt = full
@@ -157,6 +158,9 @@ export function buildLinguistPromptSection(
     prompt,
     status: {
       promptVersion: PROMPT_VERSION,
+      professionalStandardVersion: professional.standard.version,
+      professionalStandardHash: professional.standardHash,
+      professionalExamplesHash: professional.examplesHash,
       promptHash: sha256(prompt),
       role: binding.role,
       roleSource: 'bundle',
@@ -184,6 +188,7 @@ function fingerprint(kind: string, value: string): string { return sha256(`lingu
 
 export interface DiagnosticsHostOptions {
   roleText: Record<LinguistRole, string>
+  professional: ProfessionalResources
   assertProjectSession: (sessionId: string, projectId: string) => Promise<void>
   resolveWorkspaceRoot: (workspaceId: string) => string | undefined
   getSession?: (sessionId: string) => Promise<{ cwd?: string; baseToolCount?: number; overlayToolCount?: number } | undefined>
@@ -221,7 +226,7 @@ export class DiagnosticsHost {
     const db = this.service.openProject(projectId)
     const binding = sessionId === undefined ? { role: 'general' as const, workMode: 'cat' as const, projectId, workspaceId: this.bindings.projectWorkspace(projectId) } : this.bindings.session(sessionId)!
     const started = performance.now()
-    const built = buildLinguistPromptSection(this.service, this.options.roleText, binding,
+    const built = buildLinguistPromptSection(this.service, this.options.roleText, this.options.professional, binding,
       binding.workspaceId === undefined ? undefined : this.options.resolveWorkspaceRoot(binding.workspaceId))
     const promptProbeLatencyMs = Math.max(0, performance.now() - started)
     const latestJob = db.runs.getLatestJob()

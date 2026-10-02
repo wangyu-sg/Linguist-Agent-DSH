@@ -6,9 +6,22 @@ owned sessions, runner, queue, cancellation, observation, and UI. There is no
 second browser-control path.
 
 The supported host baseline is DSH 0.2.0-rc.2 on macOS ARM64. Use the local
-0.3.1-la-dsh.5 plugin tarball, bsk 0.3.1 CLI, and extension 0.3.1. The extension
+0.3.2-la-dsh.1 plugin tarball, bsk 0.3.2 CLI, and extension 0.3.2. The extension
 must show a connection to the configured daemon port before browser actions work.
 Install the tarball through the official DSH plugin manager.
+
+This release rebases onto official 0.3.2. Official lifecycle, tool-history and
+streaming fixes replace the old compatibility patches. The remaining patch adds
+`browser_files`, durable receipts, canonical request deduplication, configured
+staging/home paths, and disables CLI self-update. Updating to the unmodified
+marketplace package drops these additions.
+
+Update the plugin, CLI and extension together. Keep `bskPath`, `bskHome`, the
+session recovery directory and daemon port. With no browser tasks running, stop
+the owned daemon, replace the CLI, restart it, update the Chrome extension and
+connect it to that same port. Loading an unpacked extension from a new directory
+can create a new extension identity; disable the old instance to avoid duplicate
+connections. Preserve its user settings until the new connection is working.
 
 The following are maintainer helpers for a prepared, pinned upstream checkout
 and local tooling described in BASELINE.json; they are not normal LA installation

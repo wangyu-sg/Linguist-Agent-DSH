@@ -18,7 +18,7 @@ pnpm pack:plugin
 
 检查使用当前源码、已声明的官方 SDK、Node 回归、Bun 格式回归和合成样本。失败立即报错；不读取旧源码快照、功能清单或人工安装回执。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.0.1.tgz`，会核对岗位、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.1.0.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
 LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill。
 
@@ -36,6 +36,45 @@ LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额
 文件上限只维护 `LINGUIST_FILE_MAX_BYTES`。单文件、HTTP 预算、逻辑批次、解压安全与预览采样分开；分请求不得改变 Phrase 配对。
 
 暂存完成/取消/过期的回收保护在途使用。IO 清理错误记录诊断并重试，不能掩盖入库写入失败或将已提交业务变成失败。
+
+### 专业判断资源
+
+`packages/dsh-linguist/resources/professional-judgment/standard.v1.json` 是共享标准源，四岗位方法只保留分工。Host 启动加载并计算内容 hash，每次原生 system prompt 组装读取当前项目摘要；插件更新后重新加载，新旧资源不混用。标准变化使尚未完成的 CAT 上下文 cursor 失效，需重新读取。
+
+`examples.v1.json` 只收录经人工批准公开的合成案例。当前六组 DEV-02–07 已由仓库所有者于 2026-10-02 审定。`review.contentHash` 绑定实际内容；修改内容或撤销批准后不会作为已审定案例送出，重新审定后才能更新 hash。模型没有批准接口；历史 Voice exemplar 的阶段状态不等于人工批准。
+
+`cat_get_translation_context` 按语言对、元数据中的功能及 `judgmentFocus` 选择案例；功能缺失可显式提供 `functionHints`，结果保留其来源。案例最多两组并计入整体 UTF-8 预算，空间不足优先移除案例。普通句段零案例正常。分页、子岗位和接续依旧读取实际正文与当前项目要求，hash 不能替代内容。
+
+共享标准为项目自己的简短表述，参考 O’Hagan、Mangiron《Game Localization: Translating for the Global Digital Entertainment Industry》（2013）关于本地化功能、创意边界、语境和专业带教的讨论，尤其第 4 章 pp.190–195、第 6 章 pp.249–270；书籍正文不随包分发。合成对照能发现回归，不能替代未见样本的人工盲评。
+
+### 原生预览配置
+
+DSH 0.2.0-rc.2 的公开宿主配置支持以下限额。在 DSH 设置中打开用户配置文件，将这些字段合并到已有同名组件，保留其他设置，重开 DSH。不修改 `profiles/desktop`。下面是本轮大文件配置，适用于有足够内存的本机；默认普通安装不会自动提高限额。
+
+```yaml
+- id: office-to-pdf
+  config:
+    maxInputBytes: 536870912
+    maxSourceBytes: 536870912
+    maxUncompressedBytes: 1073741824
+    maxConcurrentConversions: 1
+    timeoutMs: 120000
+- id: workspace-files
+  config:
+    maxFileBytes: 536870912
+- id: ui-sidebar-documentpreview
+  config:
+    excel:
+      maxBytes: 536870912
+      maxCells: 1000000
+      timeoutMs: 60000
+```
+
+Excel 限额按各工作表使用区域的行数×列数合计，稀疏表也占预算。Word/PPT 仍有 100 MiB 输出 PDF 和 10,000 个压缩成员的宿主限制。超限或转换失败会显示错误；Agent 正文抽取与 CAT 列映射保持各自职责。预览暂存使用 LA 现有一小时回收机制，采用独立只读副本，不把原稿 inode 交给可编辑入口。
+
+2026-10-02 在本机独立进程调用官方 0.2.0-rc.2 转换器：约 60 MiB 的合成 Word、PPT 各成功输出 5 页 PDF，用时约 5.3 秒、1.4 秒，进程峰值约 1.1 GiB。官方 Excel 解析 Worker 处理约 36 MiB、40 万单元格样本用时约 1.5 秒，峰值约 1.4 GiB。这是单次合成检查，不含 Desktop 绘制和表格矩阵内存；不能外推为所有 512 MiB 文件可流畅预览。
+
+回退时在原生插件管理安装先前保存的包；本轮不改变 CAT 数据库结构。预览限额可恢复上述组件的默认配置。不要用恢复整个旧项目备份来回退提示或预览功能。
 
 ## 本机安装与升级
 

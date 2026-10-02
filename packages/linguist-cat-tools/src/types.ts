@@ -1,3 +1,4 @@
+import type { ProfessionalResources, ProfessionalContext } from '@linguist/cat-core'
 /**
  * Public types of @linguist/cat-tools (PB-041).
  *
@@ -185,6 +186,7 @@ export type LinguistConsistencyWorker = (
 ) => Promise<LinguistConsistencyWorkerResult>
 
 export interface LinguistCatToolsDeps {
+  professionalJudgment?: ProfessionalResources
   resolveProject: ResolveLinguistCatProject
   /**
    * 宿主会话绑定生成的项目 ID；仅用于成功结果的导航元数据，模型无对应入参。
@@ -384,7 +386,7 @@ export interface CatVoiceContextResult {
   textType?: string
   module?: string
   profile?: VoiceProfile
-  exemplars: Array<Omit<ApprovedExemplar, 'assetId'> & { batchId: string }>
+  exemplars: Array<Omit<ApprovedExemplar, 'assetId'> & { batchId: string; humanVerification: 'unverified' }>
   note?: string
 }
 
@@ -660,6 +662,7 @@ export type CatProjectRuleItem = ProjectRule
 
 export interface CatGetTranslationContextResult {
   contextFormatVersion: 2
+  professionalJudgment?: ProfessionalContext
   /** 将 text 按 offset 连接后解析为完整 JSON；分片不代表内容/证据已读完。 */
   contextFragment?: { encoding: 'json'; offset: number; totalChars: number; text: string }
 

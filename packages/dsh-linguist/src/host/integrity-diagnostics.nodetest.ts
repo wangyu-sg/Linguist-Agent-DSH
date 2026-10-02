@@ -1,3 +1,4 @@
+import { loadProfessionalResources } from './professional-context'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -11,6 +12,8 @@ import { buildLinguistPromptSection, DiagnosticsHost } from './diagnostics'
 import { ManagedFiles } from './files'
 import { IntegrityHost, type IntegrityEvent } from './integrity'
 import { MutationBus } from './mutations'
+
+const professional = loadProfessionalResources(new URL('../../resources/professional-judgment/', import.meta.url))
 
 test('native prompt, diagnostics bundle, worker scrub and redacted exports use synthetic data', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-integrity-'))
@@ -37,12 +40,12 @@ test('native prompt, diagnostics bundle, worker scrub and redacted exports use s
     bindings.bindSession('session-synthetic', { workspaceId: 'ws-synthetic', projectId: project.id, role: 'translator', workMode: 'cat' })
     const roles = { general: 'General', translator: 'Translator', reviewer: 'Reviewer', proofreader: 'Proofreader' }
     const binding = bindings.session('session-synthetic')!
-    const prompt = buildLinguistPromptSection(service, roles, binding, workspaceRoot)
+    const prompt = buildLinguistPromptSection(service, roles, professional, binding, workspaceRoot)
     assert.match(prompt.prompt, /Synthetic fixture purpose/)
     assert.equal(prompt.status.projectDigestStatus, 'complete')
     assert.equal(prompt.status.promptHash, createHash('sha256').update(prompt.prompt).digest('hex'))
     const diagnostics = new DiagnosticsHost(service, bindings, files, {
-      roleText: roles,
+      roleText: roles, professional,
       assertProjectSession: async (sessionId, projectId) => {
         assert.equal(sessionId, 'session-synthetic')
         assert.equal(projectId, project.id)

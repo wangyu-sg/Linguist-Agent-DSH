@@ -1,36 +1,37 @@
 {
   "upstreamRepository": "https://github.com/Tencent/BrowserSkill",
-  "upstreamCommit": "f62e283cbb848118096491d1926d8714ebf05b8f",
+  "upstreamCommit": "75ba2949d9abce07931534f8382a055ddb447b9c",
   "upstreamPlugin": {
     "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
-    "version": "0.3.1",
-    "npmIntegrity": "sha512-iYZFvXebovk25EVcE9tHmAroP40bz2fMwXKGjvaGGTtWU++yoFUoWiWNKzO6hadMg6iJiarc1H6myGXzMe+ERQ==",
+    "version": "0.3.2",
+    "npmIntegrity": "sha512-Z8m5KmNzCqc83M99q6pSPUwzFYr+RI4F1pQNCHp56rL/97Ogz7Z/YcWGEwYlvfSMWePjcib8aUQNpSVInW35AA==",
     "license": "MIT"
   },
-  "adaptedPluginVersion": "0.3.1-la-dsh.5",
+  "adaptedPluginVersion": "0.3.2-la-dsh.1",
   "dshVersion": "0.2.0-rc.2",
   "pnpmVersion": "10.17.0",
-  "upstreamPluginTreeSha256": "c1c6a6ee4a82460bef494860f6e40fbc02d6d7730d944ad398631876f97831c1",
+  "upstreamPluginTreeSha256": "93193631973937102acaa067eec3515daa9c1667053fdff5032332d202e46ba3",
   "upstreamUiTreeSha256": "34c462dfe4db17b30447974e249b3504e3825f5aa908b67c04375475fbdecbd8",
-  "upstreamLockSha256": "0b8a862165ef7d5fc27ae1378066d3ce998f7a51641aecbe72774f52d649c2cd",
+  "upstreamLockSha256": "b7bc6546aa23c07081bf2ca53752fd11ab03d3476d3060b9fbf2bae85ca88b66",
   "upstreamRootPackageSha256": "10c251044fb6c558f014db0274b07927deae3267d0f66220ee15d96e986a856c",
   "upstreamWorkspaceSha256": "4a961a61ba41b508649ffeaf552bcfaeacd0b6418c5b539756419308ce141a0e",
-  "patchSha256": "000fc010c2eb456d1d15441390787ff5770cb89f6d08190bafac49bc5997e58c",
-  "adaptedTarballSha256": "5c93f36bf87a403ec3ca252a3c8ed1749e53d0c8c4744c0968ef68c5ca556006",
+  "patchSha256": "30d7af10d81ce774da221010c3a4bba5a21093e0f43a93dcb4c8d6b0573b1fc5",
+  "adaptedTarballSha256": "4acacbf771d6d055936129a5c7247027b8a5bcf3ef42c94c51f3b73ff84c2cbb",
   "cliRelease": {
-    "tag": "cli-v0.3.1",
-    "commit": "da6bf4eed2dd7256567e152df8c903c87f6598c3",
-    "archive": "bsk-v0.3.1-aarch64-apple-darwin.tar.gz",
-    "archiveSha256": "78f1651215b1ce95e40fb886985d1476e2cd2fb089beb146e6ecc6fa4a4aab89",
-    "binarySha256": "bba24de58d403625268ffd6bbef31cdedb2d06eb031e9d0d1773120f4c0578bc",
-    "versionManifestSha256": "9964197a4c89648635f6d5d6b3c9848b3260ffaf093e64141c81ae3ea7a868ac"
+    "tag": "cli-v0.3.2",
+    "commit": "75ba2949d9abce07931534f8382a055ddb447b9c",
+    "archive": "bsk-v0.3.2-aarch64-apple-darwin.tar.gz",
+    "archiveSha256": "f9f9f5f678fdfc6b577e524f4eb74a5fe5c47420dae8b77b66619a636d87c99a",
+    "binarySha256": "8ce2ae4454b0ef117dc2a6b337366ce27841f04acd4a6a6055922401345b535d",
+    "versionManifestSha256": "e7a182276b74f1e156af455d77175eb0075bd970921e64d8c8d8731602007c34",
+    "version": "0.3.2"
   },
   "extensionRelease": {
-    "tag": "ext-v0.3.1",
-    "commit": "da6bf4eed2dd7256567e152df8c903c87f6598c3",
-    "archive": "browser-skill-extension-v0.3.1-chrome.zip",
-    "archiveSha256": "9d41a8450653dbdcea365b611a163d9ddbbf0c0078bff42dbe8e2cf5910cbb8e",
-    "manifestVersion": "0.3.1"
+    "tag": "ext-v0.3.2",
+    "commit": "75ba2949d9abce07931534f8382a055ddb447b9c",
+    "archive": "browser-skill-extension-v0.3.2-chrome.zip",
+    "archiveSha256": "9f543214a0ff5f0f2ce213dd8c5300111dba0ab757fa542a3f61b5636132c24e",
+    "manifestVersion": "0.3.2"
   },
-  "adaptedLockSha256": "e9452fa8aa11f8059dd60d483121fb5f8692f3a97556c2fca206aa3b417600f4"
+  "adaptedLockSha256": "5ebd8757eff4d74020f8dfe4701b5cd2569a00e7808a6689d226d3388abc78a4"
 }

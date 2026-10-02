@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const source = join(root, ".toolchain/source/browser-skill");
 const pnpm = join(root, ".toolchain/pnpm-10.17/node_modules/pnpm/bin/pnpm.cjs");
 const baseline = JSON.parse(await readFile(join(here, "BASELINE.json"), "utf8"));
+const source = join(root, `.toolchain/source/browser-skill-${baseline.upstreamPlugin.version}`);
 const patch = join(here, "patches/browser-files.patch");
 const out = join(here, "dist");
 const adaptedLock = join(here, "pnpm-lock.yaml");
@@ -38,7 +39,14 @@ function run(command, args, cwd, capture = false, env = process.env) {
   return result.stdout;
 }
 
-assert.equal((await readFile(join(source, ".git/HEAD"), "utf8")).trim(), baseline.upstreamCommit);
+if (!existsSync(source)) {
+  const response = await fetch(`https://codeload.github.com/Tencent/BrowserSkill/tar.gz/${baseline.upstreamCommit}`);
+  assert(response.ok, `upstream download failed: ${response.status}`);
+  const archive = `${source}.tar.gz`;
+  await mkdir(source, { recursive: true });
+  await writeFile(archive, Buffer.from(await response.arrayBuffer()));
+  run("tar", ["-xzf", archive, "--strip-components=1", "-C", source], root);
+}
 assert.equal(await treeHash(join(source, "packages/dsh-plugin-browserskill")), baseline.upstreamPluginTreeSha256);
 assert.equal(await treeHash(join(source, "packages/ui")), baseline.upstreamUiTreeSha256);
 for (const [file, expected] of [
@@ -87,7 +95,7 @@ try {
     sourceCommit: baseline.upstreamCommit,
     patchSha256: baseline.patchSha256,
     dshVersion: baseline.dshVersion,
-    unitTests: "383 passed",
+    checks: ["typecheck", "test", "build"],
   };
   await writeFile(join(out, "BUILD.json"), JSON.stringify(receipt, null, 2) + "\n");
   process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");

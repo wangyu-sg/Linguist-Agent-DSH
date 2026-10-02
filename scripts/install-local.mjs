@@ -35,7 +35,7 @@ const prior = join(dataRoot, 'current.json')
 const installationId = initializeStorage({ dataRoot, installationId: existsSync(prior) ? JSON.parse(readFileSync(prior, 'utf8')).installationId : '' }).installationId
 const staged = {
   linguist: join(dataRoot, 'runtime/packages', `linguist-dsh-plugin-${pack.linguist.sha256.slice(0, 12)}.tgz`),
-  browserSkill: join(dataRoot, 'runtime/packages/browser-skill-dsh-plugin-0.3.1-la-dsh.5.tgz'),
+  browserSkill: join(dataRoot, 'runtime/packages', `browser-skill-dsh-plugin-${pack.browserSkill.version}.tgz`),
 }
 for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'runtime/browser-skill/bin'), bskHome, join(dataRoot, 'browser-skill/session-state'), join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
 for (const key of ['linguist', 'browserSkill']) {
@@ -43,10 +43,15 @@ for (const key of ['linguist', 'browserSkill']) {
   else copyFileSync(pack[key].path, staged[key])
 }
 const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
-if (!existsSync(bskPath)) copyFileSync(join(root, '.toolchain/browser-skill/bin/bsk'), bskPath)
+if (!existsSync(bskPath) || sha256(bskPath) !== baseline.cliRelease.binarySha256) {
+  const incoming = join(root, '.toolchain/browser-skill/bin/bsk')
+  assert(sha256(incoming) === baseline.cliRelease.binarySha256, 'downloaded BrowserSkill CLI differs')
+  copyFileSync(incoming, `${bskPath}.tmp`)
+  renameSync(`${bskPath}.tmp`, bskPath)
+}
 assert(sha256(bskPath) === baseline.cliRelease.binarySha256, 'pinned BrowserSkill CLI differs')
-const extension = join(dataRoot, 'runtime/browser-skill/extension-v0.3.1')
-cpSync(join(root, '.toolchain/browser-skill/extension-v0.3.1'), extension, { recursive: true })
+const extension = join(dataRoot, `runtime/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}`)
+cpSync(join(root, `.toolchain/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}`), extension, { recursive: true })
 if (!existsSync(appPath)) {
   const mount = join(tmpdir(), `la-dsh-official-${process.pid}`)
   mkdirSync(mount)

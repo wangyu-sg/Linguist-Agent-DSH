@@ -61,7 +61,7 @@ export interface QaIssueMapping {
  * 规则码 -> 契约三元组静态映射。定级依据《通用缺陷等级》指引：
  * 占位符/标签/ICU 破坏 = L0 defect；硬术语（禁用/严格必需）= L1 defect；
  * 普通数字变化 = L2 needs_review；preferred 偏离由术语校验返回 advisory；
- * 一致性/标点/空白/长度 = L2–L3 defect；术语表冲突不可判定 = query。
+ * 同文/一致性/比例长度 = L2–L3 needs_review；标点/空白保持原有分级；术语表冲突不可判定 = query。
  */
 export const QA_CODE_ISSUE_MAPPING: Readonly<Record<string, QaIssueMapping>> = {
   // —— PB-070 既有 11 码（code 与 message 不变，仅补契约三元组）——
@@ -73,9 +73,9 @@ export const QA_CODE_ISSUE_MAPPING: Readonly<Record<string, QaIssueMapping>> = {
   NUMBER_MISMATCH: { issueType: 'numbers_units_dates', severity: 'L2', disposition: 'needs_review' },
   WHITESPACE_MISMATCH: { issueType: 'whitespace_linebreaks', severity: 'L3', disposition: 'defect' },
   REPEATED_PUNCTUATION: { issueType: 'punctuation_typography', severity: 'L3', disposition: 'defect' },
-  SOURCE_EQUALS_TARGET: { issueType: 'omission', severity: 'L2', disposition: 'defect' },
-  INCONSISTENT_REPEATED_SOURCE: { issueType: 'consistency', severity: 'L2', disposition: 'defect' },
-  TARGET_LENGTH_WARNING: { issueType: 'length_limit', severity: 'L3', disposition: 'defect' },
+  SOURCE_EQUALS_TARGET: { issueType: 'omission', severity: 'L2', disposition: 'needs_review' },
+  INCONSISTENT_REPEATED_SOURCE: { issueType: 'consistency', severity: 'L2', disposition: 'needs_review' },
+  TARGET_LENGTH_WARNING: { issueType: 'length_limit', severity: 'L3', disposition: 'needs_review' },
   // —— PB-096 批次 1：Xbench 类确定性检查（迁自旧仓 mechanical_text_qa / delivery_qa）——
   NEWLINE_MISMATCH: { issueType: 'whitespace_linebreaks', severity: 'L2', disposition: 'defect' },
   EDGE_WHITESPACE: { issueType: 'whitespace_linebreaks', severity: 'L3', disposition: 'defect' },
@@ -86,7 +86,7 @@ export const QA_CODE_ISSUE_MAPPING: Readonly<Record<string, QaIssueMapping>> = {
   EMAIL_MISMATCH: { issueType: 'placeholders_variables', severity: 'L2', disposition: 'defect' },
   URL_MISMATCH: { issueType: 'placeholders_variables', severity: 'L2', disposition: 'defect' },
   ALPHANUMERIC_MISMATCH: { issueType: 'placeholders_variables', severity: 'L2', disposition: 'defect' },
-  TARGET_SOURCE_INCONSISTENCY: { issueType: 'consistency', severity: 'L3', disposition: 'defect' },
+  TARGET_SOURCE_INCONSISTENCY: { issueType: 'consistency', severity: 'L3', disposition: 'needs_review' },
   FULLWIDTH_PUNCTUATION: { issueType: 'punctuation_typography', severity: 'L2', disposition: 'defect' },
   RESIDUAL_CJK: { issueType: 'omission', severity: 'L2', disposition: 'defect' },
   GLOSSARY_CONFLICT: { issueType: 'glossary_conflict', severity: 'L2', disposition: 'query' },

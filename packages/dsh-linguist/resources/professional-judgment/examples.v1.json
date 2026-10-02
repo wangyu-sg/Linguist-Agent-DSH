@@ -1,0 +1,330 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    {
+      "caseId": "DEV-02",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "item"
+      ],
+      "problemTags": [
+        "over-transcreation",
+        "invented-mechanics"
+      ],
+      "scene": "轻松奇幻游戏的纯外观斗篷；物品规格明确没有属性加成。",
+      "relatedText": [],
+      "source": {
+        "name": "摸鱼披风",
+        "description": "披上它，连偷懒都有了仪式感。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "name": "Cloak of Clocking Out",
+          "description": "For taking it easy in style."
+        },
+        {
+          "id": "B",
+          "name": "Cloak of Clocking Out",
+          "description": "Wear it to gain 20% more gold while you nap."
+        }
+      ],
+      "judgment": {
+        "decision": "accept-A-reject-B",
+        "rationale": "A 用工作语域保持懒散笑点；B 新增金币倍率与挂机奖励，属于机制/属性发明，不是合理创译。"
+      },
+      "invariants": [
+        "纯外观，无奖励加成"
+      ],
+      "when": [
+        "A 适用于允许现代工作类比的喜剧外观文案"
+      ],
+      "notWhen": [
+        "禁用现代工作类比的严肃古典世界不适合 A；B 在本案例任何场景都不能接受"
+      ],
+      "ruleRefs": [
+        "PJ-02",
+        "PJ-03",
+        "PJ-09"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.830Z",
+        "contentHash": "fcd3a8c42d91178cebba32c88f8fcfd1758113aa331890b8ad599e99575f9860"
+      }
+    },
+    {
+      "caseId": "DEV-03",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "mechanics"
+      ],
+      "problemTags": [
+        "fluent-mechanic-error",
+        "trigger"
+      ],
+      "scene": "战斗技能说明。命中但未击败敌人时也会触发；护盾没有伤害效果。",
+      "relatedText": [],
+      "source": {
+        "text": "命中敌人后，获得持续4秒的护盾。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "text": "Defeating an enemy grants a shield for 4 seconds."
+        },
+        {
+          "id": "B",
+          "text": "Hitting an enemy grants a shield for 4 seconds."
+        }
+      ],
+      "judgment": {
+        "decision": "edit-A-to-B-or-equivalent",
+        "rationale": "A 虽流畅且数字完全相同，却把命中条件改为击杀。判断不能只依靠数字与 Tag QA。"
+      },
+      "invariants": [
+        "触发为命中",
+        "持续4秒",
+        "获得护盾"
+      ],
+      "when": [
+        "技能规格确认 on hit"
+      ],
+      "notWhen": [
+        "若新版明确改成 on kill，旧案例不得用于反对新版"
+      ],
+      "ruleRefs": [
+        "PJ-02",
+        "PJ-05",
+        "PJ-10"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.831Z",
+        "contentHash": "291f304b2a12f72704a31025b51ebaefee58e548d6e3aaa2f9b9910ab7dd83e8"
+      }
+    },
+    {
+      "caseId": "DEV-04",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "mechanics"
+      ],
+      "problemTags": [
+        "keep",
+        "reordered-expression"
+      ],
+      "scene": "受击被动：低生命时减轻所受伤害，条件随当前生命变化；无额外触发事件。",
+      "relatedText": [],
+      "source": {
+        "text": "生命值低于30%时，受到的伤害降低15%。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "text": "Take 15% less damage while below 30% HP."
+        },
+        {
+          "id": "B",
+          "text": "When HP reaches 30%, deal 15% more damage."
+        }
+      ],
+      "judgment": {
+        "decision": "keep-A-reject-B",
+        "rationale": "A 直接、自然，保留持续条件、严格低于和伤害承受方向；无需补成与原句逐项同序。B 改成精确到达条件和输出增益。"
+      },
+      "invariants": [
+        "低于30%而非等于",
+        "所受伤害降低15%"
+      ],
+      "when": [
+        "项目允许 HP 缩写且含义明确"
+      ],
+      "notWhen": [
+        "若项目 required 术语为 Health，则按项目规则调整缩写，不据此推翻整套表达"
+      ],
+      "ruleRefs": [
+        "PJ-02",
+        "PJ-04",
+        "PJ-09"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.832Z",
+        "contentHash": "ff812570245a640e0e7d29dfc9b8d77f7dea01d37a8ea5e695dc03f89fa593bd"
+      }
+    },
+    {
+      "caseId": "DEV-05",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "ui"
+      ],
+      "problemTags": [
+        "placeholder",
+        "semantic-binding"
+      ],
+      "scene": "撤回交易确认框。{seller} 是卖方名，{buyer} 是买方名，{amount} 是货币数量；变量可重排但身份不能互换。",
+      "relatedText": [],
+      "source": {
+        "text": "{seller} 将退还 {amount} 金币给 {buyer}。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "text": "{buyer} will refund {amount} gold to {seller}."
+        },
+        {
+          "id": "B",
+          "text": "{seller} will refund {amount} gold to {buyer}."
+        },
+        {
+          "id": "C",
+          "text": "{seller} will refund gold to {buyer}."
+        }
+      ],
+      "judgment": {
+        "decision": "reject-A-and-C-accept-B",
+        "rationale": "A 保留了变量集合却交换主体和受益者；C 丢失数量参数。结构校验与意义核验都必要。"
+      },
+      "invariants": [
+        "付款方向",
+        "全部参数身份与数量"
+      ],
+      "when": [
+        "交易规格与参数词典明确这些身份"
+      ],
+      "notWhen": [
+        "变量词典缺失或 seller 实际不是身份时先查证，不能从变量名推断到绝对结论"
+      ],
+      "ruleRefs": [
+        "PJ-02",
+        "PJ-08"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.832Z",
+        "contentHash": "65fa66f77ffb9a911ff7d159744e1d933dce6c3b14e499085feaa86f862cf069"
+      }
+    },
+    {
+      "caseId": "DEV-06",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "ui"
+      ],
+      "problemTags": [
+        "heuristic-false-positive",
+        "length"
+      ],
+      "scene": "设置菜单中的自动存档选项说明，无提供字数或像素硬上限。",
+      "relatedText": [],
+      "source": {
+        "text": "每次离开营地时自动保存进度。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "text": "Automatically save your progress whenever you leave camp."
+        }
+      ],
+      "judgment": {
+        "decision": "keep-with-layout-unverified",
+        "rationale": "英文扩展不能只按与汉字的字符比判错；功能与含义成立。没有运行时画面，不能反向宣称一定不溢出。"
+      },
+      "invariants": [
+        "每次离开营地保存",
+        "不是进入营地或持续自动保存"
+      ],
+      "when": [
+        "没有违反已知限制且自然清晰"
+      ],
+      "notWhen": [
+        "如实际显示预算为30个拉丁字符，则必须缩短或提出 UI 方案"
+      ],
+      "ruleRefs": [
+        "PJ-04",
+        "PJ-08",
+        "PJ-10"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.833Z",
+        "contentHash": "1e8075d76ef5c475a06de9c820fde504c389c5029922d91d17ca6b25717bfd95"
+      }
+    },
+    {
+      "caseId": "DEV-07",
+      "version": "1.0.0",
+      "sourceLocale": "zh-CN",
+      "targetLocale": "en-US",
+      "textFunctions": [
+        "dialogue"
+      ],
+      "problemTags": [
+        "keep",
+        "character-voice",
+        "fragments"
+      ],
+      "scene": "少言的雇佣兵已在人物档案中批准短句、碎句和冷淡命令；对同行示意安静。",
+      "relatedText": [],
+      "source": {
+        "text": "少废话。跟上。"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "text": "Less talk. Keep up."
+        },
+        {
+          "id": "B",
+          "text": "Please refrain from excessive conversation and follow me closely."
+        }
+      ],
+      "judgment": {
+        "decision": "keep-A",
+        "rationale": "A 的片段是角色声音，不是语法缺陷。B 礼貌、书面且冗长，削弱关系与性格。"
+      },
+      "invariants": [
+        "要求停止多话并跟随"
+      ],
+      "when": [
+        "当前角色/关系支持冷淡短句"
+      ],
+      "notWhen": [
+        "若是外交官在正式致辞，不能照搬短句偏好"
+      ],
+      "ruleRefs": [
+        "PJ-04",
+        "PJ-07"
+      ],
+      "origin": "original-model-authored-teaching-example",
+      "review": {
+        "status": "approved",
+        "by": "repository-owner",
+        "at": "2026-10-02T04:09:08.833Z",
+        "contentHash": "2d3bfad998f282a5309a8d65a154cda8a316ae998bfb88514488a79300e6bb4a"
+      }
+    }
+  ]
+}

@@ -23,6 +23,7 @@ import { bindSession, getBinding, required, subscribeProject, type LinguistBindi
 import { CatWorkbench } from './CatWorkbench'
 import { clearCatEditorStates } from './cat-editor-state'
 import { BatchPreview } from './BatchPreview'
+import { NativePreviewContext } from './PreviewView'
 import { CatToolResult, catToolNames } from './CatToolResult'
 import { ComposerContextChips } from './ComposerContextChips'
 import { catReferenceSource, connectCatReference } from './composer-reference'
@@ -243,6 +244,7 @@ export function apply(ctx: Context): void {
   const openWorkingFile = (sessionId: string, path: string) => {
     ctx.sidebarRight.openResourceIn(sessionId as Parameters<typeof ctx.sidebarRight.openResourceIn>[0], sessionFileAddress(sessionId, path))
   }
+  const nativePreview = (sessionId: string, children: React.ReactNode) => createElement(NativePreviewContext.Provider, { value: (path: string) => ctx.sidebarRight.openResourceIn(sessionId as Parameters<typeof ctx.sidebarRight.openResourceIn>[0], sessionFileAddress(sessionId, path), { kind: 'text' }) }, children)
   const openWorkingCopy = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], WORKING_KIND)
   const openFiles = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], 'files')
   const loadSkills = async (sessionId: string, signal: AbortSignal) => {
@@ -385,9 +387,9 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenProject: openProject, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatPage, { ...props, onCancelRun: cancelRun, onOpenSession: openExecutionSession, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) }))))
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: CAT_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, nativePreview(String(props.sessionId), createElement(CatPage, { ...props, onCancelRun: cancelRun, onOpenSession: openExecutionSession, onSendAgentTask: sendAgentTask, onOpenBatchPreview: openBatchPreview, capabilities: capabilities(String(props.sessionId)) })))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: BATCH_PROVIDER_ID, kind: BATCH_KIND, patterns: [`${BATCH_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => t('批次语义预览') }), 'linguist: batch preview')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: BATCH_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(BatchPreviewPage, props))))
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: BATCH_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, nativePreview(String(props.sessionId), createElement(BatchPreviewPage, props)))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: WORKING_PROVIDER_ID, kind: WORKING_KIND, priority: 'extension', keepMounted: true, title: () => t('Linguist 工作副本') }), 'linguist: working-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: WORKING_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkingCopyPage, { sessionId: String(props.sessionId), onOpenFile: (path: string) => openWorkingFile(String(props.sessionId), path) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')

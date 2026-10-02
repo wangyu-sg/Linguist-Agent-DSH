@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { createReadStream, createWriteStream, mkdirSync, readdirSync, realpathSync, rmSync, statSync, utimesSync } from 'node:fs'
-import { lstat, realpath, rm } from 'node:fs/promises'
+import { constants, createReadStream, createWriteStream, mkdirSync, readdirSync, realpathSync, rmSync, statSync, utimesSync } from 'node:fs'
+import { chmod, copyFile, lstat, realpath, rm } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -11,7 +11,7 @@ import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 const MAX_REQUEST_BYTES = LINGUIST_FILE_MAX_BYTES
 const TOKEN_LIFETIME_MS = 60 * 60 * 1000
 
-type FileKind = 'upload' | 'download' | 'preview'
+type FileKind = 'upload' | 'download' | 'preview' | 'native-preview'
 interface ManagedFile { kind: FileKind; path: string; filename: string; expiresAt: number; users: number; discarded: boolean }
 
 export class ManagedFiles {
@@ -127,6 +127,7 @@ export class ManagedFiles {
     for (const [token, item] of this.tokens) {
       if (item.users > 0 || (!item.discarded && item.expiresAt > now)) continue
       if (item.kind === 'upload') this.discardUpload(token)
+      else if (item.kind === 'native-preview') this.removeStaging(token)
       else this.tokens.delete(token)
     }
     try {
@@ -152,6 +153,33 @@ export class ManagedFiles {
 
   issueDownload(path: string, filename: string): string { return this.issue(path, filename, 'download') }
   issuePreview(path: string, filename: string): string { return this.issue(path, filename, 'preview') }
+
+  /** Named, read-only copy for DSH's extension-based viewers. Reuses the staging TTL. */
+  async nativePreview(sourcePath: string, filename: string): Promise<string> {
+    const source = await realpath(sourcePath)
+    if (!within(source, this.root)) throw new Error('File is outside the product data root')
+    const info = await lstat(source)
+    if (!info.isFile()) throw new Error('Preview source is not a regular file')
+    if (info.size > this.maxFileBytes) throw new LinguistImportTooLargeError(info.size, this.maxFileBytes, filename)
+    const name = basename(filename.replaceAll('\\', '/'))
+    if (!name || name === '.' || name === '..') throw new TypeError('Invalid preview filename')
+    const token = newToken()
+    const directory = join(this.staging, token)
+    const path = join(directory, name)
+    this.receiving.add(token)
+    try {
+      mkdirSync(directory, { mode: 0o700 })
+      await copyFile(source, path, constants.COPYFILE_FICLONE)
+      await chmod(path, 0o400)
+    } catch (error) {
+      await rm(directory, { recursive: true, force: true })
+      throw error
+    } finally { this.receiving.delete(token) }
+    const now = Date.now()
+    utimesSync(directory, now / 1000, now / 1000)
+    this.tokens.set(token, { kind: 'native-preview', path, filename: name, expiresAt: now + TOKEN_LIFETIME_MS, users: 0, discarded: false })
+    return path
+  }
 
   async open(token: string): Promise<{ path: string; stream: ReturnType<typeof createReadStream>; filename: string; kind: FileKind; bytes: number; consume: () => void }> {
     const item = this.lookup(token)

@@ -1,3 +1,4 @@
+import { loadProfessionalResources } from '../../packages/dsh-linguist/src/host/professional-context.ts'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
@@ -11,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import test, { mock } from 'node:test'
 import fsPromises from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
-import { LinguistProjectService, convertOfficePreviewToHtml } from '../../packages/linguist-domain-service/src/index.ts'
+import { LinguistProjectService } from '../../packages/linguist-domain-service/src/index.ts'
 import { createDefaultCatFormatRegistry } from '../../packages/linguist-domain-service/src/format-registry.ts'
 import { createAsset, createProject, createStageEvidenceBaseline } from '../../packages/linguist-cat-core/src/index.ts'
 import { bindImportedSegments } from '../../packages/linguist-cat-formats/src/index.ts'
@@ -62,6 +63,8 @@ function scheduleOwnerRuntime(bindings) {
     },
   }
 }
+
+const professional = loadProfessionalResources(new URL('../../packages/dsh-linguist/resources/professional-judgment/', import.meta.url))
 
 test('Host schedule callbacks use Sessions through the real Cordis injection boundary', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-host-inject-'))
@@ -141,7 +144,7 @@ test('seven packaged skills use the real native registry, bundled precedence, re
 
 test('generation provenance freezes the dispatched prompt, actual model and schemas for root and PTC calls', () => {
   const roleText = loadLinguistRoleResources(new URL('../../packages/dsh-linguist/resources/linguist-roles/', import.meta.url))
-  const prompt = buildLinguistPromptSection({}, roleText, { role: 'general', workMode: 'cat' })
+  const prompt = buildLinguistPromptSection({}, roleText, professional, { role: 'general', workMode: 'cat' })
   const provenance = new ModelCallProvenance()
   const { createSystemMessage } = requireDsh('@deepseek-ai/dsh-llm')
   const tools = [{ name: 'run_code', description: 'Actual native transport', parameters: { type: 'object' } }]
@@ -1319,6 +1322,7 @@ test('four DSH roles retain the full CAT tool set and distinct Session bindings'
       bindings.bindSession(sessionId, { workspaceId: 'synthetic-workspace', projectId: project.id, role, workMode: 'cat' })
       const unreachable = () => { throw new Error('Unused test hook was called') }
       const deps = createCatDeps({
+        professional,
         service, projectId: project.id, sessionId, role, sessionCwd: root,
         attachments: { imageLimits: { maxImageBytes: 1024 }, saveImage: unreachable, readImage: unreachable },
         assertBound: () => assert.equal(bindings.session(sessionId)?.projectId, project.id),
@@ -1684,30 +1688,32 @@ function directoryHashes(directory) {
   return result
 }
 
-test('Office DOCX and XLSX previews read synthetic bytes without changing originals', async () => {
-  const docx = new JSZip()
-  docx.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
-  docx.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
-  docx.file('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Synthetic Office text</w:t></w:r></w:p></w:body></w:document>')
-  const docxBytes = await docx.generateAsync({ type: 'nodebuffer' })
-  const docxHash = sha256(docxBytes)
-  const docxPreview = await convertOfficePreviewToHtml(docxBytes, 'synthetic.docx')
-  assert.match(docxPreview.html, /Synthetic Office text/)
-  assert.equal(sha256(docxBytes), docxHash)
-
-  const xlsx = new JSZip()
-  xlsx.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
-  xlsx.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
-  xlsx.file('xl/workbook.xml', '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic" sheetId="1" r:id="rId1"/></sheets></workbook>')
-  xlsx.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
-  xlsx.file('xl/worksheets/sheet1.xml', '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Open</t></is></c><c r="B2" t="inlineStr"><is><t>&lt;Start&gt;</t></is></c></row></sheetData></worksheet>')
-  const xlsxBytes = await xlsx.generateAsync({ type: 'nodebuffer' })
-  const xlsxHash = sha256(xlsxBytes)
-  const xlsxPreview = await convertOfficePreviewToHtml(xlsxBytes, 'synthetic.xlsx')
-  assert.match(xlsxPreview.html, /Synthetic/)
-  assert.match(xlsxPreview.html, /&lt;Start&gt;/)
-  assert.doesNotMatch(xlsxPreview.html, /<Start>/)
-  assert.equal(sha256(xlsxBytes), xlsxHash)
+test('native Office preview preserves names and bytes in read-only staging, then expires only its copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-native-preview-'))
+  const files = new ManagedFiles(root, 128)
+  try {
+    const blob = join(root, 'ref-synthetic')
+    const bytes = Buffer.from('synthetic Office bytes')
+    writeFileSync(blob, bytes)
+    for (const filename of ['word.docx', 'slides.pptx', '表格.xlsx']) {
+      const preview = await files.nativePreview(blob, filename)
+      assert.equal(preview.split('/').at(-1), filename)
+      assert.deepEqual(readFileSync(preview), bytes)
+      assert.equal(lstatSync(preview).mode & 0o222, 0)
+      assert.notEqual(lstatSync(preview).ino, lstatSync(blob).ino)
+      assert.deepEqual(readFileSync(blob), bytes)
+    }
+    await assert.rejects(files.nativePreview(blob, '..'), /filename/)
+    await assert.rejects(files.nativePreview(import.meta.filename, 'escape.docx'), /outside/)
+    writeFileSync(blob, Buffer.alloc(129))
+    await assert.rejects(files.nativePreview(blob, 'large.docx'), /单文件上限/)
+    const now = Date.now()
+    mock.method(Date, 'now', () => now + 3_600_001)
+    files.collectExpired()
+    mock.restoreAll()
+    assert.equal(readdirSync(join(root, 'staging')).length, 0)
+    assert.equal(readFileSync(blob).length, 129)
+  } finally { mock.restoreAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
 test('native working-copy tool verifies Session and assembles a private full-coverage result', async () => {

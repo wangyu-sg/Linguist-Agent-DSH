@@ -366,7 +366,7 @@ function segmentFindings(segment: Segment, options: QaRunOptions): OpenQaFinding
   ) {
     emit({
       code: QA_RULE_CODES.SOURCE_EQUALS_TARGET,
-      message: '译文与源文相同。',
+      message: '译文与源文相同；请结合 DNT、专名与文本用途复核，不能仅据同文判定漏译。',
     })
   }
 
@@ -446,7 +446,7 @@ function segmentFindings(segment: Segment, options: QaRunOptions): OpenQaFinding
   if (sourceLength >= 10 && (targetLength / sourceLength < minRatio || targetLength / sourceLength > maxRatio)) {
     emit({
       code: QA_RULE_CODES.TARGET_LENGTH_WARNING,
-      message: `译文长度比例异常（${targetLength}/${sourceLength}）。`,
+      message: `译文字符长度比例异常（${targetLength}/${sourceLength}）；请核对实际限制，字符比例不能证明画面溢出。`,
     })
   }
   return results
@@ -495,7 +495,9 @@ export function runQa(
       for (const segment of candidateGroup) {
         results.push(finding(segment, {
           code: QA_RULE_CODES.INCONSISTENT_REPEATED_SOURCE,
-          message: '相同源文在相同相邻上下文中存在不一致译文。',
+          message: sourceLength <= shortSourceLimit
+            ? '相同源文及相邻源文存在不同译法；请核对实际场景与术语适用范围。'
+            : '相同源文存在不同译法；相邻上下文尚未比对，请核对场景后判断是否需要统一。',
         }))
       }
     }

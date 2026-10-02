@@ -9,9 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
 const baseline = JSON.parse(await readFile(join(here, "BASELINE.json"), "utf8"));
 const install = join(root, ".toolchain/browser-skill");
-const downloads = join(install, "downloads");
+const downloads = join(install, "downloads", baseline.cliRelease.version);
 const binary = join(install, "bin/bsk");
-const extensionDirectory = join(install, "extension-v0.3.1");
+const extensionDirectory = join(install, `extension-v${baseline.extensionRelease.manifestVersion}`);
 const archive = join(downloads, baseline.cliRelease.archive);
 const manifestFile = join(downloads, "version.json");
 const extensionFile = join(downloads, baseline.extensionRelease.archive);
@@ -55,7 +55,7 @@ await check(extensionFile, baseline.extensionRelease.archiveSha256);
 
 const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
 assert.equal(manifest.name, "bsk");
-assert.equal(manifest.version, "0.3.1");
+assert.equal(manifest.version, baseline.cliRelease.version);
 assert.equal(manifest.tag, baseline.cliRelease.tag);
 assert.equal(manifest.assets["darwin-arm64"].sha256, baseline.cliRelease.archiveSha256);
 const extensionManifest = JSON.parse(run("unzip", ["-p", extensionFile, "manifest.json"]));
@@ -73,7 +73,7 @@ if (!await exists(extensionDirectory)) {
 }
 assert.deepEqual(JSON.parse(await readFile(join(extensionDirectory, "manifest.json"), "utf8")), extensionManifest);
 
-if (!await exists(binary)) {
+if (!await exists(binary) || createHash("sha256").update(await readFile(binary)).digest("hex") !== baseline.cliRelease.binarySha256) {
   const stage = await mkdtemp(join(install, "cli-stage-"));
   try {
     assert.equal(run("tar", ["-tzf", archive]), "bsk");
@@ -87,11 +87,11 @@ if (!await exists(binary)) {
   }
 }
 await check(binary, baseline.cliRelease.binarySha256);
-assert.equal(run(binary, ["--version"]), "bsk 0.3.1");
+assert.equal(run(binary, ["--version"]), `bsk ${baseline.cliRelease.version}`);
 
 const receipt = {
   cli: { path: binary, tag: baseline.cliRelease.tag, releaseCommit: baseline.cliRelease.commit, sha256: baseline.cliRelease.binarySha256 },
-  daemon: { executable: binary, expectedVersion: "0.3.1", runtimeIdentity: "verify with bsk status --json" },
+  daemon: { executable: binary, expectedVersion: baseline.cliRelease.version, runtimeIdentity: "verify with bsk status --json" },
   extension: { archive: extensionFile, unpackedDirectory: extensionDirectory, tag: baseline.extensionRelease.tag, releaseCommit: baseline.extensionRelease.commit, sha256: baseline.extensionRelease.archiveSha256, connection: "not checked by this installer" },
 };
 await writeFile(join(install, "INSTALL.json"), JSON.stringify(receipt, null, 2) + "\n");

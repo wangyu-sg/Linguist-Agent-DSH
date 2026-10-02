@@ -12,8 +12,11 @@ export interface PreviewRequest {
   input: object
 }
 
+export const NativePreviewContext = React.createContext<((path: string) => void) | undefined>(undefined)
+
 export function PreviewView({ request, onClose }: { request: PreviewRequest; onClose: () => void }): React.ReactElement {
   const t = useT()
+  const openNative = React.useContext(NativePreviewContext)
   const [preview, setPreview] = React.useState<LinguistAssetPreviewResult>()
   const [mediaType, setMediaType] = React.useState<'image' | 'pdf' | 'other'>('other')
   const [error, setError] = React.useState('')
@@ -25,6 +28,10 @@ export function PreviewView({ request, onClose }: { request: PreviewRequest; onC
     required<LinguistAssetPreviewResult>(request.operation, request.input)
       .then(async (next) => {
         if (!live) return
+        if (next.kind === 'native') {
+          if (!openNative) throw new Error(t('请在项目会话中打开原生预览。'))
+          openNative(next.path)
+        }
         if (next.kind === 'url') {
           if (!/^\/la\/v1\/files\/[A-Za-z0-9_-]{32}$/.test(next.url)) throw new Error(t('Host 未返回受管的本地预览 URL。'))
           const response = await fetch(next.url, { credentials: 'same-origin' })
@@ -45,7 +52,10 @@ export function PreviewView({ request, onClose }: { request: PreviewRequest; onC
     {preview?.kind === 'text' && <>{/\.(?:md|markdown)$/i.test(preview.filename)
       ? <div className={workbenchStyles.markdownPreview} aria-label={t('Markdown 预览')}><MarkdownText text={preview.text} variant="body" labels={{ code: { copyLabel: t('复制'), copiedLabel: t('已复制') }, footnotes: t('脚注') }} /></div>
       : <pre>{preview.text}</pre>}{preview.truncated && <p role="note">{t("文本预览已截断；原文件没有改动。")}</p>}</>}
-    {preview?.kind === 'html' && <><iframe title={t('{filename} 预览', { filename: preview.filename })} sandbox="" referrerPolicy="no-referrer" srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:">${preview.html}`} />{preview.text && <details><summary>{t("提取的纯文本")}</summary><pre>{preview.text}</pre></details>}</>}
+    {preview?.kind === 'native' && <>
+      <p role="status">{t('已在 DSH 文档标签中打开只读预览。')}</p>
+      <Button variant="outline" size="sm" onClick={() => openNative!(preview.path)}>{t('打开文档预览')}</Button>
+    </>}
     {!error && preview?.kind === 'url' && <>
       {mediaType === 'image' && <img className={workbenchStyles.originalImage} src={preview.url} alt={preview.filename} onError={() => setError(t('图片预览失败'))} />}
       {mediaType === 'pdf' && <PdfPreview key={preview.url} url={preview.url} filename={preview.filename} />}

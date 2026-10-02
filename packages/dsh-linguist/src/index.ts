@@ -32,6 +32,7 @@ import { MutationBus } from './host/mutations'
 import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
+import { loadProfessionalResources } from './host/professional-context'
 import { ScheduleContextManager } from './host/schedule-context'
 import { ScheduleNotifications, type FeishuDestination } from './host/schedule-notifications'
 import { ScheduleSessionRuntime } from './host/schedule-session'
@@ -63,6 +64,7 @@ export function apply(ctx: Context, config: Config): void {
   const turnContextReceipts = new TurnContextReceipts(config.dataRoot)
   const evidence = new EvidenceObserver(service, config.dataRoot)
   const integrity = new IntegrityHost(service, mutations, files)
+  const professional = loadProfessionalResources(new URL('../resources/professional-judgment/', import.meta.url))
   const roleText = loadLinguistRoleResources(new URL('../resources/linguist-roles/', import.meta.url))
   ctx.skills.registerProvider(control => new FileSystemSkillProvider(ctx, control, {
     providerName: 'linguist', includeDefaultRoots: false, watch: false,
@@ -106,7 +108,7 @@ export function apply(ctx: Context, config: Config): void {
       disposers.push(agent.ctx.systemPrompt.section({
         name: 'linguist-role', order: 300,
         text: () => {
-          assembledPrompt = buildLinguistPromptSection(service, roleText, binding, workspace.path)
+          assembledPrompt = buildLinguistPromptSection(service, roleText, professional, binding, workspace.path)
           return assembledPrompt.prompt
         },
         interpolate: false,
@@ -230,6 +232,7 @@ export function apply(ctx: Context, config: Config): void {
           })
         }
         const deps = createCatDeps({
+          professional,
           service, projectId, sessionId, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
@@ -345,7 +348,7 @@ export function apply(ctx: Context, config: Config): void {
     return { sessionId, detached: true, cancelledScheduleIds, historicalEvidencePreserved: true as const }
   }
   const diagnostics = new DiagnosticsHost(service, bindings, files, {
-    roleText, assertProjectSession,
+    roleText, professional, assertProjectSession,
     resolveWorkspaceRoot: workspaceId => ctx.workspaceRegistry.get(WorkspaceId(workspaceId))?.path,
     getSession: async sessionId => {
       const agent = ctx.agents.get(sessionId as SessionId)

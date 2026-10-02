@@ -1166,10 +1166,10 @@ export interface LinguistTermConflictsResult {
   count: number
 }
 
-/** 受管原件预览：文本截断、Office HTML，或 DSH Host 签发的本地 URL。 */
+/** 受管原件预览：文本、DSH 原生只读文档，或 Host 签发的本地 URL。 */
 export type LinguistAssetPreviewResult =
   | { kind: 'text'; text: string; truncated: boolean; filename: string }
-  | { kind: 'html'; html: string; text?: string; filename: string }
+  | { kind: 'native'; path: string; filename: string }
   | { kind: 'url'; url: string; filename: string; ext: string }
 
 export interface LinguistFormatQualification {

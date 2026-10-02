@@ -43,7 +43,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
     sessions: { create: () => new Promise(resolve => { completeCreate = resolve }), refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds }) } },
     remote: { skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
   }
-  const components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
+  const components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
   const exports = {}
   const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -54,6 +54,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
     if (name === './composer-reference') return {}
     if (name === './cat-editor-state') return { clearCatEditorStates: () => { draftsCleared = true } }
     if (name === './Native.module.css') return { default: {} }
+    if (name === './PreviewView') return { NativePreviewContext: { Provider: 'native-preview' } }
     if (name === './CatToolResult') return { catToolNames: [] }
     if (name === '@deepseek-ai/dsh-util-workspace-path') return workspacePaths
     if (name === '@deepseek-ai/dsh-client-ui-plugin-manager/client') return { PANEL_ID: 'plugins' }
@@ -104,7 +105,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
   await entering
   assert.equal(opened.length, 1)
   assert.equal(listeners.size, 0)
-  const executionNavigation = catPane({ sessionId: 'synthetic-A' }).child.props.onOpenSession
+  const executionNavigation = catPane({ sessionId: 'synthetic-A' }).child.child.props.onOpenSession
   await executionNavigation('execution-session')
   assert.equal(openedSessions.at(-1), 'execution-session')
   sessionIds = []
@@ -184,7 +185,7 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
     async bindSession(value, workspaceId) { binds.push(value); const binding = { ...value, workspaceId }; bindings.set(value.sessionId, binding); return binding },
     async required(operation, input) { assert.equal(operation, 'linguistProjectsOpen'); return await (projectResult ?? { project: { id: input.projectId, workspaceId: workspace.workspaceId }, health: { projectId: input.projectId, healthy: true } }) },
   }
-  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
+  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
   const code = ts.transpileModule(readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   runInNewContext(code, { exports, setTimeout, clearTimeout, require: name => {
     if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }

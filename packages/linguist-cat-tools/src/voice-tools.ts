@@ -42,7 +42,7 @@ export function createVoiceTools(runtime: CatToolRuntime) {
   const addExemplarTool = defineTool({
     name: 'cat_add_approved_exemplar',
     label: 'CAT add approved exemplar',
-    description: 'Save the current text of one confirmed segment as an approved voice exemplar in the bound project. Source, target, batch, segment, locales, and approval time are host-owned.',
+    description: 'Save the current text of one confirmed segment as an approved voice exemplar in the bound project. Source, target, batch, segment, locales, and approval time are host-owned. Stage confirmation may come from a model; this is a project reference, not human-verified teaching gold.',
     promptSnippet: 'Mark a confirmed segment as an approved speaker exemplar',
     parameters: Type.Object({
       segmentId: Type.String({ minLength: 1 }),
@@ -75,14 +75,14 @@ export function createVoiceTools(runtime: CatToolRuntime) {
       })
       notifyMutation({ kind: 'project-updated' })
       const { assetId, ...rest } = exemplar
-      return toolResult({ ...rest, batchId: assetId }, deps.resultProjectId)
+      return toolResult({ ...rest, batchId: assetId, humanVerification: 'unverified' }, deps.resultProjectId)
     },
   })
 
   const getContextTool = defineTool({
     name: 'cat_get_voice_context',
     label: 'CAT get voice context',
-    description: 'Read one speaker/entity profile and 3–5 approved exemplars from the bound project, filtered by speaker and optionally text type/module.',
+    description: 'Read one speaker/entity profile and 3–5 approved exemplars from the bound project, filtered by speaker and optionally text type/module. These are stage-derived references with unknown human verification, not authoritative teaching cases.',
     promptSnippet: 'Retrieve bounded voice guidance and approved examples for dialogue translation',
     parameters: Type.Object({
       speaker: Type.String({ minLength: 1, maxLength: 200 }),
@@ -111,7 +111,7 @@ export function createVoiceTools(runtime: CatToolRuntime) {
         ...(params.textType === undefined ? {} : { textType: params.textType }),
         ...(params.module === undefined ? {} : { module: params.module }),
         ...(profile === undefined ? {} : { profile }),
-        exemplars: exemplars.map(({ assetId, ...exemplar }) => ({ ...exemplar, batchId: assetId })),
+        exemplars: exemplars.map(({ assetId, ...exemplar }) => ({ ...exemplar, batchId: assetId, humanVerification: 'unverified' as const })),
         ...(profile === undefined && exemplars.length === 0
           ? { note: 'No voice profile or approved exemplar matched.' }
           : {}),

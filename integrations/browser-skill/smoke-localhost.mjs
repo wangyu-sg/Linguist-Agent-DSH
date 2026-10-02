@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
+const baseline = JSON.parse(await readFile(join(here, "BASELINE.json"), "utf8"));
 const bsk = join(root, ".toolchain/browser-skill/bin/bsk");
 const receiptFile = join(here, "dist/LOCALHOST_SMOKE.json");
 const home = process.env.BSK_HOME;
@@ -47,7 +48,7 @@ const server = createServer((request, response) => {
 
 async function cli(args) {
   const child = spawn(bsk, args, {
-    env: { ...process.env, BSK_HOME: home, BSK_AUTO_START: "0" },
+    env: { ...process.env, BSK_HOME: home, BSK_AUTO_START: "0", BSK_AUTO_UPDATE: "off" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
@@ -88,7 +89,7 @@ try {
   assert.match(await fixtureResponse.text(), /LA-DSH synthetic browser fixture/);
   evidence.checks.fixtureHttp = "PASS";
 
-  assert.equal(await required(["--version"]), "bsk 0.3.1");
+  assert.equal(await required(["--version"]), `bsk ${baseline.cliRelease.version}`);
   evidence.checks.cli = "PASS";
   const status = await cli(["status", "--json"]);
   if (status.code !== 0) {
@@ -97,7 +98,7 @@ try {
     evidence.daemonResponse = status.stdout || status.stderr;
   } else {
     const daemon = JSON.parse(status.stdout);
-    assert.equal(daemon.daemon_version, "0.3.1");
+    assert.equal(daemon.daemon_version, baseline.cliRelease.version);
     assert.equal(daemon.protocol_version, "1.3");
     evidence.checks.daemon = "PASS";
     evidence.daemon = { version: daemon.daemon_version, protocol: daemon.protocol_version, wsPort: daemon.ws_port };
@@ -116,7 +117,7 @@ try {
         evidence.blocker = "Select the intended connected browser with BSK_BROWSER_ID";
         evidence.checks.extension = "BLOCKED_ENV";
       } else {
-        assert.equal(browser.extension_version, "0.3.1");
+        assert.equal(browser.extension_version, baseline.extensionRelease.manifestVersion);
         evidence.checks.extension = "PASS";
         const started = JSON.parse(await required(["session", "start", "--no-focus", "--browser", browser.instance_id, "--json"]));
         sessionId = started.session_id;
@@ -129,7 +130,7 @@ try {
         evidence.checks.navigationAndObservation = "PASS";
 
         await required(["fill", "#note", "--value", "Synthetic note", "--session", sessionId, "--json"]);
-        assert.match(await required(["get-html", "--session", sessionId]), /value="Synthetic note"/);
+        assert.match(await required(["evaluate", "document.querySelector('#note').value", "--session", sessionId, "--json"]), /Synthetic note/);
         evidence.checks.formEdit = "PASS";
 
         const upload = join(work, "la-dsh-synthetic-upload.txt");

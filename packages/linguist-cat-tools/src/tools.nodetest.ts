@@ -756,9 +756,9 @@ test('cat_run_qa + cat_get_qa_findings: persist deterministic findings and page 
       dispositionCounts: Record<string, number>
     }
     assert.equal(run.total, 8)
-    // 当前批次：4 条 EMPTY_TARGET（L1 defect）+ 4 条 TARGET_LENGTH_WARNING（L3 defect）
+    // 当前批次：4 条 EMPTY_TARGET（L1 defect）+ 4 条 TARGET_LENGTH_WARNING（L3 needs_review）
     assert.deepEqual(run.severityCounts, { L0: 0, L1: 4, L2: 0, L3: 4, L4: 0 })
-    assert.deepEqual(run.dispositionCounts, { defect: 8, needs_review: 0, query: 0, info: 0 })
+    assert.deepEqual(run.dispositionCounts, { defect: 4, needs_review: 4, query: 0, info: 0 })
     assert.equal(fixture.db.qaFindings.list({ assetId: fixture.assetB.id }).length, 0)
 
     const page = (await invoke(toolByName(tools, 'cat_get_qa_findings'), {
@@ -2117,9 +2117,9 @@ test('cat_get_translation_context: 资料分页不因 Proposal、已处理批次
     fixture.db.segments.applyTargetEdit(fixture.segmentsB[0]!.id, '无关批次写回 0', 0)
     const continued = (await invoke(contextTool, { ...pageParams, maxBytes: 32_000, cursor: first.nextCursor })).details as { contexts: unknown[] }
     assert.ok(continued.contexts.length > 0)
-    // 原 v2 有效游标仍能恢复；它没有新内容指纹，沿用原事件快照合同。
+    // 无内容指纹的旧游标不再恢复，须读取当前完整上下文。
     const legacyCursor = `ctx2-${hash}-${fixture.db.runs.latestEventSequence}-${offset}`
-    assert.ok((await invoke(contextTool, { ...pageParams, maxBytes: 32_000, cursor: legacyCursor })).details)
+    await assertThrowsCode(invoke(contextTool, { ...pageParams, maxBytes: 32_000, cursor: legacyCursor }), 'INVALID_ARGUMENT')
     // 从第一页重拉：生成新内容快照，可继续翻页
     const restarted = (await invoke(contextTool, pageParams)).details as {
       nextCursor?: string

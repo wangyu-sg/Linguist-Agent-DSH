@@ -1,3 +1,4 @@
+import { loadProfessionalResources } from '../../packages/dsh-linguist/src/host/professional-context.ts'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -23,6 +24,8 @@ import { createSystemMessage, createToolResultMessage, createUserMessage, ToolCa
 import { AttachmentId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-attachment/lib/index.js'
 import { ensureStageEvidenceForSession } from '../../packages/dsh-linguist/src/host/stage-evidence.ts'
 import { projectDiscoveryScope } from '../../packages/dsh-linguist/src/host/discovery.ts'
+
+const professional = loadProfessionalResources(new URL('../../packages/dsh-linguist/resources/professional-judgment/', import.meta.url))
 
 test('packaged role resources reject missing, blank and oversized instructions without path in the error message', () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-role-resource-'))
@@ -56,7 +59,17 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
       role, readFileSync(new URL(`../../packages/dsh-linguist/resources/linguist-roles/${role}.md`, import.meta.url), 'utf8'),
     ])) as Record<'general' | 'translator' | 'reviewer' | 'proofreader', string>
     for (const text of Object.values(roles)) assert.ok(text.length <= 6_000)
-    const result = buildLinguistPromptSection(service, roles, { role: 'reviewer', workMode: 'cat', projectId: project.id })
+    for (const role of ['general', 'translator', 'reviewer', 'proofreader'] as const) {
+      for (const workMode of ['cat', 'file', 'browser'] as const) {
+        const current = buildLinguistPromptSection(service, roles, professional, { role, workMode, projectId: project.id })
+        assert.equal(current.status.professionalStandardHash, professional.standardHash)
+        assert.equal(current.status.professionalExamplesHash, professional.examplesHash)
+        assert.equal(current.prompt.match(/PJ-01 /g)?.length, 1)
+        assert.match(current.prompt, /压缩|接续/)
+        assert.ok(current.prompt.length <= 18_000)
+      }
+    }
+    const result = buildLinguistPromptSection(service, roles, professional, { role: 'reviewer', workMode: 'cat', projectId: project.id })
     assert.ok(result.prompt.length <= 18_000)
     assert.equal(result.status.role, 'reviewer')
     assert.equal(result.status.projectDigestTruncated, true)
@@ -120,7 +133,7 @@ test('missing CAT database leaves Prompt diagnostic available and never recreate
     renameSync(path, `${path}.held`)
     try {
       const roles = { general: 'General', translator: 'Translator', reviewer: 'Reviewer', proofreader: 'Proofreader' }
-      const prompt = buildLinguistPromptSection(service, roles, { role: 'general', workMode: 'cat', projectId: project.id })
+      const prompt = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'cat', projectId: project.id })
       assert.equal(prompt.status.projectDigestStatus, 'skipped')
       assert.match(prompt.prompt, /Project Digest 当前无可用项目数据/)
       assert.equal(existsSync(path), false)
