@@ -9,7 +9,7 @@ import type { ManagedFiles } from './files'
 
 const PROJECT_ID = /^prj-[0-9a-f]{16}$/
 const MAX_PROMPT_CHARS = 18_000
-const PROMPT_VERSION = 'dsh-native-4.0.0'
+const PROMPT_VERSION = 'dsh-native-4.1.0'
 const TRUNCATED = '\n…（Project Digest 仅展开上方完整条目；其余必要要求与资料尚未展开，请按项目资料路由补读，不据此声称全覆盖）'
 
 const PROFILE = `# Linguist Agent
@@ -22,7 +22,7 @@ const QUALITY = `# Linguist 作业原则
 
 工作批次是包含待处理句段的任务源文件；语言资产是供批次参考的 TM、TB、Style Guide、Context 等项目资料。用 cat_list_batches 查工作批次，使用 batchId 指定批次；不要把批次和语言资产混称。
 
-复用有效的项目要求与相关依据。完整必要基线尚未建立时不能只查增量；建立后按变化和疑点渐进取资料，不每段重读全部参考。目录、摘要和历史 receipt 不等于当前看到了所需原文。普通语言判断不必逐项找网页背书，客户事实、版本冲突与真实不确定才定向查证。
+复用有效的项目要求与相关依据。完整必要基线尚未建立时不能只查增量；建立后按变化和疑点渐进取资料，不每段重读全部参考。目录、摘要和历史 receipt 不等于当前看到了所需原文。按专业标准完成必要术语、风格与事实查证；所用依据必须实际支持本次判断。
 
 读取分页、语言组、查验范围和提交时机分开。连贯判断、保存必要候选与未决项，关键依赖及时查，其余必查成组补齐；不每页运行 TM→写回→复读→确认。合法小任务可及时提交，批量授权不等于必须立即提交每个候选。
 

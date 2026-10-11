@@ -903,6 +903,8 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
         if (requestedRoute === undefined) assert.equal(Object.hasOwn(spec.request, 'agentOptions'), false)
         assert.deepEqual(intents.get(spec.childId).delegatedScope.segmentIds, [segment.id])
         assert.match(spec.request.prompt[0].text, /Review context/)
+        assert.match(spec.request.prompt[0].text, /Parent drafts and conclusions are review inputs, not client approval/)
+        assert.ok(spec.request.prompt[0].text.indexOf('Parent drafts') < spec.request.prompt[0].text.indexOf('Objective:'))
         bindings.bindSession(spec.childId, intents.get(spec.childId))
         catalog.push({ id: spec.childId, mode: 'continuable', label: spec.label, createdAt: 1 })
         calls.push('start')

@@ -66,6 +66,16 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
         assert.equal(current.status.professionalExamplesHash, professional.examplesHash)
         assert.equal(current.prompt.match(/PJ-01 /g)?.length, 1)
         assert.match(current.prompt, /压缩|接续/)
+        assert.match(current.prompt, /正式翻译前.*术语/)
+        assert.match(current.prompt, /现实专名、历史事实、引文或典故/)
+        assert.match(current.prompt, /联网.*原始或权威来源/)
+        assert.match(current.prompt, /父任务.*不等于客户批准/)
+        if (role === 'general') {
+          assert.match(current.prompt, /正式翻译从一开始交给 Translator/)
+          assert.match(current.prompt, /已被父任务明确委派.*不再转派/)
+          assert.doesNotMatch(current.prompt, /少量任务直接完成/)
+        }
+        if (role === 'reviewer') assert.match(current.prompt, /先依据 Source.*再评估当前 Target/)
         assert.ok(current.prompt.length <= 18_000)
       }
     }

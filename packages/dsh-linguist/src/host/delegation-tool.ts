@@ -14,7 +14,7 @@ import { deliverDelegationInputs, preflightDelegationInputs } from './delegation
 
 const parameters = Type.Object({
   role: Type.Union([Type.Literal('translator'), Type.Literal('reviewer'), Type.Literal('proofreader')]),
-  objective: Type.String({ minLength: 1, maxLength: 10000 }),
+  objective: Type.String({ minLength: 1, maxLength: 10000, description: 'State the task, source purpose and client requirements with their sources and scope. Label parent drafts and suggestions as provisional. Do not prescribe a review verdict or require reuse of a model draft.' }),
   provider: Type.Optional(Type.String({ minLength: 1 })),
   model: Type.Optional(Type.String({ minLength: 1 })),
   reasoningEffort: Type.Optional(Type.String({ minLength: 1 })),
@@ -78,6 +78,7 @@ export function createLinguistDelegationTool(input: {
       const release = input.reserveIntent(childId, childBinding)
       try {
         const prompt = [
+          'Parent drafts and conclusions are review inputs, not client approval. Verify claimed client constraints against their cited sources and scope; perform the assigned role independently, including necessary terminology and factual research.',
           `Objective: ${call.objective}`,
           `Expected outcome: ${call.expectedOutcome}`,
           `Linguist CAT project: ${childBinding.projectId}. Role: ${childBinding.role}.`,
