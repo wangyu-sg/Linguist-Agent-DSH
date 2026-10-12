@@ -755,10 +755,9 @@ test('cat_run_qa + cat_get_qa_findings: persist deterministic findings and page 
       severityCounts: Record<string, number>
       dispositionCounts: Record<string, number>
     }
-    assert.equal(run.total, 8)
-    // 当前批次：4 条 EMPTY_TARGET（L1 defect）+ 4 条 TARGET_LENGTH_WARNING（L3 needs_review）
-    assert.deepEqual(run.severityCounts, { L0: 0, L1: 4, L2: 0, L3: 4, L4: 0 })
-    assert.deepEqual(run.dispositionCounts, { defect: 4, needs_review: 4, query: 0, info: 0 })
+    assert.equal(run.total, 4)
+    assert.deepEqual(run.severityCounts, { L0: 0, L1: 4, L2: 0, L3: 0, L4: 0 })
+    assert.deepEqual(run.dispositionCounts, { defect: 4, needs_review: 0, query: 0, info: 0 })
     assert.equal(fixture.db.qaFindings.list({ assetId: fixture.assetB.id }).length, 0)
 
     const page = (await invoke(toolByName(tools, 'cat_get_qa_findings'), {
@@ -777,7 +776,7 @@ test('cat_run_qa + cat_get_qa_findings: persist deterministic findings and page 
     assert.equal(mutations[0]!.sequence, 4)
     assert.deepEqual(
       [...(mutations[0]!.segmentIds ?? [])].sort(),
-      fixture.db.qaFindings.list({}).map((finding) => finding.segmentId as string).sort(),
+      fixture.segmentsA.map(segment => segment.id as string).sort(),
     )
     assert.deepEqual(
       [...(mutations[0]!.qaFindingIds ?? [])].sort(),
@@ -805,7 +804,7 @@ test('cat_run_qa + cat_get_qa_findings: persist deterministic findings and page 
     )
     const summary = fixture.db.runs.getRunChangeSummary('qa:session-unavailable:call-1')
     assert.equal(summary.mutationCount, 1)
-    assert.equal(summary.changes.qaFindingsCreated, 8)
+    assert.equal(summary.changes.qaFindingsCreated, 4)
     assert.deepEqual(summary.eventSequence, { first: 1, last: 5 })
     assert.equal(summary.canUndo, false)
 

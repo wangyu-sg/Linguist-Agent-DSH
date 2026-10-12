@@ -242,12 +242,12 @@ export function apply(ctx: Context, config: Config): void {
           discoveryScope: async () => scope(),
           onMutation: mutation => { mutations.publish(projectId, mutation) },
           prepareStage,
-          prepareContextDoc: docId => {
+          prepareContextDoc: () => {
             const { db } = resolveStage()
             if (!stage || db.readOnly) return
             stage = ensureStageEvidenceForSession({
               session: { id: sessionId, linguistRole: binding.role }, db,
-              discoveryScope: scope(), fallbackSegmentIds: stage.plan.segmentIds, contextDocId: docId,
+              discoveryScope: scope(), fallbackSegmentIds: stage.plan.segmentIds,
             })
           },
           onEvidencePrepared: (receipt) => evidence.prepare(projectId, receipt),

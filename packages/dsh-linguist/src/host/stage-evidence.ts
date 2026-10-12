@@ -61,7 +61,6 @@ export function ensureStageEvidenceForSession(input: {
   fallbackSegmentIds: readonly string[]
   restart?: boolean
   toolCallId?: string
-  contextDocId?: string
 }): StageEvidenceState | undefined {
   const role = input.session.linguistRole
   if (role !== 'translator' && role !== 'reviewer' && role !== 'proofreader') return undefined
@@ -100,8 +99,7 @@ export function ensureStageEvidenceForSession(input: {
     if (evidence === undefined) continue
     const links = input.db.contextDocs.listEvidenceLinks(doc.id)
       .filter((link) => relevantLink(link, assetIdSet, segmentIdSet))
-    const previouslyUsed = sameScope && existing?.plan.requirements.some(item => item.evidence.ref.kind === 'context-doc' && item.evidence.ref.id === doc.id)
-    if (links.length === 0 && doc.id !== input.contextDocId && !previouslyUsed) continue
+    if (links.length === 0) continue
     for (const link of links) mappingRevisions.push(JSON.stringify({
       contextDocId: doc.id,
       anchorId: link.anchorId ?? null,
@@ -126,33 +124,31 @@ export function ensureStageEvidenceForSession(input: {
       mediaContextDocId: anchor.mediaContextDocId ?? null,
     }))
     const linkedAnchors = new Set(anchorIds)
-    if (links.length > 0) {
-      const dataRows = new Map<string, typeof anchors>()
-      for (const anchor of anchors) {
-        const row = anchor.locator.kind === 'sheet' && anchor.locator.rowKind === 'data'
+    const dataRows = new Map<string, typeof anchors>()
+    for (const anchor of anchors) {
+      const row = anchor.locator.kind === 'sheet' && anchor.locator.rowKind === 'data'
+        ? anchor.locator.row
+        : anchor.locator.kind === 'image'
           ? anchor.locator.row
-          : anchor.locator.kind === 'image'
-            ? anchor.locator.row
-            : undefined
-        const sheet = anchor.locator.kind === 'sheet' || anchor.locator.kind === 'image'
-          ? anchor.locator.sheet
           : undefined
-        if (sheet === undefined || row === undefined) continue
-        const key = `${sheet}\u0000${row}`
-        dataRows.set(key, [...(dataRows.get(key) ?? []), anchor])
-      }
-      for (const [key, rowAnchors] of dataRows) {
-        if (rowAnchors.some((anchor) => linkedAnchors.has(anchor.id))) continue
-        const [sheet, row] = key.split('\u0000')
-        stageGaps.push({
-          id: `gap_${hash([stageRunId, doc.id, sheet ?? '', row ?? '']).slice(0, 24)}`,
-          code: 'UNMAPPED_CLIENT_VISIBLE_CONTENT',
-          severity: 'warning',
-          evidence: evidence.ref,
-          summary: `${doc.originalFilename} 的 ${sheet} 第 ${row} 行未映射到本轮 CAT Segment`,
-          suggestedAction: '向 PM 确认该行是漏包内容还是仅供参考；未经确认不要自行修改 CAT 主文件补段',
-        })
-      }
+      const sheet = anchor.locator.kind === 'sheet' || anchor.locator.kind === 'image'
+        ? anchor.locator.sheet
+        : undefined
+      if (sheet === undefined || row === undefined) continue
+      const key = `${sheet}\u0000${row}`
+      dataRows.set(key, [...(dataRows.get(key) ?? []), anchor])
+    }
+    for (const [key, rowAnchors] of dataRows) {
+      if (rowAnchors.some((anchor) => linkedAnchors.has(anchor.id))) continue
+      const [sheet, row] = key.split('\u0000')
+      stageGaps.push({
+        id: `gap_${hash([stageRunId, doc.id, sheet ?? '', row ?? '']).slice(0, 24)}`,
+        code: 'UNMAPPED_CLIENT_VISIBLE_CONTENT',
+        severity: 'warning',
+        evidence: evidence.ref,
+        summary: `${doc.originalFilename} 的 ${sheet} 第 ${row} 行未映射到本轮 CAT Segment`,
+        suggestedAction: '向 PM 确认该行是漏包内容还是仅供参考；未经确认不要自行修改 CAT 主文件补段',
+      })
     }
     requirements.push({
       evidence: { ...evidence, version: input.db.contextDocs.evidenceVersion(doc.id, segmentIds, assetIds)! },
@@ -164,9 +160,7 @@ export function ensureStageEvidenceForSession(input: {
         ? { kind: 'segments', segmentIds: linkedSegmentIds }
         : { kind: 'stage' },
       anchorIds,
-      rationale: links.length > 0
-        ? 'Context anchor 已映射至冻结的 Asset 或 Segment 范围'
-        : '已注册但尚未映射到本轮范围的 Context 资料',
+      rationale: 'Context anchor 已映射至冻结的 Asset 或 Segment 范围',
     })
   }
 

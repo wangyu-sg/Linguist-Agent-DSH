@@ -85,7 +85,8 @@ test('surface QA signals request review while missing variables and tags remain 
     segment('4', '退出', 'Close'), segment('5', '关闭', 'Close'),
     segment('6', '<b>{name}</b>', 'Name'),
   ])
-  for (const code of ['SOURCE_EQUALS_TARGET', 'TARGET_LENGTH_WARNING', 'INCONSISTENT_REPEATED_SOURCE', 'TARGET_SOURCE_INCONSISTENCY']) {
+  assert.equal(findings.some(finding => finding.code === 'TARGET_LENGTH_WARNING'), false)
+  for (const code of ['SOURCE_EQUALS_TARGET', 'INCONSISTENT_REPEATED_SOURCE', 'TARGET_SOURCE_INCONSISTENCY']) {
     const matching = findings.filter(finding => finding.code === code)
     assert.ok(matching.length, code)
     assert.ok(matching.every(finding => finding.disposition === 'needs_review'), code)

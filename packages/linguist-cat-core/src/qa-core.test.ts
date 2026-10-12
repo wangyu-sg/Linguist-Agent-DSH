@@ -51,7 +51,6 @@ describe('PB-070 deterministic QA Core', () => {
       QA_RULE_CODES.REPEATED_PUNCTUATION,
       QA_RULE_CODES.SOURCE_EQUALS_TARGET,
       QA_RULE_CODES.INCONSISTENT_REPEATED_SOURCE,
-      QA_RULE_CODES.TARGET_LENGTH_WARNING,
     ]
     expect([...codes].sort()).toEqual(expected.sort())
     // PB-096：每条 finding 的三元组与静态映射表一致（prefer 默认策略下无覆盖）
@@ -99,7 +98,7 @@ describe('PB-070 deterministic QA Core', () => {
       finding.code === QA_RULE_CODES.INCONSISTENT_REPEATED_SOURCE)).toEqual([])
   })
 
-  test('字幕 profile 容忍省略号/强调标点与正常中英扩展，general 规则保持原强度', () => {
+  test('字符长度比例不产生 QA 问题，字幕 profile 容忍强调标点', () => {
     const subtitleSegments = [
       segment(1, {
         source: '你到底究竟想要我怎么做啊',
@@ -110,12 +109,13 @@ describe('PB-070 deterministic QA Core', () => {
     ]
     const generalCodes = runQa(subtitleSegments).map((finding) => finding.code)
     expect(generalCodes).toContain(QA_RULE_CODES.REPEATED_PUNCTUATION)
-    expect(generalCodes).toContain(QA_RULE_CODES.TARGET_LENGTH_WARNING)
+    expect(generalCodes).not.toContain('TARGET_LENGTH_WARNING')
+    expect(runQa([segment(2, { source: 'A reasonably long sentence.', target: '短' })]).map(item => item.code)).not.toContain('TARGET_LENGTH_WARNING')
 
     const subtitleCodes = runQa(subtitleSegments, { profile: 'subtitle' })
       .map((finding) => finding.code)
     expect(subtitleCodes).not.toContain(QA_RULE_CODES.REPEATED_PUNCTUATION)
-    expect(subtitleCodes).not.toContain(QA_RULE_CODES.TARGET_LENGTH_WARNING)
+    expect(subtitleCodes).not.toContain('TARGET_LENGTH_WARNING')
   })
 })
 

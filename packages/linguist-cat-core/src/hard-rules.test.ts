@@ -181,6 +181,25 @@ describe('PB-052 确定性硬规则', () => {
     )
   })
 
+  test('月份缩写和对应的月日写法等价，仍报告日期、数值和重复次数变化', () => {
+    const hasMismatch = (source: string, proposedTarget: string) => runDeterministicHardRules({
+      segment: { ...segment, source, targetLocale: 'en-US' }, proposedTarget,
+    }, { includeAdvisory: true }).violations.some(item => item.code === DETERMINISTIC_HARD_RULE_CODES.NUMBER_SIGNATURE_MISMATCH)
+    for (const [source, target] of [
+      ['10月22日开放', 'Opens Oct. 22'],
+      ['10.22–11.12', 'Oct. 22 to Nov. 12'],
+      ['9.10开放', 'Opens 10 Sept.'],
+      ['04.01开放', 'Opens Apr 1'],
+      ['价格10.22，12月2日开放', 'Price 10.22, opens Dec. 2'],
+    ]) expect(hasMismatch(source!, target!)).toBe(false)
+    for (const [source, target] of [
+      ['10.22–11.12', 'Oct. 23 to Nov. 12'],
+      ['9.10开放', 'Opens Sept. 1'],
+      ['价格10.22，12月2日开放', 'Price 10.23, opens Dec. 2'],
+      ['10.22、10.22', 'Oct. 22'],
+    ]) expect(hasMismatch(source!, target!)).toBe(true)
+  })
+
   test('嵌套 ICU 分支也进入签名，不能只保留外层 branch key', () => {
     const nested = {
       ...segment,

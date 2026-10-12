@@ -19,6 +19,9 @@ function setup() {
 test('Stage Evidence state freezes evidence facts and scope without becoming stale after a normal Target edit', () => {
   const { db, imported } = setup()
   try {
+    const inventoryGap = { id: 'project-scan', code: 'RESOURCE_MAPPING_AMBIGUOUS' as const, severity: 'blocking' as const,
+      summary: '历史工作簿尚未选择列映射', suggestedAction: '在使用该工作簿时选择映射' }
+    db.stageEvidence.replaceProjectInventoryGaps([inventoryGap])
     const stageRunId = 'stage-run-1'
     const plan: StageEvidencePlan = {
       stageRunId,
@@ -119,6 +122,12 @@ test('Stage Evidence state freezes evidence facts and scope without becoming sta
     assert.equal(completed.status, 'complete')
     assert.equal(completed.warnings.length, 1)
     assert.equal(db.stageEvidence.getCompletion(stageRunId).status, 'complete')
+
+    assert.equal(db.stageEvidence.listProjectInventoryGaps()[0]?.status, 'open', '盘点问题继续保留，不能伪造解决')
+    db.stageEvidence.replaceProjectInventoryGaps([{ ...inventoryGap, evidence: { kind: 'asset', id: imported.asset.id } }])
+    assert.equal(db.stageEvidence.getCompletion(stageRunId).status, 'blocked', '明确关联当前必需资料的缺口仍阻断')
+    db.stageEvidence.replaceProjectInventoryGaps([{ ...inventoryGap, evidence: { kind: 'asset', id: 'other-asset' } }])
+    assert.equal(db.stageEvidence.getCompletion(stageRunId).status, 'complete', '其他批次的缺口不能阻断当前批次')
 
     assert.equal(db.stageEvidence.markStale(stageRunId, '参考资料已变化').status, 'stale')
   } finally {

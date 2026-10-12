@@ -22,7 +22,6 @@ export const QA_RULE_CODES = {
   REPEATED_PUNCTUATION: 'REPEATED_PUNCTUATION',
   SOURCE_EQUALS_TARGET: 'SOURCE_EQUALS_TARGET',
   INCONSISTENT_REPEATED_SOURCE: 'INCONSISTENT_REPEATED_SOURCE',
-  TARGET_LENGTH_WARNING: 'TARGET_LENGTH_WARNING',
   // PB-096 批次 1（Xbench 类检查，迁自旧仓 mechanical_text_qa / delivery_qa）
   NEWLINE_MISMATCH: 'NEWLINE_MISMATCH',
   EDGE_WHITESPACE: 'EDGE_WHITESPACE',
@@ -60,14 +59,12 @@ export interface QaSegmentTerminology {
 }
 
 export interface QaRunOptions {
-  /** general 保守；subtitle 容忍字幕省略号/强调标点与正常中英长度扩展。 */
+  /** general 保守；subtitle 容忍字幕省略号/强调标点。 */
   profile?: QaProfile
   requiredTerminology?: readonly RequiredTerminologyRule[]
   forbiddenTerms?: readonly ForbiddenTermRule[]
   /** Store evaluator 按 Segment 冻结的术语判定；存在时优先于全局术语选项。 */
   terminologyBySegment?: Readonly<Record<string, QaSegmentTerminology>>
-  minTargetLengthRatio?: number
-  maxTargetLengthRatio?: number
   /** 术语执行策略（默认 prefer）；forbidden 条目永远 strict 阻断。 */
   glossaryPolicy?: LinguistGlossaryPolicy
   /** preferred 一词多译冲突组；源文命中即产 glossary_conflict（query）。 */
@@ -439,16 +436,6 @@ function segmentFindings(segment: Segment, options: QaRunOptions): OpenQaFinding
     })
   }
 
-  const sourceLength = unicodeLength(segment.source.trim())
-  const targetLength = unicodeLength(segment.target.trim())
-  const minRatio = options.minTargetLengthRatio ?? (profile === 'subtitle' ? 0.2 : 0.4)
-  const maxRatio = options.maxTargetLengthRatio ?? (profile === 'subtitle' ? 4.5 : 2.5)
-  if (sourceLength >= 10 && (targetLength / sourceLength < minRatio || targetLength / sourceLength > maxRatio)) {
-    emit({
-      code: QA_RULE_CODES.TARGET_LENGTH_WARNING,
-      message: `译文字符长度比例异常（${targetLength}/${sourceLength}）；请核对实际限制，字符比例不能证明画面溢出。`,
-    })
-  }
   return results
 }
 

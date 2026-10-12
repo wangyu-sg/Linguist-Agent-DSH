@@ -246,11 +246,6 @@ export class StageEvidenceRepository {
       }
 
       const at = this.now()
-      const hasOpenProjectGaps = this.db.db.prepare(`
-        SELECT 1 FROM evidence_gaps
-        WHERE project_id = ? AND stage_run_id IS NULL AND status = 'open'
-        LIMIT 1
-      `).get(this.projectId) !== undefined
       this.db.db.prepare(`
         INSERT INTO stage_evidence_states (
           stage_run_id, project_id, session_id, role, stage, plan_json,
@@ -264,10 +259,14 @@ export class StageEvidenceRepository {
         input.plan.stage,
         JSON.stringify({ ...input.plan, decisionEventBoundary: (this.db.db.prepare('SELECT COALESCE(MAX(event_id), 0) AS boundary FROM segment_stage_events').get() as { boundary: number }).boundary }),
         JSON.stringify(input.baseline),
-        hasOpenProjectGaps ? 'ready-with-gaps' : 'ready',
+        'ready',
         at,
         at,
       )
+      if (this.listOpenGaps(input.stageRunId).length > 0) {
+        this.db.db.prepare("UPDATE stage_evidence_states SET status = 'ready-with-gaps' WHERE stage_run_id = ? AND project_id = ?")
+          .run(input.stageRunId, this.projectId)
+      }
       return this.get(input.stageRunId) as StageEvidenceState
     })
   }
@@ -461,7 +460,7 @@ export class StageEvidenceRepository {
       actor: state.sessionId, afterEventId: state.plan.decisionEventBoundary ?? Number.MAX_SAFE_INTEGER,
     })
     const presentation = this.getPresentationCoverage(stageRunId, ids)
-    const gaps = this.listOpenGaps(stageRunId)
+    const gaps = this.listOpenGaps(stageRunId, ids)
     const blockingGaps = gaps.filter((gap) => gap.severity === 'blocking')
     const warnings = gaps.filter((gap) => gap.severity === 'warning')
     const status: StageEvidenceCompletion['status'] = state.status === 'stale' || this.evidenceChanged(state)
@@ -613,12 +612,20 @@ export class StageEvidenceRepository {
     })
   }
 
-  listOpenGaps(stageRunId: string): EvidenceGap[] {
+  listOpenGaps(stageRunId: string, segmentIds?: readonly string[]): EvidenceGap[] {
+    const state = this.get(stageRunId)
+    if (state === undefined) throw new StoreNotFoundError('stage evidence state', stageRunId)
+    const segments = this.segments.getByIds(segmentIds ?? state.plan.segmentIds)
+    const required = new Set(state.plan.requirements.filter(item => item.requiredness === 'required' && (item.scope.kind === 'stage'
+      || (item.scope.kind === 'segments' ? item.scope.segmentIds.some(id => segments.some(segment => segment.id === id))
+        : item.scope.assetIds.some(id => segments.some(segment => segment.assetId === id)))))
+      .map(item => evidenceRefKey(item.evidence.ref)))
     return (this.db.db.prepare(`
       SELECT * FROM evidence_gaps
       WHERE project_id = ? AND status = 'open'
         AND (stage_run_id IS NULL OR stage_run_id = ?)
       ORDER BY severity, gap_id
     `).all(this.projectId, stageRunId) as EvidenceGapRow[]).map(gapFromRow)
+      .filter(gap => gap.stageRunId === stageRunId || (gap.evidence !== undefined && required.has(evidenceRefKey(gap.evidence))))
   }
 }

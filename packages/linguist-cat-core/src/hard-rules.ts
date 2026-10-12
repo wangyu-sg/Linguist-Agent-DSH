@@ -363,6 +363,8 @@ function newlineSignature(value: string): string[] {
 const ENGLISH_MONTH_NUMBERS: Readonly<Record<string, string>> = {
   january: '1', february: '2', march: '3', april: '4', may: '5', june: '6',
   july: '7', august: '8', september: '9', october: '10', november: '11', december: '12',
+  jan: '1', feb: '2', mar: '3', apr: '4', jun: '6', jul: '7', aug: '8',
+  sep: '9', sept: '9', oct: '10', nov: '11', dec: '12',
 }
 
 const ENGLISH_ORDINAL_NUMBERS: Readonly<Record<string, string>> = {
@@ -485,8 +487,8 @@ function canonicalizeEnglishNumberContexts(value: string): string {
     // A month is hard numeric only beside an explicit day/year. “March forward”
     // and “May I enter?” remain lexical text and belong to soft QA, not a gate.
     .replace(
-      new RegExp(`\\b(${months})\\b(?=\\s+(?:\\d{1,2}(?:st|nd|rd|th)?|\\d{4})\\b)`, 'giu'),
-      monthNumber,
+      new RegExp(`\\b(${months})\\b\\.?(?=\\s+(?:\\d{1,2}(?:st|nd|rd|th)?|\\d{4})\\b)`, 'giu'),
+      (_match, month: string) => monthNumber(month),
     )
     .replace(
       new RegExp(`(?<=\\b\\d{1,2}(?:st|nd|rd|th)?\\s)(${months})\\b`, 'giu'),
@@ -505,9 +507,19 @@ function canonicalizeEnglishNumberContexts(value: string): string {
     .replace(new RegExp(`\\b(${ordinals})\\b(?=\\s+(?:${ordinalUnits})\\b)`, 'giu'), ordinalNumber)
 }
 
-function numberSignature(value: string, icuSpans: readonly Span[]): string[] {
+function numberSignature(value: string, icuSpans: readonly Span[], counterpart: string): string[] {
+  let text = withoutSpans(value, icuSpans)
+  const months = Object.keys(ENGLISH_MONTH_NUMBERS).join('|')
+  // ponytail: 仅对照另一侧明确写出的同一月日拆开 M.D；其余歧义仍交人工 QA。
+  const dates = new RegExp(`\\b(${months})\\b\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b|\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${months})\\b`, 'giu')
+  for (const match of counterpart.matchAll(dates)) {
+    const month = ENGLISH_MONTH_NUMBERS[(match[1] ?? match[4])!.toLowerCase()]!
+    const day = Number(match[2] ?? match[3])
+    if (day < 1 || day > 31) continue
+    text = text.replace(new RegExp(`(?<![\\w.])0?${month}\\.0?${day}(?![\\d.])`, 'gu'), `${month} ${day}`)
+  }
   const normalized = canonicalizeEnglishNumberContexts(
-    canonicalizeChineseNumberContexts(withoutSpans(value, icuSpans)),
+    canonicalizeChineseNumberContexts(text),
   )
     .replace(/\{\d+\}/g, '')
     .replace(/(\d{1,2})\s*[点時时]\s*00\s*分/g, '$1')
@@ -692,8 +704,8 @@ export function runDeterministicHardRules(
       mismatch(
         DETERMINISTIC_HARD_RULE_CODES.NUMBER_SIGNATURE_MISMATCH,
         'Number signature differs between source and target.',
-        numberSignature(segment.source, sourceIcu.spans),
-        numberSignature(proposedTarget, targetIcu.spans),
+        numberSignature(segment.source, sourceIcu.spans, withoutSpans(proposedTarget, targetIcu.spans)),
+        numberSignature(proposedTarget, targetIcu.spans, withoutSpans(segment.source, sourceIcu.spans)),
       ),
       mismatch(
         DETERMINISTIC_HARD_RULE_CODES.TOKEN_SIGNATURE_MISMATCH,

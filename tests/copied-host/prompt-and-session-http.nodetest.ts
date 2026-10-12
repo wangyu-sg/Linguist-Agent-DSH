@@ -362,6 +362,17 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
       }
       const firstStage = service.openProject(project.id).stageEvidence.list().find(item => item.sessionId === sessionId)!
       assert.ok(firstStage)
+      const modelResult = await context.execute({ segmentIds: firstStage.plan.segmentIds, stageScope: 'segments' }, exec as never) as { content: ContentBlock[] }
+      for await (const _ of await ctx.waterfall('llm/stream', {
+        provider: 'synthetic-regression', model: 'synthetic-regression', sessionId,
+        messages: [createSystemMessage(renderPrompt(await ctx.systemPrompt.assemble())), createToolResultMessage({ callId: ToolCallId(exec.callId), content: modelResult.content, isError: false })],
+      } as never, () => (async function* () { yield { type: 'finish', reason: { kind: 'stop' } } })())) {}
+      const db = service.openProject(project.id)
+      assert.equal(db.stageEvidence.getPresentationCoverage(firstStage.stageRunId).presented, 1)
+      const extra = db.contextDocs.insert({ kind: 'doc', originalFilename: 'extra.txt', blobRelpath: 'blobs/extra.txt', textExtract: 'Additional background' })
+      await ctx.tools.get('cat_read_context_doc')!.execute({ docId: extra.id }, exec as never)
+      assert.equal(db.stageEvidence.list().find(item => item.sessionId === sessionId)!.stageRunId, firstStage.stageRunId, 'Reading extra background must preserve the Stage and its provider receipts')
+      assert.equal(db.stageEvidence.getPresentationCoverage(firstStage.stageRunId).presented, 1)
       service.closeAll()
       assert.ok(handler)
       const request = Readable.from([Buffer.from(JSON.stringify({ operation: 'linguistBackupsRestore', input: { projectId: project.id, backupName: backup.backupName } }))]) as Readable & { method: string; url: string; headers: Record<string, string> }
