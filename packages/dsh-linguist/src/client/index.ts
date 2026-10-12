@@ -13,13 +13,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/remote'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry/remote'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createElement, useEffect, useState } from 'react'
 import { Button, Menu, Modal, Tooltip, IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LinguistAssetInfo, LinguistProjectOpenResult, LinguistProjectSummary, LinguistSessionDetachBindingResult, LinguistTurnContextPrepareResult, LinguistTurnContextV1 } from '@linguist/domain-service/contracts'
-import { bindSession, getBinding, required, subscribeProject, type LinguistBinding } from './api'
+import { BINDING_CHANGED_EVENT, bindSession, getBinding, required, subscribeProject, type LinguistBinding } from './api'
 import { CatWorkbench } from './CatWorkbench'
 import { clearCatEditorStates } from './cat-editor-state'
 import { BatchPreview } from './BatchPreview'
@@ -32,6 +34,9 @@ import { ProjectsPage, type Role, type WorkMode } from './ProjectsPage'
 import { ProjectCapabilities } from './ProjectCapabilities'
 import { SessionCopyPage, type SessionCopyResult } from './SessionCopyPage'
 import { WorkingCopyPage } from './WorkingCopyPage'
+import { SessionSetup } from './SessionSetup'
+import { WorkspaceDirectoryFlow } from './WorkspaceDirectoryFlow'
+import { useBinding } from './use-binding'
 import { LocaleProvider, registerLinguistLocale, useT } from './ui-locale'
 import styles from './Native.module.css'
 
@@ -48,7 +53,7 @@ const COPY_KIND = 'linguist-session-copy'
 const COPY_PROVIDER_ID = '@linguist/dsh-client-session-copy'
 const DETACH_EVENT = 'linguist:session-detached'
 
-export const inject = ['slots', 'layout', 'sidebarRight', 'sidebarRightTabs', 'sessions', 'uiWorkspace', 'workspaces', 'conversation', 'inputTriggers', 'locale', 'remote', 'remote.skills']
+export const inject = ['slots', 'layout', 'sidebarRight', 'sidebarRightTabs', 'sessions', 'uiWorkspace', 'workspaces', 'conversation', 'inputTriggers', 'locale', 'remote', 'remote.skills', 'remote.agentPresets']
 
 function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: (sessionId: string) => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; onSendAgentTask: (sessionId: string, text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (sessionId: string, projectId: string, assetId: string) => void; capabilities: React.ReactNode }) {
   const t = useT()
@@ -57,29 +62,10 @@ function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: 
   if (!address.startsWith(CAT_PREFIX)) throw new Error(`Unexpected Linguist CAT address: ${address}`)
   const projectId = decodeURIComponent(address.slice(CAT_PREFIX.length))
   const sessionId = String(props.sessionId)
-  const [binding, setBinding] = useState<LinguistBinding | undefined>()
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let live = true
-    getBinding(sessionId).then((value) => {
-      if (!live) return
-      if (value?.projectId !== projectId || value.workMode !== 'cat') setError(t('当前 DSH Session 未绑定此 CAT 项目。'))
-      else { setBinding(value); setError('') }
-    }).catch((cause: unknown) => { if (live) setError(String(cause)) })
-    return () => { live = false }
-  }, [sessionId, projectId])
-  useEffect(() => {
-    const onDetached = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === sessionId) {
-        setBinding(undefined)
-        setError(t('当前 DSH Session 已解除 Linguist 绑定。'))
-      }
-    }
-    window.addEventListener(DETACH_EVENT, onDetached)
-    return () => window.removeEventListener(DETACH_EVENT, onDetached)
-  }, [sessionId])
+  const { binding, error, loading } = useBinding(sessionId, props.useProjection('agentPreset'))
   if (error) return createElement('p', { role: 'alert', className: styles.error }, error)
-  if (!binding) return createElement('p', { role: 'status', className: styles.notice }, t('正在验证 CAT 会话绑定…'))
+  if (loading) return createElement('p', { role: 'status', className: styles.notice }, t('正在验证 CAT 会话绑定…'))
+  if (binding?.projectId !== projectId || binding.workMode !== 'cat') return createElement('p', { role: 'alert', className: styles.error }, t('当前 DSH Session 未绑定此 CAT 项目。'))
   return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onCancelRun: () => props.onCancelRun(sessionId), onOpenSession: props.onOpenSession, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
 }
 
@@ -114,9 +100,9 @@ function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
   return createElement(BatchPreview, { projectId, asset, onClose: () => info.tab.actions.close() })
 }
 
-function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession, onNewTask }: { sessionId: string; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
+function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession, onNewTask }: { sessionId: string; preset: string | null | undefined; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
   const t = useT()
-  const [binding, setBinding] = useState<LinguistBinding | undefined>()
+  const { binding, error } = useBinding(sessionId, preset)
   const [projectName, setProjectName] = useState('')
   const [projectError, setProjectError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -125,12 +111,6 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
   const [menuOpen, setMenuOpen] = useState(false)
   const [detachBusy, setDetachBusy] = useState(false)
   const [detached, setDetached] = useState<LinguistSessionDetachBindingResult>()
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let live = true
-    getBinding(sessionId).then((value) => { if (live) setBinding(value) }).catch((cause: unknown) => { if (live) setError(String(cause)) })
-    return () => { live = false }
-  }, [sessionId])
   useEffect(() => {
     if (!binding?.projectId) return
     let live = true
@@ -168,7 +148,7 @@ function SessionBadge({ sessionId, openCat, openWorkingCopy, openBrowser, openCo
     try {
       const result = await required<LinguistSessionDetachBindingResult>('linguistSessionsDetachBinding', { sessionId })
       setDetached(result)
-      setBinding(undefined)
+      window.dispatchEvent(new CustomEvent(BINDING_CHANGED_EVENT, { detail: sessionId }))
       setActionError('')
       window.dispatchEvent(new CustomEvent(DETACH_EVENT, { detail: sessionId }))
     } catch (cause) { setActionError(String(cause)) }
@@ -313,6 +293,8 @@ export function apply(ctx: Context): void {
   }
   const enter = async (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }, navigation = ctx.layout.beginNavigation()) => {
     const id = await ctx.sessions.create({ workspaceId: input.workspaceId })
+    const selected = await ctx.remote.agentPresets.select(id, 'linguist')
+    if (!selected.ok) throw new Error(selected.error.message)
     const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding, true)
   }
@@ -366,6 +348,8 @@ export function apply(ctx: Context): void {
           if (binding?.projectId === projectId && binding.workspaceId === workspace.workspaceId && binding.workMode === 'cat') return binding
         }
         const id = await ctx.sessions.create({ workspaceId: workspace.workspaceId })
+        const selected = await ctx.remote.agentPresets.select(id, 'linguist')
+        if (!selected.ok) throw new Error(selected.error.message)
         return bindSession({ sessionId: String(id), projectId, role: 'general', workMode: 'cat' }, String(workspace.workspaceId))
       })().finally(() => pendingProjectSessions.delete(projectId))
       pendingProjectSessions.set(projectId, pending)
@@ -384,6 +368,19 @@ export function apply(ctx: Context): void {
     if (binding) await openBoundSession(binding)
     else { ctx.layout.selectPanel(null); ctx.uiWorkspace.openSession(id) }
   }
+  for (const name of ['sidebar.workspaces.directoryFlow', 'conversation.hero.workspace.directoryFlow'] as const) {
+    ctx.slots.inject(name, () => ctx.slots.register({ name, priority: -10 }, props => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkspaceDirectoryFlow, {
+      ...props, pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
+      onCreate: async (path, input) => {
+        const workspace = await ctx.workspaces.create({ path })
+        const project = await required<{ id: string }>('linguistProjectsCreate', { ...input, workspaceId: workspace.workspaceId })
+        return project.id
+      }, onOpenProject: openProject,
+    }))))
+  }
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-session-setup', order: -10 }, props => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionSetup, {
+    ...props, onEnter: binding => enter({ ...binding, workspaceId: binding.workspaceId as WorkspaceId }), onOpenProject: projectId => openCat(String(props.sessionId), projectId),
+  }))))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenProject: openProject, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 12, label: () => 'Linguist' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: CAT_PROVIDER_ID, kind: CAT_KIND, patterns: [`${CAT_PREFIX}**`], priority: 'extension', keepMounted: true, title: () => 'Linguist CAT' }), 'linguist: CAT page')
@@ -394,7 +391,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: WORKING_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkingCopyPage, { sessionId: String(props.sessionId), onOpenFile: (path: string) => openWorkingFile(String(props.sessionId), path) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy, true) }))))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), openCat, openWorkingCopy, openBrowser, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), preset: props.useProjection('agentPreset'), openCat, openWorkingCopy, openBrowser, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId), connect: connectReference, inputActions: props.inputActions }))))
   ctx.slots.inject('tool.call.toolview', function* () {
     for (const toolName of catToolNames) yield ctx.slots.register({ name: 'tool.call.toolview', key: toolName }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatToolResult, { props, onNavigate: navigateToToolResult })))

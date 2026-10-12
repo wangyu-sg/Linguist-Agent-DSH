@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-schedule'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -42,7 +43,7 @@ import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts 
 import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_DATA_ROOT), installationId: Schema.string().default(''),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
@@ -281,6 +282,17 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
+  const initializeLinguistSession = (agent: Agent): void => {
+    if (bindings.session(agent.id) || ctx.agentPresets.composedPreset(agent.ctx) !== 'linguist') return
+    // A detached, already-started session keeps its historical evidence without reactivation.
+    if (agent.session.ownEvents().some(event => event.type === 'user/message')) return
+    const cwd = agent.session.header.cwd
+    const workspace = cwd && ctx.workspaceRegistry.list().find(item => item.path === realpathSync(cwd))
+    if (!workspace) throw new Error('Linguist mode requires a registered DSH Workspace')
+    const projects = service.listProjects().filter(project => bindings.projectWorkspace(project.id) === workspace.id)
+    const projectId = projects.length === 1 ? projects[0]!.id : undefined
+    bindings.bindSession(agent.id, { workspaceId: workspace.id, role: 'general', workMode: projectId ? 'cat' : 'working-copy', ...(projectId ? { projectId } : {}) })
+  }
   ctx.on('agent/created', ({ agent }) => {
     let inherited = false
     if (!bindings.session(agent.id) && agent.session.header.origin === 'subagent' && agent.session.header.parentSession) {
@@ -294,13 +306,20 @@ export function apply(ctx: Context, config: Config): void {
         inherited = true
       }
     }
-    try { bindAgent(agent) }
+    try { initializeLinguistSession(agent); bindAgent(agent) }
     catch (error) { if (inherited) bindings.restoreSession(agent.id, undefined); throw error }
     return undefined
   })
+  ctx.on('agent-preset/selected', (sessionId, preset) => {
+    const agent = ctx.agents.get(sessionId)
+    if (!agent) return
+    if (preset === 'linguist') initializeLinguistSession(agent)
+    else bindings.restoreSession(sessionId, undefined)
+    bindAgent(agent)
+  })
   ctx.on('agent/disposed', ({ agent }) => { registered.get(agent.id)?.(); registered.delete(agent.id) })
   ctx.on('llm/stream', (options, next) => evidence.stream(options, next))
-  for (const agent of ctx.agents.list()) bindAgent(agent)
+  for (const agent of ctx.agents.list()) { initializeLinguistSession(agent); bindAgent(agent) }
 
   const scheduleSessions = new ScheduleSessionRuntime(ctx, bindings, bindAgent)
   const scheduleContext = new ScheduleContextManager(config.dataRoot, ctx.schedule, service, bindings, assertProjectSession,

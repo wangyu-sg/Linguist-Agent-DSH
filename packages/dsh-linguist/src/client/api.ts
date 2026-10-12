@@ -2,6 +2,7 @@ import type { LinguistImportProgress, LinguistIpcError, LinguistIpcResult, Lingu
 import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 
 const base = '/la/v1'
+export const BINDING_CHANGED_EVENT = 'linguist:binding-changed'
 
 export class LinguistRequestError extends Error {
   readonly detail: LinguistIpcError

@@ -2,6 +2,19 @@ import * as React from 'react'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 
 const english: Record<string, string> = {
+  'Linguist 岗位与项目': 'Linguist role and project',
+  '正在读取 Linguist 岗位…': 'Loading Linguist role…',
+  '统筹任务、整理资料并委派专业岗位。': 'Coordinate tasks, organize references and delegate specialist work.',
+  '从原文开始翻译，查术语、核实文化背景。': 'Translate from source, check terminology and verify cultural context.',
+  '独立对照原文和当前译文，检查准确性与表达。': 'Independently compare source and target for accuracy and expression.',
+  '检查最终文本、标点和格式，保留审校判断。': 'Check final wording, punctuation and formatting, preserving review decisions.',
+  '选择项目': 'Select project', '换岗位会开启新会话': 'Changing role starts a new session',
+  '新建 LA 工作区': 'New LA Workspace', '添加工作区': 'Add Workspace',
+  '普通工作区': 'Standard Workspace', 'LA 工作区 · 本地化项目': 'LA Workspace · Localization project',
+  '选择已有文件夹，或在目录选择器中新建文件夹。': 'Choose an existing folder or create one in the folder picker.',
+  '选择目录、设置语言对，创建项目后进入 Linguist 通用岗位。': 'Choose a folder and language pair to start a Linguist project as General.',
+  '更换目录': 'Change folder', '项目已创建，打开会话': 'Project created · Open session',
+  '字幕模式降低省略号和强调标点噪声；数字、标签与占位符检查不变。': 'Subtitle mode reduces ellipsis and emphatic punctuation noise. Number, tag and placeholder checks remain unchanged.',
   '重复句联动': 'Sync repetitions',
   '保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。': 'On save, sync segments in the edited segment’s batch with exactly matching source text and tags. Only unlocked, unconfirmed segments with an empty target or the previous target are updated. Unsaved drafts are skipped.',
   '译文已保存，已联动 {count} 段': 'Target saved; synced {count} segments',
@@ -187,7 +200,6 @@ const english: Record<string, string> = {
   '通用本地化': 'General localization',
   '字幕 / 对白': 'Subtitles / dialogue',
   '已有目标译文不会自动算作本轮完成；确认后会按此阶段写回双语文件状态。': 'Existing translations do not count as completed in this round. Confirmation writes the selected stage back to the bilingual file.',
-  '字幕模式只降低省略号、强调标点和长度比例噪声；数字、标签与占位符硬门不变。': 'Subtitle mode reduces ellipsis, emphatic punctuation and length-ratio noise. Number, tag and placeholder checks remain unchanged.',
   '导入首个批次或 TM/TB 后，语言方向将冻结以避免数据不一致。': 'The language direction is frozen after importing the first batch or TM/TB to keep the data consistent.',
   '选择目录': 'Choose folder',
   '请选择当前 Workspace 内的目录': 'Choose a folder inside the current Workspace',

@@ -27,6 +27,63 @@ import { projectDiscoveryScope } from '../../packages/dsh-linguist/src/host/disc
 
 const professional = loadProfessionalResources(new URL('../../packages/dsh-linguist/resources/professional-judgment/', import.meta.url))
 
+test('native Linguist preset binds General, removes blank-session binding on exit, and does not guess between projects', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-native-preset-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic' })
+  service.init()
+  const bindings = new BindingStore(root)
+  const single = WorkspaceId('workspace-single'), multiple = WorkspaceId('workspace-multiple')
+  const multiplePath = join(root, 'multiple')
+  mkdirSync(multiplePath)
+  const project = await service.createProject({ name: 'Single', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+  bindings.bindProject(project.id, single)
+  for (const name of ['One', 'Two']) {
+    const other = await service.createProject({ name, sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    bindings.bindProject(other.id, multiple)
+  }
+  service.closeAll()
+  const workspaces = [{ id: single, path: root }, { id: multiple, path: multiplePath }]
+  const ctx = new Context()
+  const promptPlugin = ctx.plugin(SystemPrompt, {})
+  await promptPlugin.await()
+  const toolsPlugin = ctx.plugin(ToolRuntime, { mode: 'native' })
+  await toolsPlugin.await()
+  let preset = 'standard'
+  let agent = { id: SessionId('native-one'), session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
+  const services = {
+    agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
+    skills: { registerProvider: () => () => {} }, webServer: { register: () => () => {} },
+    workspaceRegistry: { list: () => workspaces, get: (id: string) => workspaces.find(row => row.id === id) },
+  }
+  await ctx.plugin({ apply(provider) {
+    for (const key of hostInject) if (key !== 'tools' && key !== 'systemPrompt') provider.provide(key, services[key as keyof typeof services] ?? {})
+  } }).await()
+  const host = ctx.plugin({ inject: hostInject, apply(scoped) { applyHost(scoped, { dataRoot: root, installationId: 'native-preset-check', notificationDestinations: { get: () => [] } }) } })
+  try {
+    await host.await()
+    await ctx.serial('agent/created', { agent, source: 'create' } as never)
+    assert.equal(new BindingStore(root).session(agent.id), undefined)
+    preset = 'linguist'
+    await ctx.serial('agent-preset/selected', agent.id, preset)
+    assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: single, role: 'general', workMode: 'cat', projectId: project.id })
+    assert.ok(ctx.tools.get('cat_project_summary'))
+    preset = 'standard'
+    await ctx.serial('agent-preset/selected', agent.id, preset)
+    assert.equal(new BindingStore(root).session(agent.id), undefined)
+    assert.equal(ctx.tools.get('cat_project_summary'), undefined)
+    preset = 'linguist'
+    agent = { ...agent, id: SessionId('native-multiple'), session: Session.create(SessionId('native-multiple'), undefined, { version: 4, id: SessionId('native-multiple'), createdAt: Date.now(), isSeeded: false, cwd: multiplePath }) }
+    await ctx.serial('agent/created', { agent, source: 'create' } as never)
+    assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'general', workMode: 'working-copy' })
+    assert.ok(ctx.tools.get('linguist_working_copy'))
+    assert.equal(ctx.tools.get('cat_project_summary'), undefined)
+  } finally {
+    await host.dispose()
+    await toolsPlugin.dispose(); await promptPlugin.dispose()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('packaged role resources reject missing, blank and oversized instructions without path in the error message', () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-role-resource-'))
   const directory = join(root, 'roles')

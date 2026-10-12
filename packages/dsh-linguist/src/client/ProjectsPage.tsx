@@ -1,10 +1,9 @@
-import { PROJECT_NAME_MAX_LENGTH } from '../project-input'
 import * as React from 'react'
 import { Button, Checkbox, Input, Menu, Modal, Tooltip, IconEllipsisOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
-import type { LinguistFormatQualification, LinguistProjectHealthReport, LinguistProjectInfo, LinguistProjectSummary, LinguistWorkflowStage } from '@linguist/domain-service/contracts'
+import type { LinguistFormatQualification, LinguistProjectHealthReport, LinguistProjectInfo, LinguistProjectSummary } from '@linguist/domain-service/contracts'
 import { required, type LinguistBinding } from './api'
 import { describeFormatCapability, describeLinguistFormat } from './format-labels'
 import { ProjectSettingsPanel } from './Panels'
@@ -13,7 +12,7 @@ import { describeHealthCheck, describeProjectError } from './project-errors'
 import { useT } from './ui-locale'
 import { stageName } from './workflow-ui'
 import { ProjectSessions } from './ProjectSessions'
-import { ProjectLocaleSelect } from './ProjectLocaleSelect'
+import { ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
 import styles from './ProjectsPage.module.css'
 
 export type Role = 'general' | 'translator' | 'reviewer' | 'proofreader'
@@ -40,12 +39,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   const [projects, setProjects] = React.useState<Project[]>([])
   const [details, setDetails] = React.useState<Record<string, ProjectDetail>>({})
   const [loading, setLoading] = React.useState(true)
-  const [name, setName] = React.useState('')
   const [backupPath, setBackupPath] = React.useState('')
-  const [sourceLocale, setSourceLocale] = React.useState('zh-CN')
-  const [targetLocale, setTargetLocale] = React.useState('en-US')
-  const [workflowStage, setWorkflowStage] = React.useState<LinguistWorkflowStage>('translation')
-  const [qaProfile, setQaProfile] = React.useState<'general' | 'subtitle'>('general')
   const [role, setRole] = React.useState<Role>('general')
   const [workMode, setWorkMode] = React.useState<WorkMode>('cat')
   const [includeArchived, setIncludeArchived] = React.useState(false)
@@ -91,24 +85,11 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     return () => { live = false }
   }, [projects])
 
-  const create = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!workspaceId) return
-    setBusy(true)
-    showMessage('')
-    try {
-      const created = await required<Project>('linguistProjectsCreate', { name: name.trim(), sourceLocale: sourceLocale.trim(), targetLocale: targetLocale.trim(), workflowStage, qaProfile, workspaceId })
-      setName('')
-      setSourceLocale('zh-CN')
-      setTargetLocale('en-US')
-      setWorkflowStage('translation')
-      setQaProfile('general')
-      setDialog(undefined)
-      setRefresh((value) => value + 1)
-      showMessage(t('已创建 {name}', { name: created.name }))
-      await openProject(created)
-    } catch (error) { showMessage(describeProjectError(error, t), true) }
-    finally { setBusy(false) }
+  const create = async (input: ProjectSetup) => {
+    const created = await required<Project>('linguistProjectsCreate', { ...input, workspaceId })
+    setDialog(undefined)
+    setRefresh(value => value + 1)
+    await openProject(created)
   }
   const enter = async (project?: Project) => {
     const targetWorkspace = project?.workspaceId ?? workspaceId
@@ -235,19 +216,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
           <p className={styles.formHint}>{t('先选择工作区，再设置项目语言和工作阶段。')}</p>
-          <form className={styles.form} onSubmit={(event) => void create(event)}>
-            {workspacePicker}
-            <label>{t("名称")}<Input required disabled={busy} maxLength={PROJECT_NAME_MAX_LENGTH} data-modal-autofocus placeholder={t('例如：官网本地化')} value={name} onChange={(event) => setName(event.target.value)} /></label>
-            <div className={styles.locale}>
-              <ProjectLocaleSelect label={t('源语言')} disabled={busy} value={sourceLocale} onValueChange={setSourceLocale} />
-              <ProjectLocaleSelect label={t('目标语言')} disabled={busy} value={targetLocale} onValueChange={setTargetLocale} />
-            </div>
-            <label>{t("当前工作阶段")}<select disabled={busy} value={workflowStage} onChange={(event) => setWorkflowStage(event.target.value as LinguistWorkflowStage)}><option value="translation">{t("翻译")}</option><option value="editing">{t("编辑审校")}</option><option value="proofreading">{t("校对")}</option></select></label>
-            <small className={styles.formHint}>{t('已有目标译文不会自动算作本轮完成；确认后会按此阶段写回双语文件状态。')}</small>
-            <label>{t('QA 场景')}<select disabled={busy} value={qaProfile} onChange={(event) => setQaProfile(event.target.value as 'general' | 'subtitle')}><option value="general">{t('通用本地化')}</option><option value="subtitle">{t('字幕 / 对白')}</option></select></label>
-            <small className={styles.formHint}>{t('字幕模式只降低省略号、强调标点和长度比例噪声；数字、标签与占位符硬门不变。')}</small>
-            <Button type="submit" variant="primary" size="sm" disabled={busy || !workspaceId || !name.trim()}>{t("创建")}</Button>
-          </form>
+          <ProjectCreateForm disabled={!workspaceId} onBusyChange={setBusy} onCreate={create}>{workspacePicker}</ProjectCreateForm>
         {message && <p role={messageIsError ? 'alert' : 'status'} className={messageIsError ? styles.warning : styles.message}>{message}</p>}
       </Modal>
       <Modal open={dialog === 'import'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('导入项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>

@@ -13,3 +13,12 @@
 .contextChip { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-base); padding-left: 8px; white-space: nowrap; }
 .contextAttached { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-state-business-primary); }
 .contextError { flex-basis: 100%; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }
+.sessionSetup { composes: surface from './Controls.module.css'; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: calc(100% - var(--dsh-composer-side-clearance) * 2); max-width: var(--dsh-composer-card-max-width); margin: 0 auto; }
+/* Match DSH AgentPresetSeat; Menu owns selection, keyboard navigation and the checkmark. */
+.presetButton { min-height: 28px; height: 28px; max-width: 240px; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--dsw-radius-sm); font-size: 13px; line-height: 20px; font-weight: 500; }
+.presetButton > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presetButton > svg { flex: none; }
+.presetItem { display: flex; flex-direction: column; gap: 2px; max-width: 280px; font-size: 13px; line-height: 20px; }
+.presetItem small { color: var(--dsw-alias-label-caption); white-space: normal; font-size: 12px; line-height: 16px; }
+.setupHint { color: var(--dsw-alias-label-tertiary); font-size: 12px; margin-left: auto; }
+.setupError { composes: sessionSetup; color: var(--dsw-alias-state-error-primary); }

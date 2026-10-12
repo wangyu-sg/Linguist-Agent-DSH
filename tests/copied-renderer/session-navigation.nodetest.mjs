@@ -41,9 +41,9 @@ test('native navigation cancels pending LA opens and late session creation', asy
       openResourceIn: (...args) => opened.push(args),
     },
     sessions: { create: () => new Promise(resolve => { completeCreate = resolve }), refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds }) } },
-    remote: { skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
+    remote: { agentPresets: { select: async (id, preset) => { assert.equal(preset, 'linguist'); return { ok: true, value: preset } } }, skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
   }
-  const components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
+  const components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'use-binding']
   const exports = {}
   const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -176,6 +176,7 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
     uiWorkspace: { openSession(id) { opened.push(id); navigation.abort(); mounted = id; listeners.forEach(listener => listener()) } },
     workspaces: { list: { getSnapshot: () => ({ items: [workspace] }) } },
     sidebarRight: { mounted: { getSnapshot: () => mounted, subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) } }, openResourceIn: (...args) => resources.push(args) },
+    remote: { agentPresets: { select: async (id, preset) => { assert.equal(preset, 'linguist'); return { ok: true, value: preset } } } },
     sessions: { refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds, byId, phase: 'ready' }) }, create: async input => { creates.push(input); const id = await (createResult ?? Promise.resolve(`created-${creates.length}`)); addSession(id, {}, 100); return id } },
   }
   function addSession(id, binding, updatedAt) { if (!sessionIds.includes(id)) sessionIds.push(id); byId[id] = { id, cwd: workspace.path, updatedAt }; if (binding.projectId) bindings.set(id, { sessionId: id, workspaceId: workspace.workspaceId, workMode: 'cat', ...binding }) }
@@ -185,7 +186,7 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
     async bindSession(value, workspaceId) { binds.push(value); const binding = { ...value, workspaceId }; bindings.set(value.sessionId, binding); return binding },
     async required(operation, input) { assert.equal(operation, 'linguistProjectsOpen'); return await (projectResult ?? { project: { id: input.projectId, workspaceId: workspace.workspaceId }, health: { projectId: input.projectId, healthy: true } }) },
   }
-  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage']
+  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'use-binding']
   const code = ts.transpileModule(readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   runInNewContext(code, { exports, setTimeout, clearTimeout, require: name => {
     if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }
@@ -248,7 +249,7 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
   assert.equal(opened.at(-1), current, 'late Session completion cannot steal another project navigation')
   assert.equal(resources.at(-1)[0], current)
   createResult = undefined
-  const { onNewTask } = registrations.get('conversation.session.header.utilities')({ sessionId: 'cat-current' }).child.props
+  const { onNewTask } = registrations.get('conversation.session.header.utilities')({ sessionId: 'cat-current', useProjection: () => 'standard' }).child.props
   const sourceBinding = bindings.get('cat-current')
   await onNewTask(sourceBinding, 'general')
   assert.deepEqual(JSON.parse(JSON.stringify(creates.at(-1))), { workspaceId: workspace.workspaceId }, 'new tasks use native creation defaults, without forking or setting a model route')
@@ -295,13 +296,14 @@ test('the native Linguist menu exposes project tasks and displays failures', asy
   const exports = {}, taskKinds = []
   runInNewContext(code, { exports, require: name => {
     if (name === 'react') return { ...React, useEffect() {}, useState() { const index = cursor++; return [state[index], value => { state[index] = value }] } }
+    if (name === './use-binding') return { useBinding: () => ({ binding: state[0], error: '' }) }
     if (name === './ui-locale') return { useT: () => value => value }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Tooltip: 'tooltip', Modal: 'modal', Menu: 'menu' }
     if (name.endsWith('.module.css')) return { default: {} }
     return {}
   } })
   const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)]
-  const render = () => { cursor = 0; return nodes(exports.SessionBadge({ sessionId: binding.sessionId, onNewTask: async (actual, kind) => { assert.equal(actual, binding); taskKinds.push(kind); throw new Error('Synthetic project task failure') } })) }
+  const render = () => { cursor = 1; return nodes(exports.SessionBadge({ sessionId: binding.sessionId, onNewTask: async (actual, kind) => { assert.equal(actual, binding); taskKinds.push(kind); throw new Error('Synthetic project task failure') } })) }
   let menu = render().find(node => node.type === 'menu')
   assert(menu.props.items.some(item => item.id === 'new-general'))
   assert(menu.props.items.some(item => item.id === 'continue'))
@@ -336,6 +338,7 @@ test('bound Session name follows same-project mutations and reconnect snapshots 
       required: (operation, input) => { assert.equal(operation, 'linguistProjectsGetSummary'); return new Promise((resolve, reject) => reads.push({ ...input, resolve, reject })) },
       subscribeProject(projectId, afterSequence, mutation, snapshot) { assert.equal(afterSequence, 0); const subscription = { projectId, mutation, snapshot, closed: false }; subscriptions.push(subscription); return () => { subscription.closed = true } },
     }
+    if (name === './use-binding') return { useBinding: id => ({ binding: bindings[id], error: '' }) }
     if (name === './ui-locale') return { useT: () => value => value }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Tooltip: 'tooltip', Modal: 'modal', Menu: 'menu' }
     if (name.endsWith('.module.css')) return { default: {} }
