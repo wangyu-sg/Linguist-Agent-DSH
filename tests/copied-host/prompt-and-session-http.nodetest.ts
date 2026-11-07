@@ -18,6 +18,7 @@ import { apply as applyHost, inject as hostInject } from '../../packages/dsh-lin
 import { Context } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/cordis/lib/index.js'
 import { SystemPrompt, renderPrompt } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'
 import { ToolRuntime } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
+import * as NativeToolExecutor from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-tool-executor-native/lib/index.js'
 import { Session, SessionId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-session/lib/index.js'
 import { WorkspaceId } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-workspace/lib/index.js'
 import { createSystemMessage, createToolResultMessage, createUserMessage, ToolCallId, type ContentBlock } from '../../packages/dsh-linguist/node_modules/@deepseek-ai/dsh-llm/lib/index.js'
@@ -46,8 +47,10 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const ctx = new Context()
   const promptPlugin = ctx.plugin(SystemPrompt, {})
   await promptPlugin.await()
-  const toolsPlugin = ctx.plugin(ToolRuntime, { mode: 'native' })
+  const toolsPlugin = ctx.plugin(ToolRuntime, {})
   await toolsPlugin.await()
+  const executorPlugin = ctx.plugin(NativeToolExecutor)
+  await executorPlugin.await()
   let preset = 'standard'
   let agent = { id: SessionId('native-one'), session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
@@ -79,7 +82,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     assert.equal(ctx.tools.get('cat_project_summary'), undefined)
   } finally {
     await host.dispose()
-    await toolsPlugin.dispose(); await promptPlugin.dispose()
+    await executorPlugin.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
     rmSync(root, { recursive: true, force: true })
   }
 })
@@ -132,7 +135,12 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
           assert.match(current.prompt, /已被父任务明确委派.*不再转派/)
           assert.doesNotMatch(current.prompt, /少量任务直接完成/)
         }
-        if (role === 'reviewer') assert.match(current.prompt, /先依据 Source.*再评估当前 Target/)
+        if (role === 'reviewer') {
+          assert.match(current.prompt, /先依据 Source.*再评估当前 Target/)
+          assert.match(current.prompt, /自匹配不能作为独立证据/)
+          assert.match(current.prompt, /来源、Key、任务\/批次、更新时间/)
+          assert.match(current.prompt, /项目例外不推广到其他句段或项目/)
+        }
         assert.ok(current.prompt.length <= 18_000)
       }
     }
@@ -240,8 +248,10 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   const ctx = new Context()
   const promptPlugin = ctx.plugin(SystemPrompt, {})
   await promptPlugin.await()
-  const toolsPlugin = ctx.plugin(ToolRuntime, { mode: 'native' })
+  const toolsPlugin = ctx.plugin(ToolRuntime, {})
   await toolsPlugin.await()
+  const executorPlugin = ctx.plugin(NativeToolExecutor)
+  await executorPlugin.await()
   let handler: ((request: unknown, response: unknown) => Promise<void>) | undefined
   const services = {
     agents: { list: () => [] },
@@ -265,6 +275,10 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     webServer: { register: (entry: { handler: typeof handler }) => { handler = entry.handler; return () => {} } },
     workspaceRegistry: { get: (id: string) => id === workspaceId ? { id: workspaceId, path: root } : undefined },
     sessionPersistence: { stat: async () => ({ header: { cwd: root } }) },
+    sessionQuery: { async observeSession(id: string) {
+      assert.equal(id, sessionId)
+      return { header: { id: sessionId }, events: [], inheritedEventCount: 0, [Symbol.dispose]() {} }
+    } },
   }
   const providers = ctx.plugin({ apply(provider) {
     for (const key of hostInject) if (key !== 'tools' && key !== 'systemPrompt') provider.provide(key, services[key as keyof typeof services] ?? {})
@@ -300,15 +314,45 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     assert.ok(workingCopy)
     assert.ok(cat)
     assert.deepEqual(await general.execute({}, exec as never), { available: true })
-    const prepared = await workingCopy.execute({ operation: 'prepare', sourcePath: 'synthetic-source.csv', sourceLocale: 'en-US', targetLocale: 'zh-CN' }, exec as never) as { segments: number }
-    assert.equal(prepared.segments, 1)
+    const workingArgs = { operation: 'prepare', sourcePath: 'synthetic-source.csv', sourceLocale: 'en-US', targetLocale: 'zh-CN' }
+    await assert.rejects(workingCopy.execute(workingArgs, exec as never), /PROJECT_UNHEALTHY|unhealthy/)
     await assert.rejects(cat.execute({}, exec as never), /STORE_NOT_FOUND|unhealthy/)
     assert.equal(existsSync(path), false, 'CAT invocation must not recreate a missing store')
     writeFileSync(path, 'synthetic broken sqlite')
     await assert.rejects(cat.execute({}, exec as never), /ERR_SQLITE_ERROR|unhealthy/)
     renameSync(`${path}.held`, path)
     assert.ok(await cat.execute({}, exec as never))
+    const prepared = await workingCopy.execute(workingArgs, exec as never) as {
+      path: string; segments: number; artifactSha256: string; sourceSha256: string
+    }
+    assert.equal(prepared.segments, 1, 'A restored canonical CAT permits prepare without a dispatched model request')
     if (scenario === 'general') {
+      const baseline = JSON.parse(readFileSync(join(root, prepared.path), 'utf8'))
+      writeFileSync(join(root, 'working-decisions.json'), JSON.stringify({
+        sourceSha256: prepared.sourceSha256, previousResultSha256: prepared.artifactSha256,
+        groups: [{ segmentIds: [baseline.segments[0].id], decision: 'corrected' }],
+        edits: [{ segmentId: baseline.segments[0].id, target: '启动' }], unresolved: [],
+      }))
+      const rootCallId = ToolCallId('working-ptc-root'), innerCallId = ToolCallId('working-ptc-inner')
+      for await (const _ of await ctx.waterfall('llm/stream', {
+        provider: 'actual-working-provider', model: 'actual-working-model', sessionId,
+        messages: [createSystemMessage(renderPrompt(await ctx.systemPrompt.assemble()))], tools: ctx.tools.schemas(),
+      } as never, () => (async function* () {})())) {}
+      await ctx.serial('session/event', session, {
+        type: 'tool/call', data: { turn: 1, step: 0, callId: rootCallId, name: 'run_code', arguments: '{}' },
+      } as never)
+      const delivered = await workingCopy.execute({ ...workingArgs, operation: 'deliver',
+        previousResultPath: prepared.path, decisionsPath: 'working-decisions.json',
+      }, { ...exec, callId: innerCallId, rootCallId } as never) as { path: string; submitted: boolean }
+      assert.equal(delivered.submitted, true)
+      assert.match(readFileSync(join(root, delivered.path), 'utf8'), /a,Start,启动/)
+      const written = service.openProject(project.id).proposals.listBySegment(baseline.segments[0].id, 'accepted')[0]!
+      const issuance = service.openProject(project.id).proposals.listIssuances(written.id)[0]!
+      assert.equal(issuance.sessionId, sessionId)
+      assert.equal(issuance.runId, `dsh:${sessionId}:${rootCallId}`)
+      assert.equal(issuance.toolCallId, innerCallId)
+      assert.equal(issuance.modelProvider, 'actual-working-provider')
+      assert.equal(issuance.modelId, 'actual-working-model')
       const inventory = ctx.tools.get('cat_refresh_project_inventory')!
       const intake = ctx.tools.get('cat_import_resources')!
       const before = await inventory.execute({}, exec as never) as { details: { discoveryScopeHash: string; media: number } }
@@ -400,10 +444,10 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     }
     if (scenario !== 'general') {
       // These synthetic dispatch events exercise real Host provenance without a network or Provider response.
-      await ctx.waterfall('llm/stream', {
+      for await (const _ of await ctx.waterfall('llm/stream', {
         provider: 'synthetic-regression', model: 'synthetic-regression', sessionId,
         messages: [createSystemMessage(renderPrompt(await ctx.systemPrompt.assemble()))], tools: ctx.tools.schemas(),
-      } as never, () => (async function* () {})())
+      } as never, () => (async function* () {})())) {}
       await ctx.serial('session/event', session, { type: 'tool/call', data: { turn: 1, step: 0, callId: exec.callId, name: 'cat_get_translation_context', arguments: '{}' } } as never)
       ensureStageEvidenceForSession({
         session: { id: parentSessionId, linguistRole: 'reviewer' }, db: service.openProject(project.id),
@@ -457,7 +501,7 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     assert.deepEqual(await general.execute({}, exec as never), { available: true })
     assert.equal(ctx.tools.get('linguist_working_copy'), workingCopy, 'Restoration must not require re-binding the Agent')
   } finally {
-    await native.dispose(); await host.dispose(); await providers.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
+    await native.dispose(); await host.dispose(); await providers.dispose(); await executorPlugin.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
     service.closeAll()
     rmSync(root, { recursive: true, force: true })
     rmSync(attachmentRoot, { recursive: true, force: true })

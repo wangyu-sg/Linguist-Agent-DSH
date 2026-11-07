@@ -2,7 +2,7 @@
 name: phrase-platform-review-ops
 description: 在Phrase/Memsource网页编辑器回填已审定成果、检查指定客户TM及QA、确认授权句段。遵守任务范围与Accepted状态，仅使用BrowserSkill已验证能力；不上传、不调用私有写接口、不解锁或自动完成工作。
 group: linguist
-version: "1.0.7"
+version: "1.0.8"
 ---
 
 # Phrase 网页作业
@@ -21,7 +21,7 @@ version: "1.0.7"
 
 ## 连续写入
 
-用 BrowserSkill 当前公开的有限串行操作合并步骤，不每个动作后返回模型。遵守实际工具预算；不假设存在未部署的脚本、快捷键或隐藏接口。
+按game-localization的平台备注与查证流程处理定稿依据和工具编排；BrowserSkill当前没有batch action，不假设存在未部署的脚本、快捷键或隐藏接口。
 
 每次写入前，在执行端紧邻输入检查工作、稳定ID、Source、实时Target、可编辑性与必要结构。等于最终稿跳过写入，等于底稿才写，两者都不等则保留冲突。组初预读不能代替实时guard。
 

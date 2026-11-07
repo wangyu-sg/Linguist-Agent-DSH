@@ -3,7 +3,8 @@ import type { CatDatabase } from '../database'
 import { StoreNotFoundError } from '../errors'
 import type { RunHarnessRepository } from '../run-harness'
 
-export interface TmUnit {
+export interface TmUnit extends Pick<TmMatchCandidate,
+  'originalTuid' | 'metadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
   id: string
   source: string
   target: string
@@ -11,12 +12,7 @@ export interface TmUnit {
   targetLocale: string
 }
 
-export interface TmStoredMatchCandidate extends TmMatchCandidate {
-  originalTuid?: string
-  metadata?: Record<string, string | string[]>
-  sourceInline?: string
-  targetInline?: string
-}
+export type TmStoredMatchCandidate = TmMatchCandidate
 
 export interface ApprovedExemplar {
   id: string
@@ -351,6 +347,27 @@ export class TmUnitsRepository {
       .prepare(`SELECT * FROM tm_units ${where} ORDER BY created_at, id LIMIT ? OFFSET ?`)
       .all(...params, filter.limit ?? 500, filter.offset ?? 0) as TmUnitRow[]
     return rows.map(tmUnitFromRow)
+  }
+
+  /** Literal concordance with the actual source and its enabled state, not a scored match. */
+  concordance(filter: TmUnitSearch = {}) {
+    const { where, params } = buildWhere(this.projectId, filter)
+    const rows = this.db.db.prepare(`
+      SELECT u.*, s.display_name AS source_label, s.enabled AS source_enabled, s.kind AS source_kind
+      FROM (SELECT * FROM tm_units ${where}) AS u
+      LEFT JOIN tm_sources AS s ON s.id = u.source_id AND s.project_id = u.project_id
+      ORDER BY u.created_at, u.id LIMIT ? OFFSET ?
+    `).all(...params, filter.limit ?? 50, filter.offset ?? 0) as Array<TmUnitRow & { source_enabled: number | null; source_kind: string | null }>
+    return rows.map(row => {
+      const { unitId, ...candidate } = tmMatchCandidateFromRow(row)
+      return {
+        ...tmUnitFromRow(row),
+        ...candidate,
+        sourceLabel: row.source_label ?? 'Legacy TM',
+        enabled: row.source_enabled !== 0,
+        sourceKind: row.source_kind ?? 'legacy',
+      }
+    })
   }
 
   count(filter: Omit<TmUnitSearch, 'limit' | 'offset'> = {}): number {

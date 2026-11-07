@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,10 +28,12 @@ const page = `<!doctype html>
 <script>
 document.querySelector('#upload').addEventListener('change', async (event) => {
   const file = event.target.files[0];
+  await fetch('/upload', { method: 'POST', body: file });
   document.querySelector('#attached').textContent = file.name + ': ' + await file.text();
 });
 </script></body></html>`;
-const server = createServer((request, response) => {
+let uploadedBytes;
+const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/") {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(page);
@@ -40,6 +43,12 @@ const server = createServer((request, response) => {
       "content-disposition": 'attachment; filename="la-dsh-synthetic-download.txt"',
     });
     response.end(downloadContent);
+  } else if (request.method === "POST" && request.url === "/upload") {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    uploadedBytes = Buffer.concat(chunks);
+    response.writeHead(204);
+    response.end();
   } else {
     response.writeHead(404);
     response.end();
@@ -83,6 +92,7 @@ const evidence = {
   checks: {},
 };
 let sessionId;
+let requestId;
 try {
   const fixtureResponse = await fetch(url);
   assert.equal(fixtureResponse.status, 200);
@@ -99,7 +109,7 @@ try {
   } else {
     const daemon = JSON.parse(status.stdout);
     assert.equal(daemon.daemon_version, baseline.cliRelease.version);
-    assert.equal(daemon.protocol_version, "1.3");
+    assert.equal(daemon.protocol_version, "1.8");
     evidence.checks.daemon = "PASS";
     evidence.daemon = { version: daemon.daemon_version, protocol: daemon.protocol_version, wsPort: daemon.ws_port };
     evidence.connectedBrowsers = daemon.browsers.map(({ instance_id, extension_version, browser_name }) => ({ instance_id, extension_version, browser_name }));
@@ -119,30 +129,46 @@ try {
       } else {
         assert.equal(browser.extension_version, baseline.extensionRelease.manifestVersion);
         evidence.checks.extension = "PASS";
-        const started = JSON.parse(await required(["session", "start", "--no-focus", "--browser", browser.instance_id, "--json"]));
+        requestId = `${Date.now() + 300_000}:${randomUUID()}`;
+        assert.equal(JSON.parse(await required(["session", "request", requestId, "--prepare", "--json"])).state, "prepared");
+        const started = JSON.parse(await required(["session", "start", "--no-focus", "--browser", browser.instance_id, "--request-id", requestId, "--json"]));
         sessionId = started.session_id;
         assert(sessionId);
         assert.equal(started.browser_instance_id, browser.instance_id);
+        assert.equal(JSON.parse(await required(["session", "request", requestId, "--claim", "--json"])).state, "active");
         evidence.session = { id: sessionId, browserInstanceId: browser.instance_id };
 
         await required(["navigate", url, "--session", sessionId, "--json"]);
-        assert.match(await required(["observe", "--session", sessionId]), /LA-DSH synthetic browser fixture/);
+        let control = JSON.parse(await required(["cooperate", "sync", "--policy", "target", "--session", sessionId, "--json"]));
+        assert.equal(control.state.mode, "ready");
+        assert.equal(control.control_policy, "target");
+        assert(control.context_id && control.observation_id);
+        assert.match(JSON.stringify(control), /LA-DSH synthetic browser fixture/);
         evidence.checks.navigationAndObservation = "PASS";
 
-        await required(["fill", "#note", "--value", "Synthetic note", "--session", sessionId, "--json"]);
-        assert.match(await required(["evaluate", "document.querySelector('#note').value", "--session", sessionId, "--json"]), /Synthetic note/);
+        await required(["fill", "#note", "--value", "Synthetic note", "--session", sessionId, "--context", control.context_id, "--json"]);
+        control = JSON.parse(await required(["cooperate", "sync", "--session", sessionId, "--json"]));
+        assert.equal(control.state.mode, "ready");
+        assert(control.context_id && control.observation_id);
+        const note = JSON.parse(await required(["evaluate", "document.querySelector('#note').value", "--session", sessionId, "--context", control.context_id, "--observation", control.observation_id, "--json"]));
+        assert.equal(note.ok, true);
+        assert.equal(note.value, "Synthetic note");
         evidence.checks.formEdit = "PASS";
 
         const upload = join(work, "la-dsh-synthetic-upload.txt");
         await writeFile(upload, uploadContent);
-        await required(["upload", "#upload", "--file", upload, "--session", sessionId, "--json"]);
-        const afterUpload = await required(["get-html", "--session", sessionId]);
-        assert.match(afterUpload, /LA-DSH synthetic browser upload/);
+        control = JSON.parse(await required(["cooperate", "sync", "--session", sessionId, "--json"]));
+        assert.equal(control.state.mode, "ready");
+        assert(control.context_id);
+        await required(["upload", "#upload", "--file", upload, "--session", sessionId, "--context", control.context_id, "--json"]);
+        const uploadDeadline = Date.now() + 5000;
+        while (!uploadedBytes && Date.now() < uploadDeadline) await new Promise(resolve => setTimeout(resolve, 100));
+        assert.deepEqual(uploadedBytes, Buffer.from(uploadContent));
         evidence.checks.uploadAttachment = "PASS";
 
         const destination = join(work, "la-dsh-synthetic-download.txt");
-        await required(["download", "#download", "--out", destination, "--session", sessionId, "--json"]);
-        assert.equal(await readFile(destination, "utf8"), downloadContent);
+        await required(["download", "#download", "--out", destination, "--session", sessionId, "--context", control.context_id, "--json"]);
+        assert.deepEqual(await readFile(destination), Buffer.from(downloadContent));
         evidence.checks.downloadBytes = "PASS";
         evidence.status = "READY";
       }
@@ -152,10 +178,11 @@ try {
   evidence.status = "FAILED";
   evidence.error = error.message;
 } finally {
-  if (sessionId) {
-    const stopped = await cli(["session", "stop", sessionId, "--json"]);
-    evidence.checks.ownedSessionStop = stopped.code === 0 ? "PASS" : "FAIL";
-    if (stopped.code !== 0) {
+  if (requestId) {
+    const stopped = await cli(["session", "request", requestId, "--cancel", "--json"]);
+    const closed = stopped.code === 0 && JSON.parse(stopped.stdout).state === "closed";
+    evidence.checks.ownedSessionStop = closed ? "PASS" : "FAIL";
+    if (!closed) {
       evidence.status = "FAILED";
       evidence.stopError = stopped.stdout || stopped.stderr;
     }

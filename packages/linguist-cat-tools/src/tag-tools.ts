@@ -64,5 +64,33 @@ export function createTagTools(runtime: CatToolRuntime) {
     },
   })
 
-  return [scanTool, saveTool] as const
+  const exceptionTool = defineTool({
+    name: 'cat_set_placeholder_exception',
+    label: 'Set segment placeholder exception',
+    description: 'Register or remove exact target-only named variables for one segment in the bound project. Requires a read Source snapshot, an explicit applicable project rule citation/quote, and a different segment in the same batch whose Source contains the variables. Check the item/field relationship before registering. Original Target, TM self-matches and model confidence are not authorization. Variables remain exact and required once registered; other segments, locales, source versions, tags and locks retain their checks. This does not edit Target, confirm a stage or waive QA. exception=null removes the registration.',
+    promptSnippet: 'Register a source-backed, segment-specific variable exception required by a project rule',
+    parameters: Type.Object({
+      segmentId: Type.String({ minLength: 1 }),
+      source: Type.String({ description: 'Exact current Source read for this segment.' }),
+      exception: Type.Union([Type.Null(), Type.Object({
+        placeholders: Type.Array(Type.String({ pattern: '^\\{[A-Za-z_][A-Za-z0-9_]*\\}$' }), { minItems: 1, maxItems: 32, uniqueItems: true }),
+        ruleReference: Type.String({ minLength: 1, maxLength: 1000, description: 'Document/version and section or cell containing the applicable rule.' }),
+        ruleQuote: Type.String({ minLength: 1, maxLength: 4000 }),
+        evidenceSegmentId: Type.String({ minLength: 1, description: 'Related Source in this batch, not a TM record or Target.' }),
+        reason: Type.String({ minLength: 1, maxLength: 2000, description: 'Verified item/field relationship and why the cited rule applies here.' }),
+      })]),
+    }),
+    async execute(toolCallId, params) {
+      resolveBoundProject('cat_set_placeholder_exception', toolCallId)
+      runtime.prepareStage([params.segmentId])
+      if (!deps.setPlaceholderException) {
+        throw new LinguistCatInvalidArgumentError('exception', 'project placeholder exception persistence is unavailable in this host')
+      }
+      const exception = deps.setPlaceholderException(params)
+      runtime.notifyMutation({ kind: 'project-updated' })
+      return toolResult({ segmentId: params.segmentId, exception }, deps.resultProjectId, [params.segmentId])
+    },
+  })
+
+  return [scanTool, saveTool, exceptionTool] as const
 }

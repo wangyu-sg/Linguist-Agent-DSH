@@ -64,14 +64,51 @@ export function parseSdltmReference(
     try {
       const DatabaseSync = loadDatabaseSync()
       db = new DatabaseSync(path, { readOnly: true })
+      const columns = db.prepare('PRAGMA table_info(translation_units)').all() as Array<{ name: string }>
+      const columnNames = new Set(columns.map(column => column.name))
+      const memoryColumn = columnNames.has('translation_memory_id') ? 'translation_memory_id' : 'tm_id'
+      const metadataColumns = [
+        'id', memoryColumn, 'creation_date', 'creation_user', 'change_date', 'change_user',
+        'last_used_date', 'last_used_user', 'usage_counter', 'flags',
+      ].filter(name => columnNames.has(name))
+      const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(row => row.name))
+      const contexts = new Map<string, string[]>()
+      if (tables.has('translation_unit_contexts')) {
+        // Native int64 hashes are provenance, not LA's normalized-text context hashes.
+        const rows = db.prepare(`SELECT CAST(translation_unit_id AS TEXT) AS unitId,
+          CAST(left_source_context AS TEXT) AS source,
+          CAST(left_target_context AS TEXT) AS target FROM translation_unit_contexts`).all() as Array<{
+          unitId: string; source: string | null; target: string | null
+        }>
+        for (const row of rows) {
+          const values = contexts.get(row.unitId) ?? []
+          values.push(JSON.stringify({ left_source_context: row.source, left_target_context: row.target }))
+          contexts.set(row.unitId, values)
+        }
+      }
+      const attributes = new Map<string, Record<string, string[]>>()
+      if (tables.has('attributes') && tables.has('string_attributes')) {
+        const rows = db.prepare(`SELECT CAST(s.translation_unit_id AS TEXT) AS unitId, a.name, s.value
+          FROM string_attributes s JOIN attributes a ON a.id = s.attribute_id`).all() as Array<{
+          unitId: string; name: string; value: string | null
+        }>
+        for (const row of rows) {
+          if (row.value === null) continue
+          const values = attributes.get(row.unitId) ?? {}
+          const key = `sdltm:attribute:${row.name}`
+          values[key] = [...(values[key] ?? []), row.value]
+          attributes.set(row.unitId, values)
+        }
+      }
       const rows = db.prepare(`
         SELECT
           tu.source_segment AS source,
           tu.target_segment AS target,
           tm.source_language AS sourceLocale,
-          tm.target_language AS targetLocale
+          tm.target_language AS targetLocale,
+          ${metadataColumns.map(name => `CAST(tu.${name} AS TEXT) AS "sdltm:${name}"`).join(', ')}
         FROM translation_units tu
-        JOIN translation_memories tm ON tm.id = tu.translation_memory_id
+        JOIN translation_memories tm ON tm.id = tu.${memoryColumn}
         WHERE COALESCE(tu.source_segment, '') <> ''
           AND COALESCE(tu.target_segment, '') <> ''
         ORDER BY tu.id
@@ -80,19 +117,34 @@ export function parseSdltmReference(
         target: string
         sourceLocale: string
         targetLocale: string
+        'sdltm:id': string
+        [key: string]: string | null
       }>
-      const entries = rows.flatMap((row, index): ParsedTmUnitImportInput[] => {
+      const entries = rows.flatMap((row): ParsedTmUnitImportInput[] => {
         if (!localeMatches(row.sourceLocale, sourceLocale) || !localeMatches(row.targetLocale, targetLocale)) {
           return []
         }
         const source = decodeSdlSegment(row.source)
         const target = decodeSdlSegment(row.target)
+        const unitId = row['sdltm:id']
+        const metadata: Record<string, string | string[]> = {
+          ...Object.fromEntries(metadataColumns.flatMap(name => {
+            const value = row[`sdltm:${name}`]
+            return value === null || value === '' ? [] : [[`sdltm:${name}`, value!]]
+          })),
+          ...attributes.get(unitId),
+          ...(contexts.has(unitId) ? { 'sdltm:contexts': contexts.get(unitId)! } : {}),
+        }
         return source === '' || target === '' ? [] : [{
           source,
           target,
           sourceLocale,
           targetLocale,
-          occurrenceKey: String(index + 1),
+          occurrenceKey: unitId,
+          originalTuid: unitId,
+          metadata,
+          sourceInline: row.source,
+          targetInline: row.target,
         }]
       })
       if (entries.length === 0) {

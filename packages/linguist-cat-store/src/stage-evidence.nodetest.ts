@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createStageEvidenceBaseline, type StageEvidencePlan } from '@linguist/cat-core'
 import { CatStore } from './store'
+import { stageEvidenceDetails } from './repositories/stage-evidence'
 import { makeClock, makeEntropy, makeImportedAsset, makeTempDir } from './testkit'
 
 function setup() {
@@ -63,6 +64,25 @@ test('Stage Evidence state freezes evidence facts and scope without becoming sta
     assert.equal(persisted?.status, 'ready')
     assert.deepEqual(persisted?.baseline, baseline)
     assert.deepEqual(persisted?.plan.segmentIds, plan.segmentIds)
+
+    const largePending = {
+      evidence: { kind: 'context-doc' as const, id: 'synthetic-reference' }, filename: 'reference.xlsx', rationale: 'Required reference',
+      scope: { kind: 'segments' as const, segmentIds: Array.from({ length: 311 }, (_, i) => `seg_${'x'.repeat(64)}_${i}`) },
+      anchorIds: Array.from({ length: 311 }, (_, i) => `anchor_${'x'.repeat(64)}_${i}`),
+      nextAnchor: { anchorId: `anchor_${'x'.repeat(64)}_0`, locator: { kind: 'sheet' as const, sheet: 'Reference', row: 2, textRange: { start: 10, end: 20 } } },
+    }
+    const compact = stageEvidenceDetails({
+      ...db.stageEvidence.getCompletion(stageRunId),
+      presentation: { required: 1, presented: 0, pending: [largePending] },
+      warnings: Array.from({ length: 100 }, (_, i) => ({ ...inventoryGap, id: `gap-${i}`, status: 'open' as const, createdAt: '2026-01-01' })),
+    })
+    assert.ok(Buffer.byteLength(JSON.stringify(compact), 'utf8') < 4000)
+    assert.equal(compact.remainingEvidence[0]!.missingAnchorCount, 311)
+    assert.deepEqual(compact.remainingEvidence[0]!.scope, { kind: 'segments', count: 311 })
+    assert.deepEqual(compact.remainingEvidence[0]!.nextAnchor, largePending.nextAnchor)
+    assert.equal(largePending.anchorIds.length, 311, '外发摘要不裁掉内部精确覆盖信息')
+    assert.equal(compact.gapExamples.length, 5)
+    assert.equal(compact.omittedGapCount, 95)
 
     const legacy = db.stageEvidence.recordReceipt({
       stageRunId,

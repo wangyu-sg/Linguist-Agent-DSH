@@ -36,6 +36,7 @@ import {
 import {
   buildProposalReviewSnapshot,
 } from './proposal-snapshot'
+import { recordReviewedWork, validateReviewedGroup } from './stage-tools'
 
 const EMPTY_CONSISTENCY_NOTE =
   'No open consistency findings: the tracked repeated-source, terminology, and punctuation rules found nothing to repair.'
@@ -89,25 +90,33 @@ export function createProposalTools(runtime: CatToolRuntime) {
   const applyTranslationsTool = defineTool({
     name: 'cat_apply_translations',
     label: 'CAT apply translations',
-    description: 'Submit 1-200 edits using each reviewed baseRevision and existing lock/structure checks. mode=apply commits successful items; appliedItems returns each real committed segmentId, proposalId, baseRevision and revision. Reuse that receipt for a matching stage decision; no reread is required solely to obtain the same version. Concurrent changes still cause CAS failure. mode=proposal stores pending suggestions without accepting or confirming them or replacing the trusted Stage; delegated scope still applies. Inspect stale, locked and failed results: successful tool completion does not imply every edit applied. Historical replay may lack appliedItems; never invent a revision or relabel current database state as the old receipt. Report-only tasks must not write. Establish the full professional scope before execution writes, then commit finalized results in useful groups; a read page does not require immediate submission.',
-    promptSnippet: 'Write the translations currently judged correct; use proposal mode only when review was requested',
+    description: 'Submit finalized edits using snapshotIds returned with the complete Source/Target actually read. The software supplies each base revision and returns real committed versions. Optionally declare reviewedSegmentIds to save edits and record a complete explicitly reviewed group in the same call; blockedSegmentIds remain unresolved. Use edits=[] for review without changes. No manual revision copying or per-item unchanged records. Failed edits are never confirmed. mode=proposal stores suggestions only and cannot declare reviewed completion. Existing scope, lock, tag, CAS and evidence protections apply. Group work by language/context, independent of read pages. Report-only tasks must not write.',
+    promptSnippet: 'Save finalized work and explicitly reviewed coverage together, against immutable read snapshots',
     parameters: Type.Object({
+      snapshotIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 }),
       edits: Type.Array(Type.Object({
         segmentId: Type.String({ minLength: 1 }),
-        baseRevision: Type.Integer({ minimum: 0, description: 'Revision of the Source/Target snapshot actually used to form this edit. On conflict, reassess the affected content; do not attach a fresh revision to an unchanged stale candidate.' }),
         target: Type.String({ minLength: 1 }),
         note: Type.Optional(Type.String({ maxLength: 2_000 })),
-      }), { minItems: 1, maxItems: 200 }),
+      }), { maxItems: 200 }),
+      reviewedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 })),
+      blockedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 })),
       mode: Type.Optional(Type.Union([Type.Literal('apply'), Type.Literal('proposal')], { description: 'apply commits successful edits (default). proposal creates pending suggestions only, without accepting them or starting a professional Stage. Neither mode is appropriate for a chat-only/report-only request that disallows project writes.' })),
     }),
     async execute(toolCallId, params) {
-      if (params.edits.length < 1 || params.edits.length > 200) {
-        throw new LinguistCatInvalidArgumentError('edits', 'expected 1-200 items')
+      if (params.edits.length > 200 || new Set(params.edits.map(edit => edit.segmentId)).size !== params.edits.length || (!params.edits.length && !params.reviewedSegmentIds?.length)) {
+        throw new LinguistCatInvalidArgumentError('edits', 'expected up to 200 unique edits or an explicit reviewed group')
       }
       const { project, db } = resolveBoundProject('cat_apply_translations', toolCallId)
       const mode = params.mode ?? 'apply'
+      const reviewed = params.reviewedSegmentIds ?? []
+      const blocked = params.blockedSegmentIds ?? []
+      if (reviewed.length) validateReviewedGroup(reviewed, blocked)
+      if (blocked.length && !reviewed.length) throw new LinguistCatInvalidArgumentError('blockedSegmentIds', 'requires reviewedSegmentIds')
+      if (mode === 'proposal' && reviewed.length) throw new LinguistCatInvalidArgumentError('reviewedSegmentIds', 'pending suggestions do not complete professional review')
+      const ids = [...new Set([...params.edits.map(edit => edit.segmentId), ...reviewed])]
       if (mode === 'apply') {
-        runtime.prepareStage(params.edits.map(edit => edit.segmentId))
+        runtime.prepareStage(ids)
       } else {
         assertDelegatedProposalScope(params.edits.map(edit => edit.segmentId))
       }
@@ -123,11 +132,14 @@ export function createProposalTools(runtime: CatToolRuntime) {
         operation: 'cat_apply_translations',
         payload: params,
         mutate: () => {
+          const versions = runtime.readVersions(params.snapshotIds, ids, db)
+          const reads = new Map(versions.map(version => [version.segmentId, version]))
+          const edits = params.edits.map(edit => ({ ...edit, baseRevision: reads.get(edit.segmentId)!.revision }))
           const before = new Map(
             db.segments.getByIds(params.edits.map((edit) => edit.segmentId))
               .map((segment) => [segment.id as string, segment]),
           )
-          const dto: CatApplyTranslationsResult = db.proposals.applyTranslations(params.edits, {
+          const dto: CatApplyTranslationsResult = edits.length ? db.proposals.applyTranslations(edits, {
             mode,
             ...(project.tagProfile === undefined ? {} : { tagProfile: project.tagProfile }),
             ...(provenance.modelId === undefined ? {} : { modelId: provenance.modelId }),
@@ -139,7 +151,10 @@ export function createProposalTools(runtime: CatToolRuntime) {
               idempotencyKey: `cat_apply_translations:${runId}:${toolCallId}`,
               ...(createdAt === undefined ? {} : { createdAt }),
             },
-          })
+          }) : { requested: 0, applied: 0, pending: 0, stale: [], locked: [], failed: [], proposalIds: [], appliedItems: [] }
+          if (reviewed.length) dto.review = recordReviewedWork(runtime, db, versions.filter(version => reviewed.includes(version.segmentId)), blocked, dto.appliedItems, [
+            ...dto.stale, ...dto.locked, ...dto.failed.map(item => item.segmentId),
+          ])
           const proposals = dto.proposalIds.flatMap((id) => {
             const proposal = db.proposals.getById(id)
             return proposal === undefined ? [] : [proposal]
@@ -172,16 +187,17 @@ export function createProposalTools(runtime: CatToolRuntime) {
           return {
             result: dto,
             changes,
-            ...(changes.length === 0 ? {} : {
+            ...(changes.length === 0 && !dto.review?.decisions.length ? {} : {
               event: {
                 kind: mode === 'proposal' ? 'proposal-created' as const : 'project-updated' as const,
-                segmentIds: proposals.map((proposal) => proposal.segmentId as string),
+                segmentIds: [...new Set([...proposals.map((proposal) => proposal.segmentId as string), ...dto.review?.decisions.map(item => item.segmentId) ?? []])],
                 proposalIds: dto.proposalIds,
               },
             }),
           }
         },
       })
+      runtime.recordApplied(params.snapshotIds, mutation.result.appliedItems ?? [])
       if (!mutation.replayed && mutation.event !== undefined) {
         notifyMutation({
           kind: mode === 'proposal' ? 'proposal-created' : 'project-updated',
@@ -197,13 +213,13 @@ export function createProposalTools(runtime: CatToolRuntime) {
   const proposeTranslationsTool = defineTool({
     name: 'cat_propose_translations',
     label: 'CAT propose translations',
-    description: 'Create pending translation proposals without accepting them, changing Target, or confirming segments. Use only when the user requested stored suggestions; use chat output instead for a report-only/chat-only request. Keep the existing 1-50 limit, revision, lock, structure and atomicity contracts. Do not create/replace a professional Stage solely to issue proposals; enforce the trusted delegated scope where present. The resulting proposals are not committed translations or completed professional review.',
+    description: 'Create pending translation proposals against snapshotIds returned by a complete Source/Target read. The software supplies base revisions. This does not accept suggestions, change Target, confirm review or create a professional Stage. Use only when stored suggestions are authorized; report-only/chat-only tasks use chat output. Existing 1-50 limit, locks, structure checks, atomicity and delegated scope apply.',
     promptSnippet: 'Propose translations for review without changing segments',
     parameters: Type.Object({
+      snapshotIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 }),
       segmentProposals: Type.Array(
         Type.Object({
           segmentId: Type.String({ minLength: 1 }),
-          baseRevision: Type.Integer({ minimum: 0 }),
           proposedTarget: Type.String({ minLength: 1 }),
           evidenceRefs: Type.Optional(Type.Array(Type.String())),
           termRefs: Type.Optional(Type.Array(Type.String())),
@@ -226,18 +242,6 @@ export function createProposalTools(runtime: CatToolRuntime) {
       const provenance = proposalProvenance(toolCallId)
       const runId = provenance.runId
       const createdAt = deps.now?.()
-      const proposalInputs = params.segmentProposals.map((input) => ({
-        segmentId: input.segmentId as SegmentId,
-        baseRevision: input.baseRevision,
-        proposedTarget: input.proposedTarget,
-        ...(input.evidenceRefs !== undefined ? { evidenceRefs: input.evidenceRefs } : {}),
-        ...(input.termRefs !== undefined ? { termRefs: input.termRefs } : {}),
-        ...(input.warnings !== undefined ? { warnings: input.warnings } : {}),
-        ...(provenance.modelId !== undefined ? { modelId: provenance.modelId } : {}),
-        ...(provenance.sessionId !== undefined ? { sessionId: provenance.sessionId } : {}),
-        runId,
-        ...(createdAt !== undefined ? { now: createdAt } : {}),
-      }))
       const mutation = db.runs.executeMutation({
         identity: {
           runId,
@@ -247,6 +251,19 @@ export function createProposalTools(runtime: CatToolRuntime) {
         operation: 'cat_propose_translations',
         payload: params,
         mutate: () => {
+          const versions = new Map(runtime.readVersions(params.snapshotIds, params.segmentProposals.map(input => input.segmentId), db).map(item => [item.segmentId, item]))
+          const proposalInputs = params.segmentProposals.map((input) => ({
+            segmentId: input.segmentId as SegmentId,
+            baseRevision: versions.get(input.segmentId)!.revision,
+            proposedTarget: input.proposedTarget,
+            ...(input.evidenceRefs !== undefined ? { evidenceRefs: input.evidenceRefs } : {}),
+            ...(input.termRefs !== undefined ? { termRefs: input.termRefs } : {}),
+            ...(input.warnings !== undefined ? { warnings: input.warnings } : {}),
+            ...(provenance.modelId !== undefined ? { modelId: provenance.modelId } : {}),
+            ...(provenance.sessionId !== undefined ? { sessionId: provenance.sessionId } : {}),
+            runId,
+            ...(createdAt !== undefined ? { now: createdAt } : {}),
+          }))
           const existingProposalIds = new Set(
             proposalInputs
               .map((input) => createProposal(input).id as string)

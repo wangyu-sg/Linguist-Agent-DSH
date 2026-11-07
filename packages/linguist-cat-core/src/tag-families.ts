@@ -117,10 +117,28 @@ interface CompiledFamily {
 // - brace-num / brace-named：{N} / {name} 占位符；
 // - printf：printf 全族（含 %1$s 位置参数、%.2f 精度、%03d 填充、%%）；
 const BUILTIN_FAMILIES: readonly CompiledFamily[] = [
+  // Claim link boundaries before XML so its displayed label remains ordinary text.
+  {
+    id: 'caret-link',
+    group: 'markup',
+    regex: /<a\^|\^a>/g,
+    skipIcuSpans: false,
+    kindOf: (match) => (match[0] === '<a^' ? 'open' : 'close'),
+    pairKeyOf: () => 'a',
+  },
+  {
+    id: 'ngui-color',
+    group: 'markup',
+    regex: /\[(?:[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?|-)\]/g,
+    skipIcuSpans: false,
+    kindOf: (match) => (match[0] === '[-]' ? 'close' : 'open'),
+    pairKeyOf: () => 'color',
+  },
   {
     id: 'xml',
     group: 'xml',
-    regex: /<\s*(?<close>\/)?\s*(?<name>[A-Za-z][A-Za-z0-9:_-]*)[^<>]*?(?<self>\/)?\s*>/g,
+    // ASCII QName boundary; '=' also admits Unity's <color=...> shorthand.
+    regex: /<\s*(?<close>\/)?\s*(?<name>[A-Za-z_][A-Za-z0-9_.-]*(?::[A-Za-z_][A-Za-z0-9_.-]*)?)(?=[\s=/>])[^<>]*?(?<self>\/)?\s*>/g,
     skipIcuSpans: false,
     kindOf: (match) => (match.groups?.close ? 'close' : match.groups?.self ? 'self' : 'open'),
     pairKeyOf: (match) => match.groups?.name?.toLowerCase() ?? null,
@@ -130,7 +148,7 @@ const BUILTIN_FAMILIES: readonly CompiledFamily[] = [
     group: 'markup',
     // 只把明确的常见 BBCode 视为内置硬标签；[Damage] 类可翻译客户文本
     // 留给 unknown scanner 和人/当前 Agent 判断，不得未经判断永久锁定。
-    regex: /\[(?<close>\/)?(?<name>b|i|u|s|color|size|font|url|br)(?:=[^[\]]*)?\]/gi,
+    regex: /\[(?<close>\/)?(?<name>b|i|u|s|c|color|size|font|url|br)(?:=[^[\]]*)?\]/gi,
     skipIcuSpans: false,
     kindOf: (match) => (match.groups?.close ? 'close' : 'open'),
     pairKeyOf: (match) => match.groups?.name?.toLowerCase() ?? null,

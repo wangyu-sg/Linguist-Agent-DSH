@@ -27,6 +27,7 @@ test('native task owner survives source removal with frozen project, model and p
     bindings.bindProject(project.id, 'workspace-original')
     bindings.bindProject(otherProject.id, 'workspace-other')
     const actors = new Map(), stored = new Map(), reads = []
+    let observationCount = 0, releasedObservations = 0
     const sourceId = SessionId('session-independent-source')
     const source = { id: sourceId, session: Session.create(sourceId) }
     source.session.append('permission/preset', { preset: 'workspace-write' })
@@ -46,19 +47,19 @@ test('native task owner survives source removal with frozen project, model and p
           return { async append(events) { value.events.push(...events) }, async flush() {}, async close() {} }
         },
       },
-      sessionController: {
-        async inspect(id) {
+      sessionQuery: {
+        async observeSession(id) {
           reads.push(id)
           const actor = actors.get(id)
           assert(actor, `Session ${id} must exist when inspected`)
-          return { meta: { agentPreset: 'synthetic-preset' }, inheritedEventCount: 0, events: actor.session.ownEvents() }
+          observationCount++
+          return { header: actor.session.header, inheritedEventCount: 0, events: actor.session.ownEvents(),
+            projections: { values: { agentPreset: 'synthetic-preset', modelSelection: { next: actor.session.ownEvents().findLast(event => event.type === 'model/selection')?.data } } },
+            [Symbol.dispose]() { releasedObservations++ },
+          }
         },
-        async projections({ sessionId }) {
-          reads.push(sessionId)
-          const actor = actors.get(sessionId)
-          assert(actor, `Session ${sessionId} must exist for settings`)
-          return { values: { modelSelection: { next: actor.session.ownEvents().findLast(event => event.type === 'model/selection')?.data } } }
-        },
+      },
+      sessionController: {
         async create({ sessionId }) {
           const { header, events } = stored.get(sessionId)
           const session = Session.create(sessionId, validateStoredEvents(header, structuredClone(events)), header)
@@ -75,21 +76,28 @@ test('native task owner survives source removal with frozen project, model and p
     const native = {
       rows: [],
       updates: 0,
-      async create(sessionId, request) {
-        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.every_seconds, Date.now(), request.title)
-        this.rows.push({ ...record, sessionId, status: 'active' })
+      async create(request, actorSessionId) {
+        const record = { ...createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.timing.every_seconds, Date.now(), request.title),
+          target: request.target, involvedSessionIds: [actorSessionId, request.target.sessionId], status: 'active', updatedAt: new Date().toISOString() }
+        this.rows.push(record)
         return record
       },
       async catalog() { return this.rows },
-      async update(request) {
-        this.updates++
+      async edit(request) {
         const record = this.rows.find(row => row.id === request.id)
-        Object.assign(record, { title: request.title, prompt: request.prompt })
-        return { record }
+        if (!record) return { id: request.id, code: 'schedule_not_found' }
+        if (request.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== (record.updatedAt ?? null)) return { id: request.id, code: 'schedule_conflict' }
+        if (request.action === 'delete') {
+          const count = this.rows.length
+          this.rows = this.rows.filter(row => row.id !== request.id)
+          return count !== this.rows.length ? { id: request.id, deleted: true } : { id: request.id, code: 'schedule_not_found' }
+        }
+        this.updates++
+        Object.assign(record, request.patch)
+        return record
       },
       async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
-      async delete({ sessionId, id }) { const count = this.rows.length; this.rows = this.rows.filter(row => row.id !== id || row.sessionId !== sessionId); return { id, deleted: this.rows.length !== count } },
-      async stopSessionTasks(sessionId) { this.rows = this.rows.filter(row => row.sessionId !== sessionId || row.status !== 'active') },
+      async stopSessionTasks(sessionId) { this.rows = this.rows.filter(row => row.target.sessionId !== sessionId || row.status !== 'active') },
     }
     let manager = new ScheduleContextManager(root, native, service, bindings, async (id, projectId) => {
       assert(actors.has(id), 'authorized Session must exist')
@@ -98,11 +106,47 @@ test('native task owner survives source removal with frozen project, model and p
     const instruction = 'Review synthetic selection.\nPreserve {player}, <b>tags</b> and 中文.\nReply exactly SYNTHETIC-SCHEDULE-COMPLETE.'
     const created = await manager.create({ sessionId: sourceId, projectId: project.id, title: 'Independent review', prompt: instruction, executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
     assert.notEqual(created.sessionId, sourceId, 'native Schedule must have its own owner before the first due run')
-    assert.equal(native.rows[0].sessionId, created.sessionId)
+    assert.equal(native.rows[0].target.sessionId, created.sessionId)
+    assert(native.rows[0].involvedSessionIds.includes(sourceId), 'native task records the source Session as the managing actor')
+    assert.equal(releasedObservations, observationCount, 'creation releases its exact native Session observation')
     const owner = actors.get(created.sessionId)
     assert.equal(stored.get(owner.id).header.parentSession, undefined, 'cold restoration cannot require deleted source ancestry')
     assert.deepEqual(owner.session.ownEvents().filter(event => ['permission/preset', 'sandbox/mode', 'approval/policy', 'model/selection'].includes(event.type)).map(event => event.data), originalSettings)
     assert.equal((await manager.list(sourceId)).items[0].sessionId, owner.id, 'source can still manage its explicit task')
+    await t.test('a concurrent native retarget rejects deletion and preserves both task and Linguist context', async () => {
+      const row = native.rows.find(row => row.id === created.scheduleId)
+      const before = { target: row.target, updatedAt: row.updatedAt }
+      const token = row.prompt.match(/token=([^\]]+)/)[1]
+      const path = join(root, 'linguist-schedule-context', `${token}.json`)
+      const context = readFileSync(path, 'utf8')
+      const originalEdit = native.edit
+      const changedAt = new Date(Date.parse(row.updatedAt) + 1).toISOString()
+      native.edit = async function (request, actorSessionId) {
+        assert.equal(request.action, 'delete')
+        assert.equal(request.expectedUpdatedAt, before.updatedAt)
+        row.target = { kind: 'new', create: {} }
+        row.updatedAt = changedAt
+        return originalEdit.call(this, request, actorSessionId)
+      }
+      try {
+        await assert.rejects(manager.cancel(sourceId, created.scheduleId), /changed before deletion/)
+        assert(native.rows.includes(row), 'CAS rejection must not delete the retargeted native task')
+        assert.deepEqual(row.target, { kind: 'new', create: {} })
+        assert.equal(row.updatedAt, changedAt)
+        assert.equal(readFileSync(path, 'utf8'), context, 'CAS rejection must not mark the Linguist context cancelled')
+      } finally {
+        native.edit = originalEdit
+        Object.assign(row, before)
+      }
+    })
+    await t.test('native target changes cannot redirect the frozen Linguist task', async () => {
+      const row = native.rows.find(row => row.id === created.scheduleId)
+      const target = row.target
+      row.target = { kind: 'new', create: {} }
+      assert.equal((await manager.list(sourceId)).items[0].authorizationStatus, 'changed')
+      await assert.rejects(manager.runNow(sourceId, created.scheduleId, created.version), /changed since/)
+      row.target = target
+    })
     await t.test('obsolete source-owned sidecars stay read-only and do not block independent tasks', async () => {
       const request = { sessionId: sourceId, projectId: project.id, title: 'Obsolete synthetic task', prompt: 'Old task instruction', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } }
       const legacy = await manager.create(request)
@@ -114,7 +158,7 @@ test('native task owner survives source removal with frozen project, model and p
       delete saved.sourceSessionId
       delete saved.binding
       writeFileSync(path, JSON.stringify(saved))
-      row.sessionId = sourceId
+      row.target.sessionId = sourceId
       const before = readFileSync(path, 'utf8')
       await assert.rejects(manager.update({ ...request, scheduleId: legacy.scheduleId, expectedVersion: legacy.version }), /cancel.*recreate/i)
       await assert.rejects(manager.runNow(sourceId, legacy.scheduleId, legacy.version), /cancel.*recreate/i)
@@ -185,8 +229,12 @@ test('native task owner survives source removal with frozen project, model and p
     await assert.rejects(manager.dispatchDue(owner, { kind: 'enter', messages: [due] }, 2, [due]), /deleted or changed/)
     assert.equal(native.rows.length, 0, 'archiving/stopping task owner never recreates its native schedule')
     const sessionCount = stored.size
-    ctx.sessionController.projections = async () => ({ values: {} })
+    ctx.sessionQuery.observeSession = async () => {
+      observationCount++
+      return { events: owner.session.ownEvents(), projections: { values: {} }, [Symbol.dispose]() { releasedObservations++ } }
+    }
     await assert.rejects(runtime.create(owner, bindings.session(owner.id), 'No configured model', () => assert.fail('must not create a task')), /selected model/)
     assert.equal(stored.size, sessionCount, 'missing model must fail before a task Session is stored')
+    assert.equal(releasedObservations, observationCount, 'failed preparation also releases its native Session observation')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })

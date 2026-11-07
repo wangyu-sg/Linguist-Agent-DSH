@@ -27,9 +27,14 @@ export interface TmMatchCandidate {
   contextKey?: string
   previousSourceHash?: string
   nextSourceHash?: string
+  originalTuid?: string
+  metadata?: Record<string, string | string[]>
+  sourceInline?: string
+  targetInline?: string
 }
 
-export interface TmMatchDiagnostics {
+export interface TmMatchDiagnostics extends Pick<TmMatchCandidate,
+  'originalTuid' | 'metadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
   unitId: string
   matchClass: TmSegmentMatchClass
   displayScore: number
@@ -55,7 +60,8 @@ export interface TmMatcherOptions {
   minimumScore?: number
 }
 
-export interface TmAgentEvidence {
+export interface TmAgentEvidence extends Pick<TmMatchDiagnostics,
+  'originalTuid' | 'metadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
   unitId: string
   matchClass: TmSegmentMatchClass
   score: number
@@ -282,15 +288,14 @@ export function matchTmCandidates(
       displayScore = Math.max(0, Math.min(94, lexicalScore * lengthPenalty(normalizedQuery, normalizedCandidate) * 100))
       matchClass = 'fuzzy'
     }
-    if (structure.safety === 'incompatible') continue
     if (options.minimumScore !== undefined && displayScore < options.minimumScore) continue
-    if (isShortSegment(query) && matchClass === 'fuzzy') continue
-    const safety = matchClass === 'near-exact'
-      ? 'review'
-      : structure.safety
-    const safetyReasons = matchClass === 'near-exact' && structure.reasons.length === 0
-      ? ['Near Exact 默认需要人工审核']
-      : structure.reasons
+    const safety = matchClass === 'fuzzy' || matchClass === 'near-exact' || structure.safety !== 'compatible'
+      ? 'review' : 'compatible'
+    const safetyReasons = [
+      ...structure.reasons,
+      ...(matchClass === 'near-exact' && structure.reasons.length === 0 ? ['Near Exact 默认需要人工审核'] : []),
+      ...(matchClass === 'fuzzy' ? [isShortSegment(query) ? '短句模糊候选，仅供参考，需核对语义与上下文' : '模糊候选需核对变化后再使用'] : []),
+    ]
     matches.push({
       unitId: candidate.unitId,
       matchClass,
@@ -304,6 +309,13 @@ export function matchTmCandidates(
       context: { structural, textFlow },
       structure: { safety, reasons: [...safetyReasons] },
       differences: differences(query, candidate.source),
+      ...(candidate.originalTuid === undefined ? {} : { originalTuid: candidate.originalTuid }),
+      ...(candidate.metadata === undefined ? {} : { metadata: candidate.metadata }),
+      ...(candidate.contextKey === undefined ? {} : { contextKey: candidate.contextKey }),
+      ...(candidate.previousSourceHash === undefined ? {} : { previousSourceHash: candidate.previousSourceHash }),
+      ...(candidate.nextSourceHash === undefined ? {} : { nextSourceHash: candidate.nextSourceHash }),
+      ...(candidate.sourceInline === undefined ? {} : { sourceInline: candidate.sourceInline }),
+      ...(candidate.targetInline === undefined ? {} : { targetInline: candidate.targetInline }),
     })
   }
   ambiguityGroups(matches)
@@ -317,17 +329,12 @@ export function selectTmAgentEvidence(
   limit = 5,
 ): TmAgentEvidence[] {
   const chosen: TmAgentEvidence[] = []
-  const chosenTargets = new Set<string>()
   let fuzzyCount = 0
-  const hasHigh = matches.some((match) => match.matchClass !== 'fuzzy' && match.displayScore >= 95)
   for (const match of matches) {
     if (match.matchClass === 'fuzzy') {
-      if (match.displayScore < 85 || fuzzyCount >= 2 || hasHigh) continue
+      if (match.displayScore < 85 || fuzzyCount >= 2) continue
       fuzzyCount += 1
     }
-    const targetKey = normalizeTmText(match.target)
-    if (chosenTargets.has(targetKey)) continue
-    chosenTargets.add(targetKey)
     chosen.push({
       unitId: match.unitId,
       matchClass: match.matchClass,
@@ -342,6 +349,13 @@ export function selectTmAgentEvidence(
         ...(match.variantCount <= 1 ? [] : ['同一原文存在多个不同译文变体，不能仅按分数选择。']),
       ],
       ambiguous: match.variantCount > 1,
+      ...(match.originalTuid === undefined ? {} : { originalTuid: match.originalTuid }),
+      ...(match.metadata === undefined ? {} : { metadata: match.metadata }),
+      ...(match.contextKey === undefined ? {} : { contextKey: match.contextKey }),
+      ...(match.previousSourceHash === undefined ? {} : { previousSourceHash: match.previousSourceHash }),
+      ...(match.nextSourceHash === undefined ? {} : { nextSourceHash: match.nextSourceHash }),
+      ...(match.sourceInline === undefined ? {} : { sourceInline: match.sourceInline }),
+      ...(match.targetInline === undefined ? {} : { targetInline: match.targetInline }),
     })
     if (chosen.length >= limit) break
   }

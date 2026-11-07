@@ -4,6 +4,7 @@ import type { LinguistProjectService } from '@linguist/domain-service'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { buildForkSeed, SESSION_FORMAT_VERSION, SessionId as asSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceId, type WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
 import type { BindingStore } from './bindings'
@@ -26,8 +27,8 @@ export type LinguistSessionCopyEligibility =
 export interface SessionCopyHost {
   bindings: BindingStore
   service: LinguistProjectService
+  sessionQuery: Pick<SessionQueryEngine, 'observeSession'>
   sessionController: {
-    inspect(id: SessionId): Promise<{ meta: { cwd?: string; agentPreset?: string }; events: readonly SessionEvent[] }>
     create(input: { workspaceId: WorkspaceId; sessionId?: SessionId; agentPreset?: string }): Promise<{ sessionId: SessionId }>
     fork(input: { sessionId: SessionId }): Promise<{ sessionId: SessionId }>
     rename(input: { sessionId: SessionId; title: string }): Promise<unknown>
@@ -72,13 +73,14 @@ export async function sessionCopyEligibility(host: SessionCopyHost, sessionId: s
   const binding = host.bindings.session(sessionId)
   const blocked = (reason: Exclude<LinguistSessionCopyEligibility, { eligible: true }>['reason'], message: string): LinguistSessionCopyEligibility => ({ eligible: false, reason, message })
   if (!await host.sessionExists(sessionId)) return blocked('SESSION_NOT_FOUND', 'Source DSH Session does not exist')
-  let inspection: Awaited<ReturnType<SessionCopyHost['sessionController']['inspect']>>
-  try { inspection = await host.sessionController.inspect(asSessionId(sessionId)) }
+  let observation: SessionObservation
+  try { observation = await host.sessionQuery.observeSession(asSessionId(sessionId)) }
   catch { return blocked('HISTORY_UNREADABLE', 'Source DSH Session history cannot be read') }
+  using inspection = observation
   if (!binding?.projectId) return blocked('NOT_LINGUIST_SESSION', 'Source Session is not bound to a Linguist project')
   const workspace = host.workspaceRegistry.get(WorkspaceId(binding.workspaceId))
   let observedCwd: string | undefined
-  try { observedCwd = inspection.meta.cwd && realpathSync(inspection.meta.cwd) }
+  try { observedCwd = inspection.header.cwd && realpathSync(inspection.header.cwd) }
   catch { return blocked('NOT_LINGUIST_SESSION', 'Source Session Workspace directory is unavailable') }
   if (!workspace || !observedCwd || observedCwd !== workspace.path || host.bindings.projectWorkspace(binding.projectId) !== workspace.id) {
     return blocked('NOT_LINGUIST_SESSION', 'Source Session project or Workspace binding changed')
@@ -112,11 +114,13 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
   let copied: { sessionId: SessionId }
   try {
     if (first.mode === 'blank' || targetWorkspaceId !== source.workspaceId) {
-      const snapshot = await host.sessionController.inspect(asSessionId(sourceSessionId))
+      using snapshot = await host.sessionQuery.observeSession(asSessionId(sourceSessionId))
+      if (!snapshot.projections) throw new Error('Source DSH Session projections are unavailable')
+      const agentPreset = snapshot.projections.values.agentPreset ?? undefined
       if (host.agentStatus(sourceSessionId) === 'running' || (first.mode === 'fork' ? !completedAssistant(snapshot.events)
         : snapshot.events.some(event => event.type === 'user/message' || event.type === 'assistant/message'))) throw new Error('Source Session changed before history capture')
       if (snapshot.events.length === 0) {
-        copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), agentPreset: snapshot.meta.agentPreset })
+        copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), agentPreset })
       } else {
         const id = asSessionId(`session-${randomUUID()}`)
         const boundary = snapshot.events.at(-1)!.seq
@@ -126,14 +130,14 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
             version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
             cwd: host.workspaceRegistry.get(WorkspaceId(targetWorkspaceId))!.path,
             parentSession: asSessionId(sourceSessionId), isSeeded: true,
-            ...(snapshot.meta.agentPreset === undefined ? {} : { agentPreset: snapshot.meta.agentPreset }),
+            ...(agentPreset === undefined ? {} : { agentPreset }),
           }, { inheritedEventCount: SessionLogOffset(boundary + 1) })
           seedCreated = true
           try {
             await handle.append(buildForkSeed(snapshot.events, boundary))
             await handle.flush()
           } finally { await handle.close() }
-          copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset: snapshot.meta.agentPreset })
+          copied = await host.sessionController.create({ workspaceId: WorkspaceId(targetWorkspaceId), sessionId: id, agentPreset })
         } catch (error) {
           if (seedCreated) return failOwnedSessionCopy(host, id, error)
           throw new LinguistSessionCopyError(id, 'not-started', { cause: error })

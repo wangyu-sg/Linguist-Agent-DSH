@@ -31,7 +31,7 @@ test('missing required input blocks native child start and frozen scope survives
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: () => { throw new Error('No intent is reserved on blocked input') },
       control: {} as never,
-      subagents: { resolveMaxDepth: () => 1, startContinuable: async () => { started = true; throw new Error('No child should start') } } as never,
+      subagents: { resolveMaxDepth: () => 1, startActivation: async () => { started = true; throw new Error('No child should start') } } as never,
     })
     const result = await tool.execute({
       role: 'reviewer', objective: 'Review this synthetic segment', scope: { segmentIds: [segment.id] }, expectedOutcome: 'A review report',

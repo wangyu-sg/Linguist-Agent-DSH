@@ -14,8 +14,6 @@ const cache = new Map()
 let hooks
 let apiRequired, navigation
 const document = { activeElement: null }
-const resizeObservers = [], frames = new Map()
-let frameId = 0
 const t = (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, name) => String(params[name]))
 
 function load(name) {
@@ -25,25 +23,25 @@ function load(name) {
   const code = ts.transpileModule(readFileSync(new URL(name, client), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
   }).outputText
-  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows; exports.testWorkbench = WorkbenchBody; exports.testInline = ProposalInlineReview;' : ''), { exports, document, crypto: { randomUUID: () => 'synthetic-key' }, window: { innerHeight: 800, setTimeout, clearTimeout },
-    ResizeObserver: class { constructor(callback) { this.callback = callback; resizeObservers.push(this) } observe(target) { this.target = target } disconnect() { this.disconnected = true } },
-    requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId }, cancelAnimationFrame: id => frames.delete(id),
+  runInNewContext(code + (name === 'CatWorkbench.tsx' ? '\nexports.testRows = SegmentRows; exports.testWorkbench = WorkbenchBody; exports.testInline = ProposalInlineReview;' : ''), { exports, document, crypto: { randomUUID: () => 'synthetic-key' }, window: { innerHeight: 800, setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer) },
     require: name => {
     if (name === 'react') return { ...React, ...Object.fromEntries(['useState', 'useRef', 'useMemo', 'useCallback', 'useEffect', 'useLayoutEffect', 'useImperativeHandle'].map(name => [name, (...args) => hooks ? hooks[name](...args) : React[name](...args)])) }
-    if (name === 'jotai') return { ...jotai, useAtom: atom => { if (!hooks) return jotai.useAtom(atom); const store = hooks.store; return [store.get(atom), hooks.useCallback(value => store.set(atom, value), [store, atom])] } }
+    if (name === 'jotai') return { ...jotai, useAtomValue: atom => hooks ? hooks.store.get(atom) : jotai.useAtomValue(atom), useAtom: atom => { if (!hooks) return jotai.useAtom(atom); const store = hooks.store; return [store.get(atom), hooks.useCallback(value => store.set(atom, value), [store, atom])] } }
     if (name === './cat-editor-state') return load('cat-editor-state.ts')
     if (name === './TargetEditor') return load('TargetEditor.tsx')
+    if (name === './TokenEditor') return { TokenEditor: 'TokenEditor' }
+    if (name === './InlineTaggedText') return { InlineTaggedText: 'InlineTaggedText' }
+    if (name === './EditorAssistance') return { useEditorViewOptions: () => [{ invisibles: false, terms: true, critical: true, spelling: true, differences: false, context: false }, () => {}, ''], useEditorTerms: () => ({ items: new Map() }), EditorViewControls: 'EditorViewControls', SegmentTextCells: SegmentTextCellsFixture }
     if (name === './cat-edit-utils') return load('cat-edit-utils.ts')
     if (name === './cat-virtual-utils') return load('cat-virtual-utils.ts')
     if (name === './proposal-view') return load('proposal-view.ts')
-    if (name === './tag-atomic-utils') return load('tag-atomic-utils.ts')
     if (name === './workflow-ui') return { stageActionLabel: () => '确认', stageProgressLabel: () => '翻译', segmentStatusBadgeTitle: () => '翻译', stageName: () => '翻译', stageCompletionLabel: () => '已确认', nextStageItemLabel: () => '下一待处理', stageFilterOptions: () => [] }
     if (name === '@tanstack/react-virtual') return { useVirtualizer: ({ count }) => ({ getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 94 })), getTotalSize: () => count * 94, scrollToIndex() {}, measureElement() {} }) }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Tooltip: 'tooltip', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg', IconCheckCircleFillRegular: 'svg' }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './api') return { required: (...args) => apiRequired(...args), subscribeProject: () => () => {} }
     if (name === './cat-navigation') return { useCatNavigation: () => navigation, requestCatNavigation: input => { navigation = { ...input, revision: (navigation?.revision ?? 0) + 1 } } }
-    if (name === './workbench-location') return { readWorkbenchLocation: () => ({ value: { assetId: 'asset-A', segmentId: 'row-199', assetNavigatorOpen: true, assetNavigatorWidth: 240, inspectorWidth: 320, dockOpen: true, dock: 'qa', dockHeight: 240 } }), writeWorkbenchLocation() {} }
+    if (name === './workbench-location') return { workbenchDefaults: { assetNavigatorWidth: 200, inspectorWidth: 280, dockHeight: 200 }, readWorkbenchLocation: () => ({ value: { assetId: 'asset-A', segmentId: 'row-199', assetNavigatorOpen: true, assetNavigatorWidth: 240, inspectorWidth: 320, dockOpen: true, dock: 'qa', dockHeight: 240 } }), writeWorkbenchLocation() {} }
     if (name === './composer-context') return { publishWorkbenchComposerContext() {} }
     if (name === './Panels') return { ...Object.fromEntries(['QaPanel', 'ProposalPanel', 'ReferencePanel', 'AssetsPanel', 'DeliveryPanel', 'ProjectSettingsPanel', 'BatchExportButton', 'ProposalReviewConfirmation'].map(name => [name, name])), loadProposalReviewPlan: (...args) => load('Panels.tsx').loadProposalReviewPlan(...args) }
     if (name === './UnknownTagNotice') return { UnknownTagNotice: 'UnknownTagNotice' }
@@ -56,6 +54,15 @@ function load(name) {
     return {}
   } })
   return exports
+}
+
+// Isolate assistance data fetching while preserving the real row/editor callbacks under test.
+function SegmentTextCellsFixture(props) {
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { role: 'gridcell' }, props.segment.source),
+    React.createElement('div', { role: 'gridcell' }, props.editing
+      ? React.createElement(load('TargetEditor.tsx').TargetEditor, { ...props.editorProps, draftAtom: props.draftAtom, segment: props.segment, archived: props.archived, tagProfile: props.tagProfile })
+      : React.createElement('button', { type: 'button', disabled: props.segment.locked || props.archived, onClick: props.onStartEdit }, props.segment.target), props.signals))
 }
 
 function mountStore(sessionId, projectId) {
@@ -77,7 +84,7 @@ test('closing and reopening the native CAT workbench keeps draft state and isola
   assert.equal(mountStore('session-A', 'project-B').get(draft).value, 'original')
 })
 
-function mountEditor(scope, props, render = props => load('TargetEditor.tsx').TargetEditor.render(props, null), textarea) {
+function mountEditor(scope, props, render = props => load('TargetEditor.tsx').TargetEditor.render(props, null), tokenHandle) {
   const slots = [], pending = []
   let cursor, tree
   const memo = (factory, deps) => {
@@ -95,18 +102,18 @@ function mountEditor(scope, props, render = props => load('TargetEditor.tsx').Ta
     useLayoutEffect(run, deps) { return runtime.useEffect(run, deps) },
     useImperativeHandle() {},
   }
-  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
+  const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...(node.type === SegmentTextCellsFixture ? nodes(SegmentTextCellsFixture(node.props)) : []), ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
   return {
     render(next = {}) {
       Object.assign(props, next)
       hooks = runtime
-      try { for (let pass = 0; pass < 2; pass++) { cursor = 0; tree = render(props); if (textarea) nodes(tree).find(node => node.type === 'textarea').ref.current = textarea; pending.splice(0).forEach(run => run()) } }
+      try { for (let pass = 0; pass < 2; pass++) { cursor = 0; tree = render(props); if (tokenHandle) nodes(tree).find(node => node.type === 'TokenEditor').ref.current = tokenHandle; pending.splice(0).forEach(run => run()) } }
       finally { hooks = undefined }
       return tree
     },
     nodes: () => nodes(tree),
-    input(value) { nodes(tree).find(node => node.type === 'textarea').props.onChange({ target: { value } }) },
-    textarea() { return nodes(tree).find(node => node.type === 'textarea').props },
+    input(value) { const editor = nodes(tree).find(node => node.type === 'TokenEditor').props; if (scope.store.get(props.draftAtom).state.composing) editor.onCompositionUpdate(value); else editor.onEdit(value, 'manual') },
+    tokenEditor() { return nodes(tree).find(node => node.type === 'TokenEditor').props },
     editorProps() { return nodes(tree).find(node => node.type === load('TargetEditor.tsx').TargetEditor).props },
     click(label) { const button = nodes(tree).find(node => node.type === 'button' && (node.props['aria-label'] === label || node.props.children === label)); assert(button, label); assert(!button.props.disabled, label); button.props.onClick() },
     unmount() { slots.forEach(slot => slot?.cleanup?.()) },
@@ -133,20 +140,40 @@ test('remounted target editor preserves undo, redo, IME text and reacts to an ex
   editor.input('second edit'); editor.render()
   editor.unmount()
   editor = fixture.mount(); editor.render()
-  assert.equal(editor.textarea().value, 'second edit')
+  assert.equal(editor.tokenEditor().value, 'second edit')
   editor.click('撤销译文编辑'); editor.render()
-  assert.equal(editor.textarea().value, 'first edit')
+  assert.equal(editor.tokenEditor().value, 'first edit')
   editor.click('重做译文编辑'); editor.render()
-  assert.equal(editor.textarea().value, 'second edit')
-  editor.textarea().onCompositionStart(); editor.render()
+  assert.equal(editor.tokenEditor().value, 'second edit')
+  editor.tokenEditor().onCompositionStart(); editor.render()
   editor.input('输入法草稿'); editor.render(); editor.unmount()
   editor = fixture.mount(); editor.render({ segment: { ...fixture.props.segment, target: 'remote update', revision: 2 } })
-  assert.equal(editor.textarea().value, '输入法草稿')
+  assert.equal(editor.tokenEditor().value, '输入法草稿')
   const restored = fixture.state.store.get(fixture.props.draftAtom)
   assert.equal(restored.state.composing, false)
   assert.equal(restored.conflict, true)
   assert.equal(restored.baseRevision, 2)
   editor.unmount()
+})
+
+test('external updates preserve IME and protected operations even when local text still equals its saved baseline', () => {
+  for (const flag of ['composing', 'saving', 'conflict', 'resolvingConflict']) {
+    const fixture = editorFixture(`protected-baseline-${flag}`)
+    const original = fixture.state.store.get(fixture.props.draftAtom)
+    const draft = flag === 'composing'
+      ? { ...original, state: { ...original.state, composing: true, compositionBase: original.state.value } }
+      : { ...original, [flag]: true }
+    fixture.state.store.set(fixture.props.draftAtom, draft)
+    const editor = fixture.mount()
+    editor.render({ segment: { ...fixture.props.segment, target: 'Agent saved a new target', revision: 2 } })
+    const retained = fixture.state.store.get(fixture.props.draftAtom)
+    assert.equal(editor.tokenEditor().value, original.state.value, `${flag} content remains visible`)
+    assert.strictEqual(retained.state, draft.state, `${flag} state and undo history remain intact`)
+    assert.equal(retained.conflict, true)
+    assert.equal(retained.baseRevision, 2)
+    assert.equal(retained.baseTarget, 'Agent saved a new target')
+    editor.unmount()
+  }
 })
 
 test('saving remains read-only after remount and a failed response keeps the draft editable', async () => {
@@ -155,13 +182,13 @@ test('saving remains read-only after remount and a failed response keeps the dra
   fixture.props.onSave = () => new Promise(resolve => { finishSave = resolve })
   let editor = fixture.mount()
   editor.render(); editor.input('awaiting save'); editor.render(); editor.click('保存译文'); editor.render()
-  assert.equal(editor.textarea().readOnly, true)
+  assert.equal(editor.tokenEditor().readOnly, true)
   editor.unmount(); editor = fixture.mount(); editor.render()
-  assert.equal(editor.textarea().value, 'awaiting save')
-  assert.equal(editor.textarea().readOnly, true)
+  assert.equal(editor.tokenEditor().value, 'awaiting save')
+  assert.equal(editor.tokenEditor().readOnly, true)
   finishSave('failed'); await tick(); editor.render()
-  assert.equal(editor.textarea().value, 'awaiting save')
-  assert.equal(editor.textarea().readOnly, false)
+  assert.equal(editor.tokenEditor().value, 'awaiting save')
+  assert.equal(editor.tokenEditor().readOnly, false)
   editor.unmount()
 })
 
@@ -188,7 +215,7 @@ test('a late saved row cannot close another editor or remove a replacement draft
   editorB.render(); editorB.input('keep B'); editorB.render()
   finishSave('saved'); await tick(); rows.render(); editorB.render()
   assert.equal(fixture.state.store.get(fixture.state.editingId), b.id)
-  assert.equal(editorB.textarea().value, 'keep B')
+  assert.equal(editorB.tokenEditor().value, 'keep B')
   assert(!fixture.state.drafts.has(a.id) || fixture.state.drafts.get(a.id) !== oldProps.draftAtom)
   editorB.unmount()
 
@@ -227,6 +254,15 @@ test('row secondary actions use the native menu while direct confirmation and ed
   assert(!rows.nodes().some(node => node.type === 'button' && node.props.children === '为 Agent 引用'))
   const row = rows.nodes().find(node => node.props?.role === 'row' && node.props['aria-rowindex'] === 2)
   assert.equal(typeof row.ref, 'function', 'virtual rows retain actual DOM height measurement')
+  const currentRow = () => rows.nodes().find(node => node.props?.role === 'row' && node.props['aria-rowindex'] === 2)
+  rows.render({ selectedId: segment.id })
+  assert.equal(currentRow().props['aria-selected'], true)
+  assert.equal(currentRow().props['data-picked'], false, 'active editing row is not implicitly bulk-selected')
+  rows.render({ selectedId: undefined, selectedIds: new Set([segment.id]) })
+  assert.equal(currentRow().props['aria-selected'], false)
+  assert.equal(currentRow().props['data-picked'], true, 'checkbox selection is visible independently of the active row')
+  assert.equal(rows.nodes().filter(node => node.props?.role === 'gridcell').length, 4)
+  rows.render({ selectedIds: new Set() })
   row.props.onKeyDown({ key: 'Enter', target: { closest: () => null }, currentTarget: {} })
   assert.equal(fixture.state.store.get(fixture.state.editingId), undefined, 'native controls keep their own keyboard activation')
   rows.click('确认句段 1')
@@ -299,11 +335,11 @@ test('grid navigation moves DOM focus on every key, including a newly mounted ro
   key('Enter')
   assert.equal(fixture.state.store.get(fixture.state.editingId), 'row-19')
   const editingRow = rowNodes().at(-1)
-  editingRow.props.onKeyDown({ key: 'ArrowUp', target: { closest: () => ({}) }, currentTarget: {}, preventDefault() { assert.fail('textarea arrow must stay native') } })
+  editingRow.props.onKeyDown({ key: 'ArrowUp', target: { closest: () => ({}) }, currentTarget: {}, preventDefault() { assert.fail('owned editor arrow must stay native') } })
   assert.equal(props.selectedId, 'row-19')
   focused = undefined
   rows.editorProps().onCancel(); commitRows()
-  assert.equal(focused, 19, 'canceling editing returns focus from the removed textarea')
+  assert.equal(focused, 19, 'canceling editing returns focus from the removed chip editor')
   key('ArrowUp')
   assert.equal(focused, 18, 'canceling editing must return focus to grid navigation')
   rowNodes()[18].props.onKeyDown({ key: 'ArrowUp', target: { closest: () => null }, currentTarget: {}, preventDefault() {} })
@@ -343,7 +379,7 @@ test('external and QA focus waits for loaded mounted rows and preserves an edito
   assert.deepEqual(settled, [2])
   document.activeElement = { row: 2, editor: true }
   rows.render({ focusIndex: 2 })
-  assert.equal(focusCalls, 1, 'reload must not steal focus from the same row textarea')
+  assert.equal(focusCalls, 1, 'reload must not steal focus from the same row chip editor')
   mounted.delete(2)
   rows.render({ focusIndex: 2, data: { ...props.data, rows: new Map([[0, segments[0]]]) } })
   rows.render({ selectedId: 'row-0' })
@@ -364,6 +400,7 @@ async function workbenchFixture(id, queryPage, { filter = '', deferredQuery, mov
   apiRequired = async (operation, input) => {
     if (operation === 'linguistProjectsOpen') return { project }
     if (operation === 'linguistProjectsGetSummary') return movingProject ? { ...summary, project: { ...project } } : summary
+    if (operation === 'linguistCatRowSignals') return { items: input.segmentIds.map(segmentId => ({ segmentId, qaCount: 0 })) }
     if (operation === 'linguistCatGetContext') return { segment: segments[Number(input.segmentId.slice(4))], qaFindings: [] }
     if (operation === 'linguistCatConfirmStage') { const row = segments[Number(input.segmentId.slice(4))]; row.currentStageState = 'confirmed'; return { ...row } }
     if (operation === 'linguistCatQuery') {
@@ -380,6 +417,58 @@ async function workbenchFixture(id, queryPage, { filter = '', deferredQuery, mov
   const rows = () => workbench.nodes().find(node => node.type?.name === 'SegmentRows').props
   return { workbench, rows, segments, calls, async settle() { workbench.render(); await tick(); workbench.render(); await tick(); workbench.render() } }
 }
+
+test('inspector receives only the selected editing draft, including an unmounted editor draft', async () => {
+  const id = 'inspector-draft-scope', fixture = await workbenchFixture(id, (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  const state = load('cat-editor-state.ts').getCatEditorState(id, 'project-synthetic')
+  const selected = fixture.rows().selectedId
+  const draft = jotai.atom({ state: { value: 'Selected unsaved draft', past: [], future: [], composing: false }, baseRevision: 1, baseTarget: 'target' })
+  state.drafts.set(selected, draft)
+  state.store.set(state.editingId, selected)
+  fixture.workbench.click('句段参考'); fixture.workbench.render()
+  const pane = () => fixture.workbench.nodes().find(node => node.type?.name === 'ContextPanel').props
+  try {
+    assert.equal(pane().draftAtom, draft)
+    assert.equal(pane().editorHandle, undefined, 'draft comparison is independent of a mounted apply capability')
+    state.store.set(state.editingId, 'row-other')
+    fixture.workbench.render()
+    assert.equal(pane().draftAtom, undefined, 'a different selected row never sees the active draft')
+  } finally { fixture.workbench.unmount() }
+})
+
+test('scrolling coalesces lightweight badge reads, bounds in-flight work and retains valid offscreen results', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = await workbenchFixture('scroll-badge-batches', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
+  const ordinary = apiRequired, calls = []
+  let finishFirst
+  apiRequired = (operation, input) => {
+    assert.notEqual(operation, 'linguistCatGetContext', 'scroll badges must not fetch full TM context')
+    if (operation !== 'linguistCatRowSignals') return ordinary(operation, input)
+    calls.push(input)
+    if (calls.length === 1) return new Promise(resolve => { finishFirst = () => resolve({ items: input.segmentIds.map(segmentId => ({ segmentId, qaCount: 2 })) }) })
+    return ordinary(operation, input)
+  }
+  try {
+    fixture.rows().onVisibleRange(4, 24); fixture.workbench.render()
+    fixture.rows().onVisibleRange(7, 27); fixture.workbench.render()
+    context.mock.timers.tick(149)
+    assert.equal(calls.length, 0)
+    context.mock.timers.tick(1)
+    assert.equal(calls.length, 1)
+    assert.deepEqual(Array.from(calls[0].segmentIds), fixture.segments.slice(7, 28).map(segment => segment.id))
+    fixture.rows().onVisibleRange(60, 80); fixture.workbench.render()
+    context.mock.timers.tick(150)
+    assert.equal(calls.length, 1, 'only one badge batch can remain in flight')
+    finishFirst(); await fixture.settle()
+    assert.equal(fixture.rows().signals.get('row-7').qaCount, 2, 'same-scope replies stay valid when their rows leave the viewport')
+    context.mock.timers.tick(150); await fixture.settle()
+    assert.equal(calls.length, 2)
+    assert.ok(calls.every(call => call.segmentIds.length <= 200))
+    fixture.rows().onVisibleRange(7, 27); fixture.workbench.render()
+    context.mock.timers.tick(150); await fixture.settle()
+    assert.equal(calls.length, 2, 'returning to loaded rows does not repeat their badge read')
+  } finally { fixture.workbench.unmount() }
+})
 
 test('grid proposal review keeps failed and excluded selections and uses the shared fresh CAS plan', async () => {
   const fixture = await workbenchFixture('grid-proposal-review', (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
@@ -690,33 +779,26 @@ test('a pending out-of-scope jump is cancelled by a later search, filter or batc
   }
 })
 
-test('resizing a native CAT column remeasures the target without disturbing IME or reacting to height-only changes', () => {
-  const fixture = editorFixture('column-resize')
-  const textarea = { clientWidth: 400, scrollHeight: 80, style: {}, value: 'original', selectionStart: 0, selectionEnd: 0 }
-  const editor = mountEditor(fixture.state, fixture.props, undefined, textarea)
+test('raw selection survives remount and the editor handle exposes issue-range selection without a textarea', () => {
+  const fixture = editorFixture('raw-selection-remount')
+  let handle
+  fixture.props.onHandleChange = value => { handle = value }
+  const selected = []
+  const tokenHandle = { select(start, end) { selected.push([start, end]) }, focus() {}, insert() { return true } }
+  let editor = mountEditor(fixture.state, fixture.props, undefined, tokenHandle)
   editor.render()
-  const observer = resizeObservers.at(-1)
-  assert.equal(observer.target, textarea)
-  assert.equal(textarea.style.height, '80px')
-  textarea.clientWidth = 160; textarea.scrollHeight = 220
-  observer.callback()
-  for (const callback of frames.values()) callback()
-  frames.clear()
-  assert.equal(textarea.style.height, '220px')
-  observer.callback()
-  assert.equal(frames.size, 0, 'a height change must not create a resize loop')
-  editor.textarea().onCompositionStart(); editor.render()
-  textarea.clientWidth = 100; textarea.scrollHeight = 320
-  observer.callback()
-  for (const callback of frames.values()) callback()
-  frames.clear()
-  assert.equal(textarea.style.height, '220px', 'composition must retain its DOM layout until commit')
-  editor.textarea().onCompositionEnd({ currentTarget: textarea }); editor.render()
-  for (const callback of frames.values()) callback()
-  frames.clear()
-  assert.equal(textarea.style.height, '320px')
+  assert.equal(typeof handle.select, 'function')
+  handle.select(2, 5)
+  assert.deepEqual(selected, [[2, 5]])
+  editor.tokenEditor().onSelectionChange({ start: 2, end: 5, backward: true })
   editor.unmount()
-  assert.equal(observer.disconnected, true)
+  assert.equal(handle, undefined)
+  editor = fixture.mount(); editor.render()
+  assert.deepEqual(fixture.state.store.get(fixture.props.draftAtom).selection, { start: 2, end: 5, backward: true })
+  assert.equal(editor.tokenEditor().initialSelection.start, 2)
+  assert.equal(editor.tokenEditor().initialSelection.end, 5)
+  assert.equal(editor.nodes().some(node => node.type === 'textarea'), false)
+  editor.unmount()
 })
 
 test('project history clears the prior batch and selection while Agent references display the segment number', async () => {

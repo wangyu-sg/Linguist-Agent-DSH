@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { checkPluginDisplay } from './check-plugin-display.mjs'
+import { checkPluginDetail } from './check-plugin-detail.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const source = join(root, 'packages/dsh-linguist')
@@ -18,7 +20,7 @@ if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
 mkdirSync(artifacts, { recursive: true })
-for (const item of ['lib', 'resources', 'cordis.patch.yml', 'LICENSE', 'NOTICE.md']) cpSync(join(source, item), join(stage, item), { recursive: true })
+for (const item of ['lib', 'resources', 'locale', 'README.md', 'README.zh.md', 'cordis.patch.yml', 'LICENSE', 'NOTICE.md']) cpSync(join(source, item), join(stage, item), { recursive: true })
 manifest.dependencies = Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) => !name.startsWith('@linguist/')))
 delete manifest.devDependencies
 delete manifest.scripts
@@ -34,12 +36,18 @@ for (const name of ['phrase-platform-review-ops', 'cultural-lqa', 'game-localiza
 if (entries.some(entry => entry.includes('la-doc-sync') || entry.startsWith('package/.agents/'))) throw new Error('Maintenance skills must not be bundled for translators')
 for (const entry of entries.filter(name => name.startsWith('package/lib/') && /\.(mjs|cjs|js)$/.test(name))) {
   const code = execFileSync('tar', ['-xOzf', tarball, entry], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 })
-  if (/(?:require\(|from\s+|import\()["']@linguist\//.test(code) || code.includes('linguist-agent-next') || code.includes('/Users/wangyu/Desktop/Linguist-Agent-DSH/')) throw new Error(`Packaged runtime retains a source path or workspace import: ${entry}`)
+  if (/(?:require\(|from\s+|import\()["']@linguist\//.test(code) || code.includes('linguist-agent-next') || code.includes(root)) throw new Error(`Packaged runtime retains a source path or workspace import: ${entry}`)
 }
+checkPluginDisplay(tarball)
+console.log('PASS: Linguist native plugin display resources (en, zh, PNG)')
+const detail = await checkPluginDetail(tarball)
+console.log(`PASS: Linguist native plugin detail documents (${Object.entries(detail.documents).map(([language, document]) => `${language} → ${document.path}`).join(', ')})`)
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 let browserSkill
 if (existsSync(browserSource)) {
   if (digest(browserSource) !== baseline.adaptedTarballSha256) throw new Error('BrowserSkill tarball differs from the fixed baseline')
+  checkPluginDisplay(browserSource)
+  console.log('PASS: BrowserSkill native plugin display resources (en, zh, PNG)')
   cpSync(browserSource, browserTarball)
   browserSkill = { path: browserTarball, sha256: digest(browserTarball), version: baseline.adaptedPluginVersion }
 }

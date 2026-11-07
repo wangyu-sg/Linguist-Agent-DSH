@@ -33,7 +33,9 @@ const client: UserConfig = {
         filename: path, projectRoot: process.cwd(), cssModules: { pattern: '[hash]_[local]' }, minify: true,
         resolver: { read: (file) => { this.addWatchFile(file); return readFile(file, 'utf8') } },
       })
-      const names = Object.fromEntries(Object.entries(exports!).map(([name, value]) => [name, [value.name, ...value.composes.map(reference => reference.name)].join(' ')]))
+      const byName = new Map(Object.values(exports!).map(value => [value.name, value]))
+      const classNames = (name: string): string[] => [name, ...(byName.get(name)?.composes.flatMap(reference => classNames(reference.name)) ?? [])]
+      const names = Object.fromEntries(Object.entries(exports!).map(([name, value]) => [name, [...new Set(classNames(value.name))].join(' ')]))
       const tag = `${pkg.name}/${basename(path)}`
       return [
         `const css = ${JSON.stringify(code.toString())};`,

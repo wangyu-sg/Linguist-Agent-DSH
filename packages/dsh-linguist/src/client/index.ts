@@ -378,7 +378,7 @@ export function apply(ctx: Context): void {
       }, onOpenProject: openProject,
     }))))
   }
-  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-session-setup', order: -10 }, props => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionSetup, {
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-session-setup', order: 1 }, props => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionSetup, {
     ...props, onEnter: binding => enter({ ...binding, workspaceId: binding.workspaceId as WorkspaceId }), onOpenProject: projectId => openCat(String(props.sessionId), projectId),
   }))))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, () => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ProjectsPage, { workspaces: ctx.workspaces, sessions: ctx.sessions, onEnter: enter, onOpenProject: openProject, onOpenSession: openBoundSession, onPickDirectory: pickDirectory, capabilities: capabilities() }))))

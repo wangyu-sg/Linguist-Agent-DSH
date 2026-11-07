@@ -4,9 +4,14 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import { PROJECT_NAME_MAX_LENGTH } from '../../packages/dsh-linguist/src/project-input.ts'
+import * as inlineTokens from '../../packages/dsh-linguist/src/client/inline-tokens.ts'
+import * as editorDiff from '../../packages/dsh-linguist/src/client/editor-diff.ts'
+import * as catEditorState from '../../packages/dsh-linguist/src/client/cat-editor-state.ts'
 
 const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
 const React = require('react')
+const jotai = require('jotai')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const t = (key, params = {}) => key.replace(/\{(\w+)\}/g, (_, name) => String(params[name]))
 const primitives = { Button: 'button', Input: 'input', Checkbox: 'checkbox', Menu: 'menu', Modal: 'modal', Tooltip: 'tooltip', MarkdownText: 'markdown-text', IconPanelLeftOutlineRegular: 'svg', IconEllipsisOutlineRegular: 'svg', IconChevronDownOutlineRegular: 'svg', IconCheckOutlineRegular: 'svg' }
@@ -15,10 +20,30 @@ const workflow = {}
 runInNewContext(ts.transpileModule(readFileSync(new URL('workflow-ui.ts', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: workflow })
 const panelHelpers = {}
 runInNewContext(ts.transpileModule(readFileSync(new URL('Panels.tsx', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: panelHelpers, require: () => ({}) })
+const projectCreateForm = {}
+runInNewContext(ts.transpileModule(readFileSync(new URL('ProjectCreateForm.tsx', client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: projectCreateForm, require: () => ({}) })
+
+const referenceViews = {}
+for (const name of ['InlineTaggedText', 'ReferenceMatches']) {
+  const exports = {}
+  runInNewContext(ts.transpileModule(readFileSync(new URL(`${name}.tsx`, client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, { exports, require: dependency => {
+    if (dependency === 'react') return { ...React, useMemo: factory => factory(), useId: () => 'synthetic-reference' }
+    if (dependency === '@deepseek-ai/dsh-client-ui-primitives') return primitives
+    if (dependency === './ui-locale') return { useT: () => t }
+    if (dependency === './inline-tokens') return inlineTokens
+    if (dependency === './editor-diff') return editorDiff
+    if (dependency === './workflow-ui') return workflow
+    if (dependency === './InlineTaggedText') return referenceViews.InlineTaggedText
+    if (dependency.endsWith('.module.css')) return { default: {} }
+    throw Error(`Unexpected reference view import: ${dependency}`)
+  } })
+  referenceViews[name] = exports
+}
+const expandedComponents = ['ProposalReviewConfirmation', 'DeliveryPreparation', 'ReferenceMatches', 'TmMatch', 'TermMatch', 'InlineTaggedText']
 
 // Execute each production component and its hooks; only external I/O and native primitives are substituted.
 function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard, openNative } = {}) {
-  const state = [], memo = [], effects = [], pending = []
+  const state = [], memo = [], effects = [], pending = [], store = jotai.createStore()
   let cursor, memoCursor, effectCursor, tree
   const exports = {}
   const code = ts.transpileModule(readFileSync(new URL(file, client), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -32,18 +57,23 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
       useRef(value) { const i = memoCursor++; if (!memo[i]) memo[i] = { value: { current: value } }; return memo[i].value },
       useEffect(run, deps) { const i = effectCursor++; if (!effects[i] || deps.some((value, j) => value !== effects[i].deps[j])) pending.push(() => { effects[i]?.cleanup?.(); effects[i] = { deps, cleanup: run() } }) },
     }
+    if (name === 'jotai') return { ...jotai, useAtomValue: atom => store.get(atom) }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { ...primitives, writeClipboard }
     if (name === './api') return { required, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './project-errors') return { describeProjectError: String }
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
     if (name === './proposal-view') return { groupProposalRuns: () => [], textDiffParts: () => [] }
+    if (name === './ReferenceMatches') return referenceViews.ReferenceMatches
+    if (name === './cat-editor-state') return catEditorState
     if (name === './workflow-ui') return workflow
     if (name === './Panels') return { groupStyleGuideRules: panelHelpers.groupStyleGuideRules }
     if (name === './format-labels') return { describeLinguistFormat: value => value }
     if (name === './ProjectSessions') return { ProjectSessions: 'project-sessions' }
     if (name === './PdfPreview') return { PdfPreview: 'pdf-preview' }
     if (name === './ProjectLocaleSelect') return { ProjectLocaleSelect: 'locale-select' }
+    if (name === './ProjectCreateForm') return { ...projectCreateForm, ProjectCreateForm: 'project-create-form' }
+    if (name === '../project-input') return { PROJECT_NAME_MAX_LENGTH }
     if (name === './LegacyMigrationPanel') return { LegacyMigrationPanel: 'legacy-migration' }
     if (name === './ScheduleManager') return { ScheduleManager: 'schedule-manager' }
     if (name === './TargetEditor') return { splitProtectedText: value => [{ kind: 'text', value }] }
@@ -53,18 +83,18 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
   function nodes(node) {
     if (typeof node !== 'object' || node === null) return []
     if (node.type === 'modal' && !node.props.open) return []
-    if (['ProposalReviewConfirmation', 'DeliveryPreparation'].includes(node.type?.name)) return nodes(node.type(node.props))
+    if (expandedComponents.includes(node.type?.name)) return nodes(node.type(node.props))
     return [node, ...React.Children.toArray(node.props?.children).flatMap(nodes), ...React.Children.toArray(node.props?.footer).flatMap(nodes), ...React.Children.toArray(node.props?.anchor).flatMap(nodes)]
   }
   function text(node) {
     if (node === null || node === undefined || typeof node === 'boolean') return ''
     if (typeof node !== 'object') return String(node)
     if (node.type === 'modal' && !node.props.open) return ''
-    if (['ProposalReviewConfirmation', 'DeliveryPreparation'].includes(node.type?.name)) return text(node.type(node.props))
+    if (expandedComponents.includes(node.type?.name)) return text(node.type(node.props))
     return React.Children.toArray(node.props?.children).map(text).join('') + React.Children.toArray(node.props?.footer).map(text).join('')
   }
   return {
-    exports,
+    exports, store,
     render(next = {}) { Object.assign(props, next); cursor = memoCursor = effectCursor = 0; tree = exports.testComponent(props); pending.splice(0).forEach(run => run()); return text(tree) },
     nodes: () => nodes(tree),
     button(label) { const node = nodes(tree).find(node => node.type === 'button' && text(node) === label); assert(node, `Missing button ${label}`); return node.props },
@@ -188,7 +218,7 @@ test('batch export and Delivery use the same export endpoint and refuse a blocke
 })
 
 const segment = { id: 'segment-synthetic', ordinal: 7, source: 'Synthetic source', target: 'Synthetic current target', revision: 3, locked: false, sourceLocale: 'en-US', targetLocale: 'ja-JP' }
-const context = { segment, tm: [], qaFindings: [], approvedExemplars: [], termMatches: [{ id: 'term-1', term: 'Synthetic', translation: '用語', status: 'required', matchType: 'contains', caseSensitive: true, conflict: true, module: 'UI', category: 'menu', note: 'Synthetic term note' }] }
+const context = { segment, tm: [], qaFindings: [], approvedExemplars: [], termMatches: [{ id: 'term-1', term: 'Synthetic', translation: '用語', status: 'required', matchType: 'contains', caseSensitive: true, conflict: true, module: 'UI', category: 'menu', note: 'Synthetic term note', start: 0, end: 9, lowDiscrimination: false }] }
 
 test('CAT status uses complete batch totals and actual decisions, clears stale scope and reports failed coverage', async () => {
   const assets = [
@@ -229,7 +259,9 @@ test('reference inspector exposes term details and inserts through the active pr
   const component = mount('CatWorkbench.tsx', 'ContextPanel', props, { required: async operation => operation === 'linguistCatGetContext' ? context : { items: [] } })
   component.render(); await tick()
   let text = component.render()
-  assert.match(text, /必须 · 包含匹配 · 区分大小写 · 译文冲突/)
+  assert.match(text, /必须/)
+  assert.match(text, /包含匹配 · 区分大小写/)
+  assert.match(text, /译文冲突/)
   assert.match(text, /Synthetic term note/)
   component.click('插入草稿')
   assert.deepEqual(inserted, ['用語'])
@@ -239,6 +271,84 @@ test('reference inspector exposes term details and inserts through the active pr
   component.render({ editorHandle: props.editorHandle, archived: true })
   assert(component.button('插入草稿').disabled)
   component.dispose()
+})
+
+test('TM target comparison reads live draft changes without lookup requests or writes and falls back to the saved target on close', async () => {
+  const reads = []
+  const draftAtom = jotai.atom({ state: { value: 'Draft text one', past: ['prior draft'], future: [], composing: false }, baseTarget: segment.target, baseRevision: segment.revision })
+  const tm = { id: 'synthetic-tm-live', matchedSource: segment.source, target: 'Original TM target', matchClass: 'exact', score: 100, sourceLabel: 'Synthetic source', safety: 'compatible', provenanceCount: 1, variantCount: 1, badges: [], warnings: [], differences: [] }
+  const component = mount('CatWorkbench.tsx', 'ContextPanel', { projectId: 'project', segmentId: segment.id, draftAtom, archived: false, mutation: 0, onOpenTerms() {}, editorHandle: { insert() {}, replace() {}, focus() {} } }, { required: async operation => { reads.push(operation); return operation === 'linguistCatGetContext' ? { ...context, tm: [tm] } : { items: [] } } })
+  const project = (node, skip) => {
+    if (node == null || typeof node === 'boolean') return ''
+    if (typeof node !== 'object') return String(node)
+    if (typeof node.type === 'function') return project(node.type(node.props), skip)
+    return node.type === skip ? '' : React.Children.toArray(node.props?.children).map(child => project(child, skip)).join('')
+  }
+  const comparison = () => component.nodes().find(node => node.props?.['data-target-comparison'])
+  try {
+    component.render(); await tick()
+    assert.match(component.render(), /译文比较：TM 译文 → 当前草稿/)
+    assert.equal(project(comparison(), 'del'), 'Draft text one')
+    assert.equal(project(comparison(), 'ins'), tm.target)
+    const count = reads.length
+    component.store.set(draftAtom, current => ({ ...current, state: { ...current.state, value: 'Draft text two' } }))
+    const draft = component.store.get(draftAtom), snapshot = JSON.stringify(draft)
+    component.render()
+    assert.equal(project(comparison(), 'del'), 'Draft text two')
+    assert.equal(project(comparison(), 'ins'), tm.target)
+    assert.equal(reads.length, count, 'typing recomputes comparison locally without refetching the inspector')
+    assert.strictEqual(component.store.get(draftAtom), draft, 'comparison does not write a replacement draft')
+    assert.equal(JSON.stringify(component.store.get(draftAtom)), snapshot, 'comparison does not mutate content or undo state')
+    const saved = component.render({ draftAtom: undefined, editorHandle: undefined })
+    assert.match(saved, /译文比较：TM 译文 → 已保存译文/)
+    assert.equal(project(comparison(), 'del'), segment.target)
+    assert.equal(project(comparison(), 'ins'), tm.target)
+  } finally { component.dispose() }
+})
+
+test('TM comparison follows new saved targets when its cached draft is pristine and preserves protected drafts', async () => {
+  const pristine = { state: { value: segment.target, past: [], future: [], composing: false }, baseTarget: segment.target, baseRevision: segment.revision, saving: false, conflict: false, resolvingConflict: false }
+  const draftAtom = jotai.atom(pristine)
+  let saved = segment
+  const tm = { id: 'tm-new-saved', matchedSource: segment.source, target: 'Updated saved target', matchClass: 'exact', score: 100, sourceLabel: 'Synthetic source', safety: 'compatible', provenanceCount: 1, variantCount: 1, badges: [], warnings: [], differences: [] }
+  const component = mount('CatWorkbench.tsx', 'ContextPanel', { projectId: 'project', segmentId: segment.id, draftAtom, archived: false, mutation: 0, onOpenTerms() {}, editorHandle: { insert() {}, replace() {}, focus() {} } }, { required: async operation => operation === 'linguistCatGetContext' ? { ...context, segment: saved, tm: [tm] } : { items: [] } })
+  const hasDifference = () => component.nodes().some(node => node.props?.['data-target-comparison'])
+  try {
+    component.render(); await tick(); component.render()
+    assert(hasDifference())
+    saved = { ...segment, target: tm.target, revision: segment.revision + 1 }
+    component.render({ mutation: 1 }); await tick(); component.render()
+    assert.equal(hasDifference(), false, 'comparison uses new saved target rather than the cached old target')
+    assert.strictEqual(component.store.get(draftAtom), pristine)
+    for (const patch of [
+      { state: { ...pristine.state, value: 'Local draft' } },
+      { state: { ...pristine.state, composing: true } },
+      { saving: true }, { conflict: true }, { resolvingConflict: true },
+    ]) {
+      const protectedDraft = { ...pristine, ...patch }
+      component.store.set(draftAtom, protectedDraft)
+      component.render()
+      assert(hasDifference(), 'comparison retains protected local content')
+      assert.strictEqual(component.store.get(draftAtom), protectedDraft)
+    }
+  } finally { component.dispose() }
+})
+
+test('reference inspector hides old-scope matches immediately while a different project or segment is loading', async () => {
+  const replies = []
+  const component = mount('CatWorkbench.tsx', 'ContextPanel', { projectId: 'project-A', segmentId: segment.id, archived: false, mutation: 0, onOpenTerms() {} }, { required: async (operation, input) => operation === 'linguistCatGetContext' ? new Promise(resolve => replies.push({ input, resolve })) : { items: [] } })
+  const response = (id, translation) => ({ ...context, segment: { ...segment, id }, termMatches: context.termMatches.map(term => ({ ...term, translation })) })
+  try {
+    component.render()
+    replies[0].resolve(response(segment.id, 'Scoped old translation')); await tick()
+    assert.match(component.render(), /Scoped old translation/)
+    assert.doesNotMatch(component.render({ projectId: 'project-B' }), /Scoped old translation/)
+    replies[1].resolve(response(segment.id, 'Scoped new project')); await tick()
+    assert.match(component.render(), /Scoped new project/)
+    assert.doesNotMatch(component.render({ segmentId: 'other-segment' }), /Scoped new project/)
+    replies[2].resolve(response('other-segment', 'Scoped new segment')); await tick()
+    assert.match(component.render(), /Scoped new segment/)
+  } finally { component.dispose() }
 })
 
 test('term labels cover filters, edits, lists, conflicts and import candidates without changing submitted values', async () => {
@@ -464,12 +574,19 @@ test('create success resets all five fields while cancel and request failure ret
     if (fail) throw new Error('Synthetic create refused')
     return { ...input, id: 'project-created', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }
   } })
-  const name = () => component.nodes().find(node => node.type === 'input' && node.props['data-modal-autofocus']).props
-  const locale = label => component.nodes().find(node => node.type === 'locale-select' && node.props.label === label).props
-  const stage = () => component.nodes().find(node => node.type === 'select' && ['translation', 'editing', 'proofreading'].includes(node.props.value)).props
-  const profile = () => component.nodes().find(node => node.type === 'select' && !node.props['aria-label'] && ['general', 'subtitle'].includes(node.props.value)).props
-  const assertDraft = values => assert.deepEqual([name().value, locale('源语言').value, locale('目标语言').value, stage().value, profile().value], values)
-  const submit = () => component.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  let createForm
+  const renderForm = () => {
+    component.render()
+    const props = component.nodes().find(node => node.type === 'project-create-form').props
+    createForm ??= mount('ProjectCreateForm.tsx', 'ProjectCreateForm', { ...props })
+    return createForm.render(props)
+  }
+  const name = () => createForm.nodes().find(node => node.type === 'input' && node.props['data-modal-autofocus']).props
+  const locale = label => createForm.nodes().find(node => node.type === 'locale-select' && node.props.label === label).props
+  const stage = () => createForm.nodes().find(node => node.type === 'select' && ['translation', 'editing', 'proofreading'].includes(node.props.value)).props
+  const profile = () => createForm.nodes().find(node => node.type === 'select' && !node.props['aria-label'] && ['general', 'subtitle'].includes(node.props.value)).props
+  const assertDraft = values => { renderForm(); assert.deepEqual([name().value, locale('源语言').value, locale('目标语言').value, stage().value, profile().value], values) }
+  const submit = () => createForm.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
   component.render(); await tick(); component.render()
   component.click('新建项目'); component.render()
   assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general'])
@@ -480,15 +597,45 @@ test('create success resets all five fields while cancel and request failure ret
   const draft = ['Synthetic retained draft', 'fr-FR', 'ja-JP', 'editing', 'subtitle']
   assertDraft(draft)
   component.nodes().find(node => node.type === 'modal' && node.props.title === '新建项目').props.onClose()
+  createForm.dispose(); createForm = undefined
   component.render(); component.click('新建项目'); component.render()
   assertDraft(draft); assert.equal(requests.length, 0)
-  submit(); await tick(); assert.match(component.render(), /Synthetic create refused/); assertDraft(draft)
+  submit(); await tick(); assert.match(renderForm(), /Synthetic create refused/); assertDraft(draft)
   fail = false; submit(); await tick(); component.render()
   assert.deepEqual(opened, ['project-created'])
+  createForm.dispose(); createForm = undefined
   component.click('新建项目'); component.render()
   assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general'])
-  assert.equal(component.nodes().find(node => node.type === 'select' && node.props['aria-label'] === '工作区').props.value, workspace.workspaceId)
+  assert.equal(createForm.nodes().find(node => node.type === 'select' && node.props['aria-label'] === '工作区').props.value, workspace.workspaceId)
   assert.deepEqual(JSON.parse(JSON.stringify(requests)), [0, 1].map(() => ({ name: draft[0], sourceLocale: draft[1], targetLocale: draft[2], workflowStage: draft[3], qaProfile: draft[4], workspaceId: workspace.workspaceId })))
+  createForm.dispose()
+  component.dispose()
+})
+
+test('LA Workspace creation passes its controlled draft and retries opening without creating another project', async () => {
+  const writes = [], opened = []
+  let failOpen = true, cancelled = 0
+  const component = mount('WorkspaceDirectoryFlow.tsx', 'WorkspaceDirectoryFlow', {
+    open: true, busy: false, onPicked() {}, onCancel() { cancelled++ },
+    pickDirectory: async () => '/synthetic/New LA project',
+    onCreate: async (path, input) => { writes.push({ path, input }); return 'created-project' },
+    onOpenProject: async id => { opened.push(id); if (failOpen) throw new Error('Synthetic open failed') },
+  })
+  component.render(); component.click('LA 工作区 · 本地化项目'); component.render()
+  component.click('选择目录'); await tick(); component.render()
+  const form = () => component.nodes().find(node => node.type === 'project-create-form').props
+  assert.deepEqual(JSON.parse(JSON.stringify(form().input)), { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'en-US', workflowStage: 'translation', qaProfile: 'general' })
+  form().onInputChange(current => ({ ...current, targetLocale: 'ja-JP', qaProfile: 'subtitle' }))
+  component.render()
+  await form().onCreate(form().input)
+  assert.match(component.render(), /Synthetic open failed/)
+  assert.equal(cancelled, 0)
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ path: '/synthetic/New LA project', input: { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'ja-JP', workflowStage: 'translation', qaProfile: 'subtitle' } }])
+  failOpen = false
+  component.click('项目已创建，打开会话'); await tick(); component.render()
+  assert.deepEqual(opened, ['created-project', 'created-project'])
+  assert.equal(writes.length, 1)
+  assert.equal(cancelled, 1)
   component.dispose()
 })
 

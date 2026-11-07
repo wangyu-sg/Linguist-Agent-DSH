@@ -331,6 +331,8 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   const [importing, setImporting] = React.useState(false)
   const [preview, setPreview] = React.useState<PreviewRequest>()
   const [editingTermId, setEditingTermId] = React.useState<string>()
+  const [termEditorOpen, setTermEditorOpen] = React.useState(false)
+  const [focusTermEditor, setFocusTermEditor] = React.useState(false)
   const [term, setTerm] = React.useState('')
   const [translation, setTranslation] = React.useState('')
   const [termStatus, setTermStatus] = React.useState<LinguistTermInfo['status']>('preferred')
@@ -343,6 +345,18 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   const [validation, setValidation] = React.useState<LinguistTermsValidateResult>()
   const [refresh, setRefresh] = React.useState(0)
   const [agentSending, setAgentSending] = React.useState(false)
+
+  const focusTermForm = React.useCallback((form: HTMLFormElement | null) => {
+    if (!form || !focusTermEditor) return
+    form.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+    form.scrollIntoView({ block: 'nearest' })
+    setFocusTermEditor(false)
+  }, [focusTermEditor])
+  const editTerm = (item: LinguistTermInfo) => {
+    setEditingTermId(item.id); setTerm(item.term); setTranslation(item.translation); setTermStatus(item.status)
+    setCaseSensitive(item.caseSensitive); setModule(item.module ?? ''); setCategory(item.category ?? ''); setNote(item.note ?? '')
+    setTermEditorOpen(true); setFocusTermEditor(true)
+  }
 
   React.useEffect(() => {
     let live = true
@@ -451,12 +465,42 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     <div className={styles.toolbar}>
       <strong>{t("参考库")}</strong>
       <select aria-label={t("参考类别")} value={kind} disabled={importing || candidate !== undefined} onChange={(event) => { setKind(event.target.value as 'tm' | 'terms'); setPage(0) }}><option value="terms">{t("术语 TB")}</option><option value="tm">{t("翻译记忆 TM")}</option></select>
-      <Input aria-label={t("搜索参考")} placeholder={t("搜索")} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} />
+      <div className={styles.referenceSearch}><Input aria-label={t("搜索参考")} placeholder={t("搜索")} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} /></div>
       {kind === 'terms' && <select aria-label={t("术语状态筛选")} value={termFilter} onChange={(event) => { setTermFilter(event.target.value as typeof termFilter); setPage(0) }}><option value="">{t("全部状态")}</option>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>}
-      <label>{t("导入文件")} <input type="file" disabled={archived || importing || candidate !== undefined} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
-      {kind === 'terms' && <><Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : t('让 Agent 整理本批术语')}</Button><Button variant="outline" size="sm" disabled={archived || selectedTermIds.size === 0} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button><Button variant="outline" size="sm" disabled={segmentIds.length === 0 || segmentIds.length > 200} onClick={() => void validateSelectedSegments()}>{t('校验所选句段术语 {count} 段', { count: segmentIds.length })}</Button></>}
     </div>
-    {kind === 'terms' && segmentIds.length === 0 && <p>{t('先在 CAT 网格选择句段，再校验术语。')}</p>}
+    <div className={styles.referenceActions}>
+      {kind === 'terms' && <>
+        <Button variant="outline" size="sm" disabled={archived} aria-expanded={termEditorOpen} onClick={() => { setTermEditorOpen(!termEditorOpen); setFocusTermEditor(!termEditorOpen) }}>{termEditorOpen ? t('收起术语编辑') : editingTermId ? t('继续编辑术语') : t('新增术语')}</Button>
+        <Button variant="outline" size="sm" disabled={segmentIds.length === 0 || segmentIds.length > 200} title={segmentIds.length === 0 ? t('先在 CAT 网格选择句段，再校验术语。') : undefined} onClick={() => void validateSelectedSegments()}>{t('校验所选句段术语 {count} 段', { count: segmentIds.length })}</Button>
+      </>}
+      <details className={styles.referenceManagement}>
+        <summary>{t('参考库管理')} <small>{kind === 'terms' ? t('导入与术语整理') : t('导入与 TM 来源')}{kind === 'terms' && conflicts && conflicts.count > 0 && ` · ${conflicts.count} ${t('组术语有多条生效译法')}`}</small></summary>
+        <div className={styles.referenceManagementBody}>
+          <div className={styles.toolbar}>
+            <label>{t("导入文件")} <input type="file" disabled={archived || importing || candidate !== undefined} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
+            {kind === 'terms' && <Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : assetId ? t('让 Agent 整理本批术语') : t('让 Agent 整理项目术语')}</Button>}
+          </div>
+          {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {t(TERM_STATUS_LABELS[entry.status])}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={archived} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
+          {kind === 'tm' && list?.sources && list.sources.length > 0 && <section className={styles.referenceManagementBody} aria-label={t('TM 来源')}>
+            <strong>{t('TM 来源')}</strong>
+            {list.sources.map((source) => <div key={source.id} className={styles.toolbar}><Checkbox label={source.displayName} disabled={archived} checked={source.enabled} onChange={(checked) => void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, enabled: checked })} /><span>{source.unitCount} {t("条")}</span><label>{t("优先级")} <Input type="number" disabled={archived} key={`${source.id}:${source.priority}`} defaultValue={source.priority} aria-label={t('{name} 优先级', { name: source.displayName })} onBlur={(event) => { const priority = Number(event.target.value); if (Number.isSafeInteger(priority) && priority !== source.priority) void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, priority }); else if (!Number.isSafeInteger(priority)) setMessage(t("优先级必须是整数")) }} /></label></div>)}
+          </section>}
+        </div>
+      </details>
+    </div>
+    {kind === 'terms' && <fieldset disabled={archived} hidden={!termEditorOpen} className={`${styles.formFields} ${styles.referenceEditor}`}><form ref={focusTermForm} className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>
+      <Input required aria-label={t("术语")} placeholder={t("术语")} value={term} onChange={(event) => setTerm(event.target.value)} />
+      <Input required aria-label={t("译法")} placeholder={t("译法")} value={translation} onChange={(event) => setTranslation(event.target.value)} />
+      <select aria-label={t("术语约束")} value={termStatus} onChange={(event) => setTermStatus(event.target.value as LinguistTermInfo['status'])}>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>
+      <Checkbox label={t("区分大小写")} checked={caseSensitive} onChange={setCaseSensitive} />
+      <Input aria-label={t("术语模块")} placeholder={t("模块")} value={module} onChange={(event) => setModule(event.target.value)} />
+      <Input aria-label={t("术语类别")} placeholder={t("类别")} value={category} onChange={(event) => setCategory(event.target.value)} />
+      <Input aria-label={t("术语备注")} placeholder={t("备注")} value={note} onChange={(event) => setNote(event.target.value)} />
+      <Button variant="primary" type="submit" size="sm">{editingTermId ? t("保存术语") : t("添加术语")}</Button>
+      {editingTermId && <Button variant="outline" size="sm" onClick={resetTerm}>{t("取消编辑")}</Button>}
+    </form></fieldset>}
+    {importing && <p role="status">{t('正在处理参考导入…')}</p>}
+    {message && <p role="status">{message}</p>}
     {validation && <details open className={styles.callout}><summary>{t('术语校验结果')} · {validation.missingRequired.length + validation.forbiddenHits.length + validation.preferredNotUsed.length + validation.unresolvedConflicts.length}</summary>
       {validation.missingRequired.map((issue) => <p key={`required:${issue.segmentId}:${issue.termId}`}><Button variant="ghost" size="sm" onClick={() => onNavigate(issue.segmentId)}>{issue.segmentId}</Button> {t('缺少必用术语')} {issue.term} → {issue.expected}</p>)}
       {validation.forbiddenHits.map((issue) => <p key={`forbidden:${issue.segmentId}:${issue.termId}`}><Button variant="ghost" size="sm" onClick={() => onNavigate(issue.segmentId)}>{issue.segmentId}</Button> {t('命中禁用术语')} {issue.forbidden}</p>)}
@@ -486,27 +530,18 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
       </div>
     </div>}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
-    {kind === 'terms' && <fieldset disabled={archived} className={styles.formFields}><form className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>
-      <Input required aria-label={t("术语")} placeholder={t("术语")} value={term} onChange={(event) => setTerm(event.target.value)} />
-      <Input required aria-label={t("译法")} placeholder={t("译法")} value={translation} onChange={(event) => setTranslation(event.target.value)} />
-      <select aria-label={t("术语约束")} value={termStatus} onChange={(event) => setTermStatus(event.target.value as LinguistTermInfo['status'])}>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>
-      <Checkbox label={t("区分大小写")} checked={caseSensitive} onChange={setCaseSensitive} />
-      <Input aria-label={t("术语模块")} placeholder={t("模块")} value={module} onChange={(event) => setModule(event.target.value)} />
-      <Input aria-label={t("术语类别")} placeholder={t("类别")} value={category} onChange={(event) => setCategory(event.target.value)} />
-      <Input aria-label={t("术语备注")} placeholder={t("备注")} value={note} onChange={(event) => setNote(event.target.value)} />
-      <Button variant="primary" type="submit" size="sm">{editingTermId ? t("保存术语") : t("添加术语")}</Button>
-      {editingTermId && <Button variant="outline" size="sm" onClick={resetTerm}>{t("取消编辑")}</Button>}
-    </form></fieldset>}
-    {message && <p role="status">{message}</p>}
-    {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {t(TERM_STATUS_LABELS[entry.status])}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={archived} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
+    {kind === 'terms' && selectedTermIds.size > 0 && <div className={`${styles.toolbar} ${styles.referenceSelection}`} role="group" aria-label={t('已选 {count} 条术语', { count: selectedTermIds.size })}>
+      <strong>{t('已选 {count} 条术语', { count: selectedTermIds.size })}</strong>
+      <Button variant="outline" size="sm" disabled={archived} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button>
+      <Button variant="ghost" size="sm" onClick={() => setSelectedTermIds(new Set())}>{t('清除术语选择')}</Button>
+    </div>}
     {list?.items.length === 0 && <p>{t("当前筛选没有参考条目。")}</p>}
     {list?.items.map((item) => <article className={styles.item} key={item.id}>
       <div className={styles.toolbar}>{'term' in item && <Checkbox label={item.term} title={t('选择术语 {term}', { term: item.term })} checked={selectedTermIds.has(item.id)} onChange={() => setSelectedTermIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} />}{'source' in item && <strong>{item.source}</strong>}<span>→ {'translation' in item ? item.translation : item.target}</span>{'status' in item && <small>{t(TERM_STATUS_LABELS[item.status])}{item.caseSensitive ? t(" · 区分大小写") : ''}</small>}
-        {'term' in item && <Button variant="outline" size="sm" disabled={archived} onClick={() => { setEditingTermId(item.id); setTerm(item.term); setTranslation(item.translation); setTermStatus(item.status); setCaseSensitive(item.caseSensitive); setModule(item.module ?? ''); setCategory(item.category ?? ''); setNote(item.note ?? '') }}>{t("编辑")}</Button>}
+        {'term' in item && <Button variant="outline" size="sm" disabled={archived} onClick={() => editTerm(item)}>{t("编辑")}</Button>}
         <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistReferencesDelete', { projectId, kind, id: item.id })}>{t("删除")}</Button>
       </div>{'note' in item && item.note && <p>{item.note}</p>}
     </article>)}
-    {kind === 'tm' && list?.sources?.map((source) => <div key={source.id} className={styles.toolbar}><Checkbox label={source.displayName} disabled={archived} checked={source.enabled} onChange={(checked) => void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, enabled: checked })} /><span>{source.unitCount} {t("条")}</span><label>{t("优先级")} <Input type="number" disabled={archived} key={`${source.id}:${source.priority}`} defaultValue={source.priority} aria-label={t('{name} 优先级', { name: source.displayName })} onBlur={(event) => { const priority = Number(event.target.value); if (Number.isSafeInteger(priority) && priority !== source.priority) void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, priority }); else if (!Number.isSafeInteger(priority)) setMessage(t("优先级必须是整数")) }} /></label></div>)}
     <div className={styles.toolbar}><Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {page + 1} {t("页")}</span><Button variant="ghost" size="sm" disabled={!list?.hasMore} onClick={() => setPage((value) => value + 1)}>{t("下一页")}</Button></div>
   </section>
 }

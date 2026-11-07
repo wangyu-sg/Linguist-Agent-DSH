@@ -2,7 +2,7 @@
 
 ## 当前依赖与命令
 
-准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 固定为 **0.2.0-rc.2**；本机检查平台为 macOS ARM64。
+准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 固定为 **0.2.2-rc.1**；本机检查平台为 macOS ARM64。
 
 不要用 DSH App 内受签名限制的 Node 运行 checkout 的第三方原生模块。普通 Node 可以加载声明依赖的预编译本机模块；SDK 间接依赖 koffi 已带平台二进制，维护配置不执行其额外源码构建。
 
@@ -18,9 +18,21 @@ pnpm pack:plugin
 
 检查使用当前源码、已声明的官方 SDK、Node 回归、Bun 格式回归和合成样本。失败立即报错；不读取旧源码快照、功能清单或人工安装回执。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.1.7.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.3.5.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据；Linguist 及配套 BrowserSkill 包均执行此检查。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
-LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill。
+LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill；当前适配包、CLI 和扩展版本以 [BrowserSkill 集成说明](integrations/browser-skill/README.md) 为准。
+
+## 内部热更新
+
+Linguist 与 DSH 创造模式均挂载官方 `plugin_manager`，沿用宿主权限检查与审批。使用 `action: "install_bundle"`、新包的 `file:` 绝对路径及 `enabled: true` 自动更新并热应用插件，无需用户手工导包。检查返回的 `application` 和 `warnings`，再核对 Host 组件、Client 界面及本次修复；`applied` 不代替实际功能验证。普通插件代码热更新无需退出 DSH。
+
+宿主保留已开工 Agent 的预设组件和工具组合；更改预设后需新建 Agent，或在任务保存停稳后重启 DSH，原会话随后会按最新预设创建 Agent。`applied` 不表示旧 Agent 已重组，也不能只凭没有 `restart-required` 判断。1.3.5 删除额外的 tool-result-pruner，保留原生 compaction；升级后应重启一次 DSH，才能让已有会话使用这一组合。
+
+官方工具的所有操作均经过完全权限检查；当前权限不足时使用宿主单次审批，不自动更改会话访问模式。工具出现在列表中不等于已获准安装；拒绝或取消审批后停止该操作。
+
+这条现有路径已用于 LA 更新。仓库构建与内部热应用是两个动作，不把单独修改源码误报为运行中插件已更新；通过原生工具管理 Desktop 安装，不用 CLI 改写其保留 profile。涉及正在执行的写入时，先停在已保存状态，再更新并读取当前版本继续。
+
+`cat_get_translation_context` 和 `cat_read_context_doc` 的完整 JSON 文本响应默认及最大预算均为 32,000 UTF-8 字节；较大的内容按真实 cursor 分页或分片。读取版本、成功写入后的版本与分片范围写入原生工具结果的私有 `meta.readSnapshots`；待确认的证据使用并列 `meta.evidence`，恢复后仍需完整正文进入真实模型请求并获得成功响应才落账。同一会话仅恢复自己的结果，排除分叉继承事件；不新建数据库结构，也不把当前 CAT 版本补成旧读取版本。
 
 ## 代码入口
 
@@ -34,6 +46,8 @@ LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额
 | integrations/browser-skill | 固定上游与文件动作适配 |
 
 文件上限只维护 `LINGUIST_FILE_MAX_BYTES`。单文件、HTTP 预算、逻辑批次、解压安全与预览采样分开；分请求不得改变 Phrase 配对。
+
+会话复制和自动任务通过 `sessionQuery.observeSession` 读取历史与模型等投影，并释放观察句柄。原生调度创建使用明确的 `target` 与 `timing`，修改、暂停和取消使用 `schedule.edit`；岗位子任务使用 `subagents.startActivation` 并将结果交回父会话。这些适配保留项目绑定、独立执行会话和原有工作范围检查。
 
 暂存完成/取消/过期的回收保护在途使用。IO 清理错误记录诊断并重试，不能掩盖入库写入失败或将已提交业务变成失败。
 
@@ -72,9 +86,7 @@ DSH 0.2.0-rc.2 的公开宿主配置支持以下限额。在 DSH 设置中打开
 
 Excel 限额按各工作表使用区域的行数×列数合计，稀疏表也占预算。Word/PPT 仍有 100 MiB 输出 PDF 和 10,000 个压缩成员的宿主限制。超限或转换失败会显示错误；Agent 正文抽取与 CAT 列映射保持各自职责。预览暂存使用 LA 现有一小时回收机制，采用独立只读副本，不把原稿 inode 交给可编辑入口。
 
-2026-10-02 在本机独立进程调用官方 0.2.0-rc.2 转换器：约 60 MiB 的合成 Word、PPT 各成功输出 5 页 PDF，用时约 5.3 秒、1.4 秒，进程峰值约 1.1 GiB。官方 Excel 解析 Worker 处理约 36 MiB、40 万单元格样本用时约 1.5 秒，峰值约 1.4 GiB。上述时间与内存不含 Desktop 绘制和表格矩阵。随后从已安装 Linguist 的资料入口导入相同样本，三个原生预览均实际显示，Excel 选格和方向键跨首屏移动通过；没有测量完整桌面峰值，不能外推为所有 512 MiB 文件可流畅预览。
-
-已复现宿主缺陷：0.2.0-rc.2 的 Excel Worker 对缺少 `sheetFormatPr.defaultRowHeight` 的工作表直接计算 `undefined * 96 / 72`，返回 `NaN` 行高；数据与公式栏可读，网格为空。3×3 合成工作簿在实际 Desktop 和官方 Worker 均复现，仅补充 `defaultRowHeight="15"` 的同内容副本返回 20 像素行高并正常显示。该项尚未修复；CAT 列映射与句段导入不受此显示缺陷影响。
+此前复现的宿主缺陷：0.2.0-rc.2 的 Excel Worker 对缺少 `sheetFormatPr.defaultRowHeight` 的工作表直接计算 `undefined * 96 / 72`，返回 `NaN` 行高；数据与公式栏可读，网格为空。3×3 合成工作簿在实际 Desktop 和官方 Worker 均复现，仅补充 `defaultRowHeight="15"` 的同内容副本返回 20 像素行高并正常显示。当前宿主版本尚未复测此项；CAT 列映射与句段导入不受此显示缺陷影响。
 
 回退时在原生插件管理安装先前保存的包；本轮不改变 CAT 数据库结构。预览限额可恢复上述组件的默认配置。不要用恢复整个旧项目备份来回退提示或预览功能。
 

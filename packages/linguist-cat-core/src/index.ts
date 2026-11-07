@@ -121,6 +121,8 @@ export {
   type LinguistTagFamilyClass,
   type LinguistTagProfile,
   type LinguistTagProfileCandidate,
+  type LinguistPlaceholderException,
+  type SetPlaceholderExceptionInput,
 } from './tag-profile'
 
 export {

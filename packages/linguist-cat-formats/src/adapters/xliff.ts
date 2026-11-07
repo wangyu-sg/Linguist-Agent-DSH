@@ -12,7 +12,8 @@
  *   another `<file>` are scoped without changing the source file;
  * - `translate="no"` (trans-unit or file level) or a truthy `mq:locked`
  *   (1/true/yes/locked) -> `locked: true`;
- * - `<note>` -> `context.note`; `resname` -> `context.origin`;
+ * - direct notes and context groups -> `context.note` with attribute labels;
+ *   `resname` -> `context.origin`;
  * - empty/missing `<target>` -> target '' + status 'untranslated';
  * - status mapping (deliberately conservative — documented, not exhaustive):
  *     empty target                          -> 'untranslated'
@@ -53,11 +54,11 @@ import type {
 import { FormatExportError, FormatParseError } from '../errors'
 import { sha256Hex, type HashFn } from '../hash'
 import {
-  decodeXmlEntities,
   decodeXmlInline,
   encodeXmlInline,
   findDirectChild,
   parseAttrs,
+  readUnitContext,
   setAttr,
   type FoundElement,
 } from './xliff-xml'
@@ -323,7 +324,6 @@ export class XliffAdapter implements CatFormatAdapter {
           throw new FormatParseError(this.id, filename, `trans-unit ${JSON.stringify(key)} has no <source> element`)
         }
         const target = findDirectChild(inner, 'target')
-        const note = findDirectChild(inner, 'note')
         units.push({
           ordinal,
           key,
@@ -334,7 +334,7 @@ export class XliffAdapter implements CatFormatAdapter {
           targetText: this.decodeInline(target?.inner ?? ''),
           locked: fileLocked || translateNo(attrs) || mqLocked(attrs),
           attrs,
-          note: note ? decodeXmlEntities(note.inner).trim() : undefined,
+          note: readUnitContext(inner),
         })
       }
       fileOrdinal += 1

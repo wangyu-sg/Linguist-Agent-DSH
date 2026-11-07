@@ -49,7 +49,7 @@ export function createLinguistDelegationTool(input: {
   service: LinguistProjectService
   binding: SessionBinding
   agent: Agent
-  subagents: Pick<SubagentRuntime, 'resolveMaxDepth' | 'startContinuable'>
+  subagents: Pick<SubagentRuntime, 'resolveMaxDepth' | 'startActivation'>
   control: LinguistDelegationControl
   resolveSessionWorkspace: () => Promise<{ workspaceRoot: string }>
   reserveIntent: (childSessionId: string, binding: SessionBinding) => () => void
@@ -93,8 +93,8 @@ export function createLinguistDelegationTool(input: {
           ...(call.model === undefined ? {} : { model: call.model }),
           ...(call.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(call.reasoningEffort) }),
         }
-        const accepted = await input.subagents.startContinuable({
-          provider: 'spawn', childId, label: call.objective.slice(0, 120),
+        const accepted = await input.subagents.startActivation({
+          provider: 'spawn', delivery: 'parent', childId, label: call.objective.slice(0, 120),
           request: { parent: input.agent, prompt: [{ type: 'text', text: prompt }],
             ...(Object.keys(agentOptions).length ? { agentOptions } : {}),
             ...(maxDepth === undefined ? {} : { maxDepth }) },

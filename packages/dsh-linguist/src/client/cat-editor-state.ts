@@ -8,6 +8,13 @@ export interface CatEditorState {
   propagateRepeated: PrimitiveAtom<boolean>
 }
 
+export function isProtectedCatDraft(draft: TargetEditorDraft | undefined): boolean {
+  return draft !== undefined && (
+    draft.state.value !== draft.baseTarget || draft.saving || draft.state.composing
+    || draft.conflict || draft.resolvingConflict
+  )
+}
+
 // Unsubmitted text stays in this Client instance, outside layout storage and Agent context.
 const states = new Map<string, CatEditorState>()
 
@@ -27,7 +34,7 @@ export function protectedCatDraftSegmentIds(projectId: string): string[] {
     if (!key.endsWith(`\0${projectId}`)) continue
     for (const [segmentId, draftAtom] of state.drafts) {
       const draft = state.store.get(draftAtom)
-      if (draft && (draft.state.value !== draft.baseTarget || draft.saving || draft.state.composing || draft.conflict || draft.resolvingConflict)) ids.add(segmentId)
+      if (isProtectedCatDraft(draft)) ids.add(segmentId)
     }
   }
   return [...ids]

@@ -41,6 +41,8 @@ interface ProjectFields {
   qaProfile?: QaProfile
   /** Agent/用户确认过的轻量 XLSX 映射；不含主机路径或源文件内容。 */
   workbookMappings?: LinguistWorkbookMappingProfile[]
+  /** 按语言保存的项目拼写词典；仅显式加入的词，不改变术语约束。 */
+  spellingDictionary?: Record<string, string[]>
 }
 
 export type LinguistProject =

@@ -176,6 +176,8 @@ export {
   type CreateStageEvidenceStateInput,
   type RecordStageEvidenceReceiptInput,
   type StageEvidencePresentationCoverage,
+  stageEvidenceDetails,
+  type StageEvidenceDetails,
   type StageEvidenceCompletion,
   type ProjectInventoryGapInput,
   type StageEvidenceState,

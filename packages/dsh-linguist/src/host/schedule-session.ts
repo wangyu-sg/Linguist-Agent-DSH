@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SESSION_FORMAT_VERSION, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
@@ -29,12 +31,11 @@ export class ScheduleSessionRuntime {
     if (!isDeepStrictEqual(this.bindings.session(previous.sessionId), binding)) return false
     const id = SessionId(previous.sessionId)
     if (!await this.ctx.sessionPersistence.stat(id)) return false
-    const snapshot = await this.ctx.sessionController.inspect(id)
+    using snapshot = await this.ctx.sessionQuery.observeSession(id)
     if (snapshot.events.slice(snapshot.inheritedEventCount).some(event => event.type === 'user/message' && event.data.source.kind === 'user')) return false
     if (mode === 'reuse') return true
     if (new Date(previous.createdAt).toDateString() !== new Date().toDateString()) return false
-    const projection = await this.ctx.sessionController.projections({ sessionId: id }, AbortSignal.timeout(30_000))
-    const pressure = projection?.values.contextPressure
+    const pressure = snapshot.projections?.values.contextPressure
     // This display estimate decides when to start a fresh conversation, never review completion.
     if (pressure && typeof pressure === 'object' && !Array.isArray(pressure)
       && typeof pressure.projectedTokens === 'number' && typeof pressure.contextWindow === 'number') {
@@ -44,10 +45,11 @@ export class ScheduleSessionRuntime {
   }
 
   async create(parent: Agent, binding: SessionBinding, title: string, record: (session: ScheduledSession) => void): Promise<Agent> {
-    const snapshot = await this.ctx.sessionController.inspect(parent.id)
-    const selected = await this.ctx.sessionController.projections({ sessionId: parent.id }, AbortSignal.timeout(30_000))
+    using snapshot = await this.ctx.sessionQuery.observeSession(parent.id)
+    const selected = snapshot.projections
     const model = selected?.values.modelSelection?.next
     if (!model) throw new Error('A scheduled Session needs a selected model before creation')
+    const agentPreset = selected?.values.agentPreset ?? undefined
     const settings = new Map<string, SessionEvent>()
     for (const event of snapshot.events) {
       if (['permission/preset', 'sandbox/mode', 'approval/policy'].includes(event.type)) settings.set(event.type, event)
@@ -58,11 +60,11 @@ export class ScheduleSessionRuntime {
     seed.push({ type: 'model/selection', seq: seed.length as SessionEvent['seq'], time: Date.now(), data: model })
     const workspace = this.ctx.workspaceRegistry.get(WorkspaceId(binding.workspaceId))!
     const handle = await this.ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(),
-      cwd: workspace.path, isSeeded: false, agentPreset: snapshot.meta.agentPreset })
+      cwd: workspace.path, isSeeded: false, agentPreset })
     try { await handle.append(seed); await handle.flush() }
     finally { await handle.close() }
     this.bindings.bindSession(id, binding)
-    await this.ctx.sessionController.create({ sessionId: id, workspaceId: WorkspaceId(binding.workspaceId), agentPreset: snapshot.meta.agentPreset })
+    await this.ctx.sessionController.create({ sessionId: id, workspaceId: WorkspaceId(binding.workspaceId), agentPreset })
     const agent = await this.resolve(id)
     this.bindAgent(agent)
     await this.ctx.sessionController.rename({ sessionId: id, title })

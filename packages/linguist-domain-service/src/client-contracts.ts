@@ -476,6 +476,38 @@ export interface LinguistSegmentInfo {
   }
 }
 
+export interface LinguistCatRowSignalsResult {
+  items: Array<{ segmentId: string; proposal?: LinguistProposalInfo; qaCount: number; highestSeverity?: LinguistQaFindingSeverity }>
+}
+
+export interface LinguistEditorTermsResult {
+  items: Array<{ segmentId: string; sourceHash: string; revision: number; termMatches: LinguistTermMatchInfo[]; truncated: boolean }>
+}
+
+export interface LinguistEditorDetails {
+  segment: LinguistSegmentInfo
+  previous: LinguistSegmentInfo[]
+  next: LinguistSegmentInfo[]
+  revisions: Array<{ revision: number; target: string; status: string; source: string; createdAt: string }>
+  totalRevisions: number
+}
+
+export interface LinguistConcordanceResult {
+  segments: Array<{ segment: LinguistSegmentInfo; assetLabel: string }>
+  segmentTotal: number
+  tm: Array<LinguistTmReferenceInfo & { sourceLabel: string; enabled: boolean; sourceKind: string; contextKey?: string; originalTuid?: string }>
+  tmTotal: number
+  limit: number
+  offset: number
+}
+
+export interface LinguistSpellingResult {
+  locale: string
+  supported: boolean
+  dictionary: string[]
+  issues: Array<{ word: string; start: number; end: number; suggestions: string[] }>
+}
+
 export interface LinguistCatEditResult {
   segment: LinguistSegmentInfo
   repetition?: {

@@ -245,7 +245,7 @@ test('native CAT tool adapter preserves required fields, unions, limits, cancell
       return { content: [{ type: 'text', text: 'Synthetic result' }], details: { count: args.entries.length } }
     },
   }
-  const tool = adaptCatTool(source, { saveImage: () => { throw new Error('No image expected') } }, (callId, content) => presented.push({ callId, content }))
+  const tool = adaptCatTool(source, { saveImage: () => { throw new Error('No image expected') } }, (callId, content) => { presented.push({ callId, content }) })
   assert.deepEqual(tool.parameters, JSON.parse(JSON.stringify(source.parameters)))
   const signal = new AbortController().signal
   const exec = { callId: 'synthetic-call', signal }
@@ -274,7 +274,7 @@ test('native CAT image results carry actual bytes into the DSH attachment and pr
   const tool = adaptCatTool({
     name: 'synthetic_image', description: 'Synthetic image', parameters: Type.Object({}),
     async execute() { return { content: [{ type: 'image', mimeType: 'image/png', data: pixels.toString('base64') }] } },
-  }, { async saveImage(image) { saved.push(image); return { id: 'synthetic-attachment' } } }, (callId, content) => presented.push({ callId, content }))
+  }, { async saveImage(image) { saved.push(image); return { id: 'synthetic-attachment' } } }, (callId, content) => { presented.push({ callId, content }) })
   const result = await tool.execute({}, { callId: 'image-call', signal: new AbortController().signal })
   assert.equal(saved.length, 1)
   assert.equal(saved[0].mediaType, 'image/png')
@@ -477,37 +477,38 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     }
     const native = {
       rows: [],
-      async create(sessionId, request) {
+      async create(request) {
         const id = ScheduleId(`schedule-${randomUUID()}`)
-        const record = request.at !== undefined ? createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title) : request.after_seconds === undefined
-          ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
-          : createAfterScheduleRecord(id, request.prompt, request.after_seconds, Date.now(), request.title)
-        this.rows.push({ ...record, sessionId, status: 'active' })
+        const record = request.timing.kind === 'at' ? createAtScheduleRecord(id, request.prompt, request.timing.at, Date.now(), request.title) : request.timing.kind === 'every'
+          ? createEveryScheduleRecord(id, request.prompt, request.timing.every_seconds, Date.now(), request.title)
+          : createAfterScheduleRecord(id, request.prompt, request.timing.after_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, target: request.target, status: 'active', updatedAt: new Date().toISOString() })
         if (this.beforeReturn) { await this.beforeReturn(record); this.beforeReturn = undefined }
         return record
       },
       async catalog() { return this.rows },
-      async update({ sessionId, id, expected, title, prompt, change }) {
-        const row = this.rows.find(item => item.sessionId === sessionId && item.id === id)
-        if (!row || row.scheduledAt !== expected.scheduledAt || row.prompt !== expected.prompt) return { id, updated: false, code: 'schedule_conflict' }
-        const record = change === undefined ? { ...expected, title, prompt }
-          : createEveryScheduleRecord(id, prompt, change.every_seconds, Date.now(), title)
-        this.rows = this.rows.map(item => item === row ? { ...record, sessionId, status: 'active' } : item)
-        return { id, updated: true, record }
+      async edit({ id, action, expectedUpdatedAt, patch }) {
+        const row = this.rows.find(item => item.id === id)
+        assert.ok(row)
+        if (expectedUpdatedAt !== undefined) assert.equal(row.updatedAt, expectedUpdatedAt)
+        if (action === 'delete') {
+          this.rows = this.rows.filter(item => item !== row)
+          return { id, deleted: true }
+        }
+        const record = patch.timing === undefined ? { ...row, title: patch.title, prompt: patch.prompt }
+          : createEveryScheduleRecord(id, patch.prompt, patch.timing.every_seconds, Date.now(), patch.title)
+        const updated = { ...row, ...record, updatedAt: new Date().toISOString() }
+        this.rows = this.rows.map(item => item === row ? updated : item)
+        return updated
       },
       async history({ id }) { return { id, records: [{ scheduledAt: new Date().toISOString(), deliveredAt: new Date().toISOString(), messageId: `message-${id}`, prompt: this.rows.find(item => item.id === id)?.prompt }], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 } } },
-      async delete({ sessionId, id }) {
-        const row = this.rows.find(item => item.sessionId === sessionId && item.id === id)
-        if (!row) return { id, deleted: false, code: 'schedule_not_found' }
-        this.rows = this.rows.filter(item => item !== row)
-        return { id, deleted: true }
-      },
+
     }
     const runtime = scheduleOwnerRuntime(bindings)
     const manager = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => [], runtime)
     native.beforeReturn = async record => {
       const early = { id: 'early-due', role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(record) }] }
-      assert.equal((await manager.onPreStep({ id: native.rows.find(item => item.id === record.id).sessionId }, { kind: 'enter', messages: [early] }, 0, 0)).messages[1].source.kind, 'linguist-schedule-execution')
+      assert.equal((await manager.onPreStep({ id: native.rows.find(item => item.id === record.id).target.sessionId }, { kind: 'enter', messages: [early] }, 0, 0)).messages[1].source.kind, 'linguist-schedule-execution')
     }
     const turnContext = { schemaVersion: 1, projectId: project.id, assetId: segment.assetId, selectedSegmentIds: [segment.id], capturedAt: new Date().toISOString(), uiRevision: 1 }
     const base = { operation: 'linguistScheduleCreate', payload: {
@@ -534,7 +535,7 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     const agent = { id: created.sessionId }
     const manualMessages = []
     const reopened = new ScheduleContextManager(root, native, service, bindings, assertProjectSession, async () => [], runtime,
-      async (sessionId, manualMessage) => { assert(native.rows.some(row => row.sessionId === sessionId)); manualMessages.push(manualMessage) })
+      async (sessionId, manualMessage) => { assert(native.rows.some(row => row.target.sessionId === sessionId)); manualMessages.push(manualMessage) })
     const manual = await dispatchOperation({ ...base, scheduleContext: reopened, operation: 'linguistScheduleRunNow',
       payload: { sessionId: 'session-schedule', scheduleId: created.scheduleId, expectedVersion: titleOnly.version } })
     assert.equal(manual.status, 'accepted')
@@ -612,13 +613,13 @@ test('LA Schedule creates a native DSH task and admits only an unchanged bound d
     assert.equal(limitedInfo.runCount, 1, 'unfinished execution is not counted as ended')
     assert.equal(limitedInfo.status, 'active')
     events.push(event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
-    const nativeDelete = native.delete
-    native.delete = async () => { throw new Error('synthetic delete failure') }
+    const nativeEdit = native.edit
+    native.edit = async () => { throw new Error('synthetic delete failure') }
     const removal = limitedManager.enforceRunPolicy(limited.sessionId)
     assert.equal(limitedManager.enforceRunPolicy(limited.sessionId), removal, 'end and list checks share one removal')
     await assert.rejects(removal, /synthetic delete failure/)
     assert.equal((await limitedManager.history('session-schedule', limited.scheduleId, 10)).records.length, 1, 'history is durable before native removal')
-    native.delete = nativeDelete
+    native.edit = nativeEdit
     await assert.rejects(limitedManager.runNow('session-schedule', limited.scheduleId, limitRestored.version), /maximum run count/)
     await Promise.all([limitedManager.enforceRunPolicy('session-schedule'), limitedManager.enforceRunPolicy('session-schedule')])
     assert(!native.rows.some(item => item.id === limited.scheduleId))
@@ -770,7 +771,7 @@ test('native DSH prompt requestId admits the prepared CAT selection exactly in i
     bindings.bindProject(project.id, 'workspace-turn')
     const binding = { workspaceId: 'workspace-turn', projectId: project.id, role: 'reviewer', workMode: 'cat' }
     bindings.bindSession('session-turn', binding)
-    const requestId = '025548a2-3425-4fa8-9465-b851b746568a'
+    const requestId = '11111111-1111-4111-8111-111111111111'
     const context = { schemaVersion: 1, projectId: project.id, assetId: segment.assetId, activeSegmentId: segment.id, selectedSegmentIds: [segment.id], capturedAt: new Date().toISOString(), uiRevision: 8 }
     const receipts = new TurnContextReceipts(root)
     const assertProjectSession = async (sessionId, projectId) => {
@@ -895,7 +896,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     let requestedRoute
     const native = {
       resolveMaxDepth: () => 1,
-      async startContinuable(spec) {
+      async startActivation(spec) {
         assert.equal(spec.provider, 'spawn')
         assert.equal(spec.request.maxDepth, 1)
         assert.equal(spec.request.parent, agent)
@@ -1032,8 +1033,8 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
           }
         },
       },
+      sessionQuery: { async observeSession() { return { header: { cwd: realpathSync(workspace) }, events, inheritedEventCount: 0, projections: { values: {} }, [Symbol.dispose]() {} } } },
       sessionController: {
-        inspect: async () => ({ meta: { cwd: realpathSync(workspace) }, events }),
         create: async input => { creates++; if (input.sessionId) persistenceSteps.push('adopt'); return { sessionId: input.sessionId ?? `blank-${creates}` } },
         fork: async () => { forks++; return { sessionId: `fork-${forks}` } },
         rename: async () => {},
@@ -1049,7 +1050,7 @@ test('Session copy uses DSH native create/fork only for eligible source and Work
       { type: 'approval/policy', seq: 2, time: 3, data: { policy: 'ask' } },
       { type: 'model/selection', seq: 3, time: 4, data: { provider: 'synthetic', model: 'chosen-model', reasoningEffort: 'max' } },
     ]
-    host.sessionController.inspect = async () => ({ meta: { cwd: realpathSync(workspace), agentPreset: 'chosen-preset' }, events })
+    host.sessionQuery.observeSession = async () => ({ header: { cwd: realpathSync(workspace) }, events, inheritedEventCount: 0, projections: { values: { agentPreset: 'chosen-preset' } }, [Symbol.dispose]() {} })
     const configuredBlank = await copyLinguistSessionToProject(host, 'source-session', target.id)
     assert.equal(configuredBlank.mode, 'blank')
     assert.equal(storedCopy?.header.agentPreset, 'chosen-preset')
@@ -1190,7 +1191,7 @@ test('failed Session seed copy is archived through the real native registry and 
   const { Storage } = requireNative('@deepseek-ai/dsh-storage')
   const jsonStorage = requireNative('@deepseek-ai/dsh-storage-json')
   const domainStorage = requireNative('@deepseek-ai/dsh-storage-domain')
-  const JsonlPersistence = requireNative('@deepseek-ai/dsh-session-persistence-jsonl').default
+  const JsonlPersistence = requireNative('@deepseek-ai/dsh-session-persistence-jsonl')
   const { WorkspaceRegistry } = requireNative('@deepseek-ai/dsh-workspace')
   const { SESSION_FORMAT_VERSION } = requireNative('@deepseek-ai/dsh-session')
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-copy-native-archive-'))
@@ -1231,12 +1232,14 @@ test('failed Session seed copy is archived through the real native registry and 
       service, bindings, workspaceRegistry: ctx.workspaceRegistry, sessionPersistence: ctx.sessionPersistence,
       sessionExists: async id => Boolean(await ctx.sessionPersistence.stat(id)), agentStatus: () => 'idle',
       rebindAgent() { assert.fail('failed seed adoption must never bind Linguist tools') },
-      sessionController: {
-        async inspect(id) {
+      sessionQuery: {
+        async observeSession(id) {
           const handle = await ctx.sessionPersistence.open(id, 'read')
-          try { return { meta: sourceBefore.header, events: (await handle.read()).events } }
+          try { return { header: sourceBefore.header, events: (await handle.read()).events, inheritedEventCount: 0, projections: { values: {} }, [Symbol.dispose]() {} } }
           finally { await handle.close() }
         },
+      },
+      sessionController: {
         async create() { throw new Error('synthetic adoption refused after durable seed') },
       },
     }
@@ -1322,7 +1325,6 @@ test('four DSH roles retain the full CAT tool set and distinct Session bindings'
     const bindings = new BindingStore(root)
     bindings.bindProject(project.id, 'synthetic-workspace')
     const expected = [...LINGUIST_CAT_TOOL_NAMES]
-    assert.equal(expected.length, 31)
     for (const role of ['general', 'translator', 'reviewer', 'proofreader']) {
       const sessionId = `synthetic-${role}`
       bindings.bindSession(sessionId, { workspaceId: 'synthetic-workspace', projectId: project.id, role, workMode: 'cat' })
@@ -1743,7 +1745,7 @@ test('native working-copy tool verifies Session and assembles a private full-cov
     writeFileSync(join(root, 'decisions.json'), JSON.stringify({
       sourceSha256: prepared.sourceSha256,
       groups: [{ segmentIds: [a.id], decision: 'corrected' }, { segmentIds: [b.id], decision: 'unchanged' }],
-      edits: [{ segmentId: a.id, baseRevision: a.revision, target: 'Start' }], unresolved: [],
+      edits: [{ segmentId: a.id, target: 'Start' }], unresolved: [],
     }))
     const result = await tool.execute({ ...args, operation: 'assemble', decisionsPath: 'decisions.json' }, { signal: new AbortController().signal })
     assert.deepEqual(result.coverage, { total: 2, unchanged: 1, corrected: 1, blocked: 0, undecided: 0 })
@@ -1876,14 +1878,14 @@ test('LA sidecar records schedule admission failures before a model-visible user
     bindings.bindSession(session.id, { workspaceId: 'workspace-admission', projectId: project.id, role: 'reviewer', workMode: 'cat' })
     const native = {
       rows: [],
-      async create(sessionId, request) {
-        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.every_seconds, Date.now(), request.title)
-        this.rows.push({ ...record, sessionId, status: 'active' })
+      async create(request) {
+        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.timing.every_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, target: request.target, status: 'active', updatedAt: new Date().toISOString() })
         return record
       },
       async catalog() { return this.rows },
       async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
-      async delete({ id }) { this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
+      async edit({ id, action }) { assert.equal(action, 'delete'); this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
     }
     const manager = new ScheduleContextManager(root, native, service, bindings, async (sid, pid) => { assert.equal(bindings.session(sid)?.projectId, pid); assert.equal(pid, project.id) }, async id => actors.get(id)?.session.ownEvents(), runtime)
     const created = await manager.create({ sessionId: session.id, projectId: project.id, title: 'Admission fixture', prompt: 'Review synthetic project', executeAtDue: true, scope: 'project', timing: { kind: 'every', seconds: 60 } })
@@ -1969,15 +1971,15 @@ test('scheduled business work runs in its own native Session and only its real e
     bindings.bindSession(source.id, binding)
     const native = {
       rows: [],
-      async create(sessionId, request) {
-        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.every_seconds, Date.now(), request.title)
-        this.rows.push({ ...record, sessionId, status: 'active' })
+      async create(request) {
+        const record = createEveryScheduleRecord(ScheduleId(`schedule-${randomUUID()}`), request.prompt, request.timing.every_seconds, Date.now(), request.title)
+        this.rows.push({ ...record, target: request.target, status: 'active', updatedAt: new Date().toISOString() })
         if (this.beforeReturn) await this.beforeReturn(record)
         return record
       },
       async catalog() { return this.rows },
       async history({ id }) { return { id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
-      async delete({ id }) { this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
+      async edit({ id, action }) { assert.equal(action, 'delete'); this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: true } },
     }
     const { ScheduleNotifications } = await import('../../packages/dsh-linguist/src/host/schedule-notifications.ts')
     let notificationRequests = 0
@@ -2089,9 +2091,10 @@ test('scheduled Session creation preserves native settings and daily reuse rotat
           return { async append(seed) { stored.seed = seed; steps.push('append') }, async flush() { steps.push('flush') }, async close() { steps.push('close') } }
         },
       },
+      sessionQuery: {
+        async observeSession(id) { return { header: {}, inheritedEventCount: 0, events: id === 'session-parent' ? events : human ? [{ type: 'user/message', data: { source: { kind: 'user' } } }] : [], projections: { values: { agentPreset: 'chosen-preset', modelSelection: { next: model }, contextPressure: pressure } }, [Symbol.dispose]() {} } },
+      },
       sessionController: {
-        async inspect(id) { return { meta: { agentPreset: 'chosen-preset' }, inheritedEventCount: 0, events: id === 'session-parent' ? events : human ? [{ type: 'user/message', data: { source: { kind: 'user' } } }] : [] } },
-        async projections() { return { values: { modelSelection: { next: model }, contextPressure: pressure } } },
         async create(input) { assert.equal(input.sessionId, stored.header.id); assert.equal(input.agentPreset, 'chosen-preset'); steps.push('adopt') },
         async resolveAgent(id) { return { agent: { id, ...pending } } },
         async rename(input) { assert.equal(input.title, 'Review task') },

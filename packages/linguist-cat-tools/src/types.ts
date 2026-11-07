@@ -34,6 +34,8 @@ import type {
   WorkflowStageDecision,
   TagToken,
   SaveTagProfileCandidateInput,
+  SetPlaceholderExceptionInput,
+  LinguistPlaceholderException,
   TagCandidateValidationResult,
   UnknownTagPatternResult,
   WorkbookMappingColumns,
@@ -50,6 +52,7 @@ import type {
   TermEntryMatch,
   TmUnit,
   RecordStageEvidenceReceiptInput,
+  StageEvidenceDetails,
   VoiceProfile,
   ProjectRule,
 } from '@linguist/cat-store'
@@ -63,6 +66,23 @@ export type LinguistToolContent =
 export interface LinguistToolResult<TDetails = unknown> {
   content: LinguistToolContent[]
   details?: TDetails
+}
+
+export interface CatReadVersion {
+  segmentId: string
+  revision: number
+  sourceHash: string
+  appliedRevision?: number
+}
+
+export type CatReadState =
+  | { kind: 'snapshot'; versions: readonly CatReadVersion[] }
+  | { kind: 'fragments'; ranges: readonly { start: number; end: number }[] }
+
+/** Host-owned state; neither its contents nor restoration are model arguments. */
+export interface CatReadStateStore {
+  get(id: string): CatReadState | undefined
+  set(id: string, state: CatReadState): void
 }
 
 export type LinguistToolUpdateCallback<TDetails = unknown> = (
@@ -102,6 +122,7 @@ export const LINGUIST_CAT_TOOL_NAMES = [
   'cat_get_voice_context',
   'cat_scan_unknown_tag_patterns',
   'cat_save_tag_profile_candidate',
+  'cat_set_placeholder_exception',
   'cat_export_batch',
   'cat_get_translation_context',
   'cat_get_proposal_snapshot',
@@ -204,6 +225,8 @@ export interface LinguistCatToolsDeps {
   modelId?: string
   /** Stored as Proposal provenance when present. */
   sessionId?: string
+  /** Native Session-backed complete reads, partial ranges and committed revisions. */
+  readSnapshots?: CatReadStateStore
   /** 当前受信任 Linguist 岗位；cat_confirm_segments 由此推导 stage。 */
   linguistRole?: 'general' | 'translator' | 'reviewer' | 'proofreader'
   /** 宿主创建或恢复的冻结 Stage Evidence 执行；模型无对应入参。 */
@@ -259,6 +282,7 @@ export interface LinguistCatToolsDeps {
     status: 'candidate' | 'active'
     validation: TagCandidateValidationResult
   }
+  setPlaceholderException?: (input: SetPlaceholderExceptionInput) => LinguistPlaceholderException | null
 }
 
 export interface LinguistExportAssetResult {
@@ -466,7 +490,7 @@ export interface CatDeliveryStatus {
   ready: boolean
   blockers: Array<{ code: string; count: number; message: string }>
   verifiedExport: false
-  currentTask: null | {
+  currentTask: null | StageEvidenceDetails & {
     stageRunId: string
     role: 'translator' | 'reviewer' | 'proofreader'
     status: 'in_progress' | 'blocked' | 'stale' | 'complete'
@@ -501,6 +525,7 @@ export interface CatApplyTranslationsResult {
   proposalIds: string[]
   /** 本次实际提交的版本；旧幂等回放可能没有该字段，不补造历史回执。 */
   appliedItems?: Array<{ segmentId: string; proposalId: string; baseRevision: number; revision: number }>
+  review?: CatConfirmSegmentsResult
 }
 
 export interface CatConfirmSegmentsResult {
@@ -520,7 +545,7 @@ export interface CatConfirmSegmentsResult {
     status: 'in_progress' | 'complete' | 'completed_with_blocks'
   }
   /** 宿主签发的双覆盖完成状态；Segment decision complete 不能替代 Evidence complete。 */
-  fullReview?: {
+  fullReview?: StageEvidenceDetails & {
     status: 'in_progress' | 'blocked' | 'stale' | 'complete'
     requiredEvidence: number
     presentedEvidence: number
@@ -529,6 +554,7 @@ export interface CatConfirmSegmentsResult {
     warnings: number
   }
   replayed: boolean
+  skipped?: Array<{ segmentId: string; code: string }>
 }
 
 export interface CatBatchListItem {
@@ -542,12 +568,9 @@ export interface CatBatchListItem {
 }
 
 export interface CatSegmentListItem {
-  /** Stable opaque identifier; explicit alias retained beside legacy `id`. */
+  /** Stable opaque identifier. */
   segmentId: string
-  id: string
   batchId: string
-  /** Zero-based storage ordinal retained for API compatibility. */
-  ordinal: number
   /** One-based original row number shown to users and used in audit references. */
   originalOrdinal: number
   key?: string
@@ -556,10 +579,11 @@ export interface CatSegmentListItem {
   revision: number
   source: string
   target: string
+  context?: Segment['context']
 }
 
 /** 仅供定位句段；不含审校所需正文或已读证据。 */
-export interface CatSegmentIndexItem extends Omit<CatSegmentListItem, 'source' | 'target'> {
+export interface CatSegmentIndexItem extends Omit<CatSegmentListItem, 'source' | 'target' | 'context'> {
   currentStageState?: Segment['currentStageState']
 }
 
@@ -645,6 +669,7 @@ export interface SegmentTranslationContext {
   tags: TagToken[]
   targetTags: TagToken[]
   placeholderSignature: string[]
+  placeholderException?: LinguistPlaceholderException
   /** 仅承载项目明确声明的 Required authority；不得把 preferred 升格。 */
   requiredTerms: TermEntryMatch[]
   forbiddenTerms: TermEntryMatch[]
@@ -661,6 +686,8 @@ export interface SegmentTranslationContext {
 export type CatProjectRuleItem = ProjectRule
 
 export interface CatGetTranslationContextResult {
+  /** Immutable versions for the complete segments delivered in this result. */
+  snapshotId?: string
   contextFormatVersion: 2
   professionalJudgment?: ProfessionalContext
   /** 将 text 按 offset 连接后解析为完整 JSON；分片不代表内容/证据已读完。 */

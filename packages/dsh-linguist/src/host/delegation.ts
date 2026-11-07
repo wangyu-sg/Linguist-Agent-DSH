@@ -1,4 +1,5 @@
 import type { LinguistProjectService } from '@linguist/domain-service'
+import { stageEvidenceDetails } from '@linguist/cat-store'
 import type { LinguistRole, SessionBinding } from './bindings'
 
 export interface LinguistDelegationRequest {
@@ -53,6 +54,7 @@ export function linguistDelegationOutcome(service: LinguistProjectService, sessi
       pending: evidence.presentation.pending.length,
       blockingGaps: evidence.blockingGaps.length,
       warnings: evidence.warnings.length,
+      ...stageEvidenceDetails(evidence),
     } } : {}),
   }
 }

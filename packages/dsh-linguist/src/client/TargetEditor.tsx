@@ -12,13 +12,9 @@ import {
   targetSaveCompletion,
   type TargetSaveResult,
 } from './cat-edit-utils'
-import {
-  extendSelectionOverHardSpans,
-  hardSpanForUnitDeletion,
-  listTargetTagSpans,
-  skipHardSpanForArrow,
-  snapCaretOutOfHardSpan,
-} from './tag-atomic-utils'
+import { TokenEditor, type TokenEditorHandle } from './TokenEditor'
+import { isProtectedCatDraft } from './cat-editor-state'
+import type { InlineAnnotation, InlineSelection } from './inline-tokens'
 
 export interface ProtectedTextPart {
   kind: 'text' | 'token' | 'suspected'
@@ -40,6 +36,7 @@ export interface TargetEditorDraft {
   saving: boolean
   conflict: boolean
   resolvingConflict: boolean
+  selection?: InlineSelection
 }
 
 export type TargetDraftAction =
@@ -54,50 +51,13 @@ export type TargetDraftAction =
 export const TARGET_UNDO_MAX_OPERATIONS = 200
 export const TARGET_UNDO_MAX_CHARACTERS = 200_000
 
-/**
- * U-12：编辑 textarea 自适应高度的下限（px）。
- * 约 4 行：text-[12px] leading-4 × 4 + py-1.5 上下各 6px。
- */
-export const TARGET_TEXTAREA_MIN_HEIGHT = 76
-/** U-12：自适应高度上限为视口高度的 40%。 */
-export const TARGET_TEXTAREA_MAX_VIEWPORT_RATIO = 0.4
-
-/** 内容需要的高度收敛到 [min, max(视口 40%)]；纯函数便于单测。 */
-export function clampTargetTextareaHeight(scrollHeight: number, viewportHeight: number): number {
-  const maxHeight = Math.max(
-    TARGET_TEXTAREA_MIN_HEIGHT,
-    Math.floor(viewportHeight * TARGET_TEXTAREA_MAX_VIEWPORT_RATIO),
-  )
-  return Math.min(Math.max(scrollHeight, TARGET_TEXTAREA_MIN_HEIGHT), maxHeight)
-}
-
-/** 按内容重置 textarea 高度；超过上限时恢复内部滚动。调用方须避开 IME 组合期间。 */
-export function autoSizeTargetTextarea(
-  textarea: HTMLTextAreaElement,
-  viewportHeight: number,
-): void {
-  textarea.style.height = 'auto'
-  const nextHeight = clampTargetTextareaHeight(textarea.scrollHeight, viewportHeight)
-  textarea.style.height = `${nextHeight}px`
-  textarea.style.overflowY = textarea.scrollHeight > nextHeight ? 'auto' : 'hidden'
-}
-
-export interface TargetTextSelection {
-  start: number
-  end: number
-}
-
-export interface InsertTargetTextResult {
-  value: string
-  caret: number
-}
-
 export interface TargetEditorHandle {
   replace: (value: string) => boolean
   insert: (value: string) => boolean
   undo: () => boolean
   redo: () => boolean
   focus: () => void
+  select: (start: number, end: number) => void
 }
 
 export interface TargetEditorProps {
@@ -112,10 +72,16 @@ export interface TargetEditorProps {
   onSaved?: (advance: boolean) => void
   onHandleChange?: (handle: TargetEditorHandle | undefined) => void
   tagProfile?: LinguistTagProfileInfo
+  showInvisibles?: boolean
+  activeTag?: string
+  onTagFocus?: (key: string | undefined) => void
+  onSelectedText?: (text: string) => void
+  annotations?: readonly InlineAnnotation[]
+  spellCheck?: boolean
 }
 
-export function splitProtectedText(text: string, tagProfile?: LinguistTagProfileInfo): ProtectedTextPart[] {
-  const spans: Array<{ start: number; end: number; kind: 'token' | 'suspected' }> = scanTags(text, { profile: tagProfile })
+export function splitProtectedText(text: string, tagProfile?: LinguistTagProfileInfo, targetLocale?: string): ProtectedTextPart[] {
+  const spans: Array<{ start: number; end: number; kind: 'token' | 'suspected' }> = scanTags(text, { profile: tagProfile, targetLocale })
     .map((tag) => ({ start: tag.start, end: tag.end, kind: 'token' }))
   for (const candidate of tagProfile?.candidates ?? []) {
     if (candidate.status !== 'candidate') continue
@@ -246,28 +212,15 @@ export function targetDraftReducer(
   }
 }
 
-export function insertTargetText(
-  value: string,
-  inserted: string,
-  selection?: TargetTextSelection,
-): InsertTargetTextResult {
-  const start = selection?.start ?? value.length
-  const end = selection?.end ?? value.length
-  return {
-    value: `${value.slice(0, start)}${inserted}${value.slice(end)}`,
-    caret: start + inserted.length,
-  }
-}
-
 export function targetProtectionViolations(
-  segment: Pick<LinguistSegmentInfo, 'source'>,
+  segment: Pick<LinguistSegmentInfo, 'source'> & Partial<Pick<LinguistSegmentInfo, 'targetLocale'>>,
   target: string,
   tagProfile?: LinguistTagProfileInfo,
 ): string[] {
-  const sourceTokens = splitProtectedText(segment.source, tagProfile)
+  const sourceTokens = splitProtectedText(segment.source, tagProfile, segment.targetLocale)
     .filter((part) => part.kind === 'token')
     .map((part) => part.value)
-  const targetTokens = splitProtectedText(target, tagProfile)
+  const targetTokens = splitProtectedText(target, tagProfile, segment.targetLocale)
     .filter((part) => part.kind === 'token')
     .map((part) => part.value)
   const remainingTarget = [...targetTokens]
@@ -284,11 +237,11 @@ export function targetProtectionViolations(
 }
 
 export function targetSuspectedTagWarnings(
-  segment: Pick<LinguistSegmentInfo, 'source'>,
+  segment: Pick<LinguistSegmentInfo, 'source'> & Partial<Pick<LinguistSegmentInfo, 'targetLocale'>>,
   target: string,
   tagProfile?: LinguistTagProfileInfo,
 ): string[] {
-  const values = (text: string) => splitProtectedText(text, tagProfile)
+  const values = (text: string) => splitProtectedText(text, tagProfile, segment.targetLocale)
     .filter((part) => part.kind === 'suspected')
     .map((part) => part.value)
   const remaining = values(target)
@@ -298,36 +251,6 @@ export function targetSuspectedTagWarnings(
     remaining.splice(index, 1)
     return []
   })
-}
-
-function ProtectedTokenChips({
-  text,
-  tagProfile,
-}: {
-  text: string
-  tagProfile?: LinguistTagProfileInfo
-}): React.ReactElement | null {
-  const t = useT()
-  const tokens = splitProtectedText(text, tagProfile).filter((part) => part.kind !== 'text')
-  if (tokens.length === 0) return null
-  return (
-    <span
-      aria-label={t("源文标签与占位符保护状态")}
-      className={styles.tokens}
-    >
-      {tokens.map((token, index) => (
-        <span
-          key={`${token.value}:${index}`}
-          data-target-token
-          className={token.kind === 'token' ? styles.token : styles.suspected}
-          title={token.kind === 'token' ? t("已启用硬保护") : t("疑似 Tag：仅软提示")}
-          aria-label={`${token.kind === 'token' ? t("硬保护标签") : t("软提示疑似 Tag")} ${token.value}`}
-        >
-          {token.value}
-        </span>
-      ))}
-    </span>
-  )
 }
 
 export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorProps>(
@@ -343,6 +266,12 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
     onSaved,
     onHandleChange,
     tagProfile,
+    showInvisibles,
+    activeTag,
+    onTagFocus,
+    onSelectedText,
+    annotations,
+    spellCheck,
   }, ref): React.ReactElement {
     const t = useT()
     const [draft, setDraft] = useAtom(draftAtom)
@@ -359,9 +288,8 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
     }, [setDraft])
     const [blocked, setBlocked] = React.useState(false)
     const [tagHint, setTagHint] = React.useState<string>()
-    const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+    const tokenEditorRef = React.useRef<TokenEditorHandle>(null)
     const composingRef = React.useRef(false)
-    const pendingCaretRef = React.useRef<number>()
     const readOnly = archived || segment.locked || saving || resolvingConflict
     const dirty = state.value !== segment.target
     const violations = React.useMemo(
@@ -371,11 +299,6 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
     const suspectedWarnings = React.useMemo(
       () => targetSuspectedTagWarnings(segment, state.value, tagProfile),
       [segment, state.value, tagProfile],
-    )
-    /** K8 整单元导航的统一 span 来源（hard=scanTags；soft=候选正则）。 */
-    const tagSpans = React.useMemo(
-      () => listTargetTagSpans(state.value, tagProfile),
-      [state.value, tagProfile],
     )
     const commitAvailability = {
       archived,
@@ -404,7 +327,7 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
       if (baseRevision === segment.revision && baseTarget === segment.target) return
       setDraft((current) => {
         if (current === undefined) return current
-        const pristine = current.state.value === current.baseTarget
+        const pristine = !isProtectedCatDraft(current)
         return {
           ...current,
           baseRevision: segment.revision,
@@ -416,38 +339,6 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
       setBlocked(false)
     }, [baseRevision, baseTarget, segment.revision, segment.target, setDraft])
 
-    // U-12：值变化后自适应高度；IME 组合期间跳过（避免重排闪烁），组合结束时补量。
-    React.useEffect(() => {
-      if (composingRef.current) return
-      const textarea = textareaRef.current
-      if (textarea !== null) autoSizeTargetTextarea(textarea, window.innerHeight)
-    }, [state.value])
-
-    React.useEffect(() => {
-      const textarea = textareaRef.current
-      if (textarea === null) return
-      let width = textarea.clientWidth
-      let frame = 0
-      const observer = new ResizeObserver(() => {
-        if (textarea.clientWidth === width) return
-        width = textarea.clientWidth
-        cancelAnimationFrame(frame)
-        frame = requestAnimationFrame(() => {
-          if (!composingRef.current) autoSizeTargetTextarea(textarea, window.innerHeight)
-        })
-      })
-      observer.observe(textarea)
-      return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-    }, [])
-
-    React.useEffect(() => {
-      const caret = pendingCaretRef.current
-      if (caret === undefined) return
-      pendingCaretRef.current = undefined
-      textareaRef.current?.focus()
-      textareaRef.current?.setSelectionRange(caret, caret)
-    }, [state.value])
-
     const acceptCandidate = React.useCallback((
       value: string,
       operation: 'manual' | 'protected',
@@ -455,7 +346,7 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
     ): boolean => {
       if (readOnly) return false
       const nextViolations = targetProtectionViolations(segment, value, tagProfile)
-      const currentIsValid = targetProtectionViolations(segment, state.value, tagProfile).length === 0
+      const currentIsValid = targetProtectionViolations(segment, state.compositionBase ?? state.value, tagProfile).length === 0
       if (
         nextViolations.length > 0
         && (operation === 'protected' || currentIsValid)
@@ -467,7 +358,7 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
       setTagHint(undefined)
       dispatch(action)
       return true
-    }, [dispatch, readOnly, segment, state.value, tagProfile])
+    }, [dispatch, readOnly, segment, state.value, state.compositionBase, tagProfile])
 
     const undo = React.useCallback((): boolean => {
       if (readOnly || state.composing || state.past.length === 0) return false
@@ -490,16 +381,9 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
 
     const insert = React.useCallback((value: string): boolean => {
       if (composingRef.current) return false
-      const textarea = textareaRef.current
-      // Bottom Dock 按钮会暂时取得 DOM 焦点，但 textarea 仍保留用户最后的选区。
-      const selection = textarea !== null
-        ? { start: textarea.selectionStart, end: textarea.selectionEnd }
-        : undefined
-      const result = insertTargetText(state.value, value, selection)
-      if (!acceptCandidate(result.value, 'protected')) return false
-      pendingCaretRef.current = result.caret
-      return true
-    }, [acceptCandidate, state.value])
+      // The owned editor retains its raw selection when a helper button takes focus.
+      return tokenEditorRef.current?.insert(value) ?? false
+    }, [])
 
     const operationsRef = React.useRef({ replace, insert, undo, redo })
     operationsRef.current = { replace, insert, undo, redo }
@@ -508,7 +392,8 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
       insert: (value) => operationsRef.current.insert(value),
       undo: () => operationsRef.current.undo(),
       redo: () => operationsRef.current.redo(),
-      focus: () => textareaRef.current?.focus(),
+      focus: () => tokenEditorRef.current?.focus(),
+      select: (start, end) => tokenEditorRef.current?.select(start, end),
     }), [])
 
     React.useImperativeHandle(ref, () => handle, [handle])
@@ -572,130 +457,45 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
         data-target-editor
         className={styles.editor}
       >
-        <textarea
-          ref={textareaRef}
-          autoFocus={!readOnly}
-          readOnly={readOnly}
+        <TokenEditor
+          ref={tokenEditorRef}
           value={state.value}
-          aria-label={t('编辑原始行 {number} 译文', { number: index + 1 })}
-          aria-invalid={violations.length > 0}
-          aria-describedby={`target-editor-help-${segment.id}`}
-          aria-keyshortcuts="Meta+S Control+S Meta+Enter Control+Enter Escape Meta+Z Control+Z Meta+Shift+Z Control+Shift+Z Control+Y"
-          onChange={(event) => {
-            const value = event.target.value
-            if (composingRef.current) {
-              acceptCandidate(value, 'manual', { type: 'composition-update', value })
-            } else {
-              acceptCandidate(value, 'manual')
-            }
-          }}
-          onPaste={(event) => {
-            if (readOnly) return
-            const result = insertTargetText(
-              state.value,
-              event.clipboardData.getData('text/plain'),
-              {
-                start: event.currentTarget.selectionStart,
-                end: event.currentTarget.selectionEnd,
-              },
-            )
-            if (!acceptCandidate(result.value, 'protected')) {
-              event.preventDefault()
-              return
-            }
-            event.preventDefault()
-            pendingCaretRef.current = result.caret
-          }}
+          sourceText={segment.source}
+          tagProfile={tagProfile}
+          readOnly={readOnly}
+          autoFocus={!readOnly}
+          lang={segment.targetLocale}
+          spellCheck={spellCheck}
+          showInvisibles={showInvisibles}
+          activeTag={activeTag}
+          annotations={annotations}
+          onTagFocus={onTagFocus}
+          onSelectedText={onSelectedText}
+          initialSelection={draft!.selection}
+          onSelectionChange={(selection) => setDraft((current) => {
+            if (current === undefined || (current.selection?.start === selection.start && current.selection.end === selection.end && current.selection.backward === selection.backward)) return current
+            return { ...current, selection }
+          })}
+          label={t('编辑原始行 {number} 译文', { number: index + 1 })}
+          invalid={violations.length > 0}
+          describedBy={`target-editor-help-${segment.id}`}
+          onEdit={acceptCandidate}
           onCompositionStart={() => {
             composingRef.current = true
             dispatch({ type: 'composition-start' })
           }}
-          onCompositionEnd={(event) => {
+          onCompositionUpdate={(value) => dispatch({ type: 'composition-update', value })}
+          onCompositionEnd={(value) => {
             composingRef.current = false
-            const value = event.currentTarget.value
-            if (!acceptCandidate(
-              value,
-              'manual',
-              { type: 'composition-end', value },
-            )) {
-              dispatch({ type: 'composition-end', value: state.value })
-            }
-            // U-12：组合期间跳过了高度自适应，组合结束后补一次测量。
-            requestAnimationFrame(() => {
-              const el = textareaRef.current
-              if (el !== null && !composingRef.current) {
-                autoSizeTargetTextarea(el, window.innerHeight)
-              }
-            })
-            // IME composition 期间不校正选区；compositionend 后再把光标吸出 hard span。
-            requestAnimationFrame(() => {
-              const el = textareaRef.current
-              if (el === null || composingRef.current) return
-              if (el.selectionStart !== el.selectionEnd) return
-              const snapped = snapCaretOutOfHardSpan(
-                el.selectionStart,
-                listTargetTagSpans(el.value, tagProfile),
-              )
-              if (snapped !== null) el.setSelectionRange(snapped, snapped)
-            })
+            if (acceptCandidate(value, 'manual', { type: 'composition-end', value })) return value
+            const previous = state.compositionBase ?? state.value
+            dispatch({ type: 'composition-end', value: previous })
+            return previous
           }}
-          onSelect={(event) => {
-            if (readOnly || composingRef.current) return
-            const textarea = event.currentTarget
-            const { selectionStart, selectionEnd } = textarea
-            if (selectionStart === selectionEnd) {
-              const snapped = snapCaretOutOfHardSpan(selectionStart, tagSpans)
-              if (snapped !== null) textarea.setSelectionRange(snapped, snapped)
-              return
-            }
-            const extended = extendSelectionOverHardSpans(selectionStart, selectionEnd, tagSpans)
-            if (extended !== null) textarea.setSelectionRange(extended.start, extended.end)
-          }}
+          onUndo={undo}
+          onRedo={redo}
+          onProtectedSelection={() => setTagHint(t("已选中整个标签；再次按下删除键尝试移除。源文必需的标签无法删除。"))}
           onKeyDown={(event) => {
-            // K8：hard span 按整单元跨越和选中；最终写入仍由结构规则校验。
-            if (
-              !readOnly
-              && !composingRef.current
-              && !event.nativeEvent.isComposing
-              && !event.metaKey
-              && !event.ctrlKey
-              && !event.altKey
-            ) {
-              const textarea = event.currentTarget
-              const collapsed = textarea.selectionStart === textarea.selectionEnd
-              if (
-                collapsed
-                && !event.shiftKey
-                && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
-              ) {
-                const target = skipHardSpanForArrow(
-                  textarea.selectionStart,
-                  event.key === 'ArrowLeft' ? 'left' : 'right',
-                  tagSpans,
-                )
-                if (target !== null) {
-                  event.preventDefault()
-                  textarea.setSelectionRange(target, target)
-                  return
-                }
-              }
-              if (event.key === 'Backspace' || event.key === 'Delete') {
-                if (collapsed) {
-                  const span = hardSpanForUnitDeletion(
-                    textarea.selectionStart,
-                    event.key === 'Backspace' ? 'backward' : 'forward',
-                    tagSpans,
-                  )
-                  if (span !== null) {
-                    event.preventDefault()
-                    textarea.setSelectionRange(span.start, span.end)
-                    setTagHint(t("已选中整个标签；再次按下删除键尝试移除。源文必需的标签无法删除。"))
-                    return
-                  }
-                }
-                // 非折叠选区：交给原生删除 + onChange 守恒守卫（required 标签自然不可删）。
-              }
-            }
             const action = editKeyAction({
               key: event.key,
               metaKey: event.metaKey,
@@ -711,15 +511,10 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
             else if (action === 'undo') undo()
             else redo()
           }}
-          className={styles.textarea}
         />
         <span className={styles.meta}>
-          <ProtectedTokenChips
-            text={segment.source}
-            tagProfile={tagProfile}
-          />
           {dirty && (
-            <span className={styles.warningText}>{t("未保存")}</span>
+            <span className={styles.draftStatus}>{t("未保存")}</span>
           )}
         </span>
         {conflict && (
@@ -749,7 +544,7 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
           </span>
         )}
         {suspectedWarnings.length > 0 && violations.length === 0 && (
-          <span className={styles.warning}>
+          <span className={styles.caution}>
             {t("译文未保留")} {suspectedWarnings.length} {t("个疑似 Tag；它们尚未启用硬保护，请确认是否可翻译。")}
           </span>
         )}
@@ -759,7 +554,10 @@ export const TargetEditor = React.forwardRef<TargetEditorHandle, TargetEditorPro
           </span>
         )}
         <span className={styles.toolbar}>
-          <span id={`target-editor-help-${segment.id}`}>
+          <span
+            id={`target-editor-help-${segment.id}`}
+            className={blocked || violations.length > 0 || conflict ? styles.errorHelp : styles.help}
+          >
             {blocked || violations.length > 0
               ? t("必须保留源文中的标签和占位符")
               : conflict

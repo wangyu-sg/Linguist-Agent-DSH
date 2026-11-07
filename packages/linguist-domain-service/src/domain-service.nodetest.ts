@@ -178,7 +178,7 @@ test('working copies preserve original bytes, explicit decisions and T→E→P r
     writeFileSync(join(root, 'decisions.json'), JSON.stringify({
       sourceSha256: baseline.sourceSha256,
       groups: [{ segmentIds: [a.id], decision: 'corrected' }, { segmentIds: [b.id], decision: 'unchanged' }],
-      edits: [{ segmentId: a.id, baseRevision: a.revision, target: 'Start' }],
+      edits: [{ segmentId: a.id, target: 'Start' }],
       unresolved: [],
     }))
     const t = await executeWorkingCopyAction({ ...params, operation: 'assemble', decisionsPath: 'decisions.json' }, () => ({ workspaceRoot: root, sessionId: 'T' }))
@@ -188,7 +188,7 @@ test('working copies preserve original bytes, explicit decisions and T→E→P r
       sourceSha256: baseline.sourceSha256,
       previousResultSha256: t.artifactSha256,
       groups: [{ segmentIds: [a.id], decision: 'unchanged' }, { segmentIds: [b.id], decision: 'corrected' }],
-      edits: [{ segmentId: b.id, baseRevision: b.revision, target: 'Cancel.' }],
+      edits: [{ segmentId: b.id, target: 'Cancel.' }],
       unresolved: [],
     }))
     const e = await executeWorkingCopyAction({ ...params, operation: 'assemble', decisionsPath: 'decisions.json', previousResultPath: t.path }, () => ({ workspaceRoot: root, sessionId: 'E' }))

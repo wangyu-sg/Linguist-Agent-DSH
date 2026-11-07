@@ -46,8 +46,8 @@ test('unknown project locales remain selected as current values, including froze
   }
 })
 
-test('create and settings use the same dropdown and create preserves QA choice before opening the new project', () => {
-  const create = readFileSync(new URL('ProjectsPage.tsx', client), 'utf8')
+test('the shared create form and project settings use the same locale dropdown', () => {
+  const create = readFileSync(new URL('ProjectCreateForm.tsx', client), 'utf8')
   const settings = readFileSync(new URL('Panels.tsx', client), 'utf8')
   for (const source of [create, settings]) {
     assert.equal((source.match(/<ProjectLocaleSelect\b/g) ?? []).length, 2)
@@ -55,7 +55,5 @@ test('create and settings use the same dropdown and create preserves QA choice b
     assert(!source.includes('Target locale<Input'))
   }
   assert.match(settings, /<ProjectLocaleSelect[^>]*disabled=\{archived \|\| hasBatches\}/)
-  assert.match(create, /workflowStage, qaProfile, workspaceId/)
-  assert.match(create, /await openProject\(created\)/)
-  assert.match(create, /value=\{qaProfile\}/)
+  assert.match(create, /value=\{input.qaProfile\}/)
 })

@@ -2,9 +2,8 @@
  * Tag profile（PB-097）：项目级自定义 tag 族登记，纯数据 + normalize。
  *
  * 与 glossaryPolicy 一样，`tagProfile` 是 LinguistProject
- * 可选字段，PB-097 之前写入的 project.json 无此键；读取经
- * `normalizeTagProfile` 回落（缺失/非法 → undefined = 仅内置族），
- * 规范化值绝不主动回写。
+ * 可选字段；读取经 `normalizeTagProfile` 规范化，缺省仅使用内置族。
+ * 变量例外需要明确范围和来源，非法记录报错；规范化不主动回写。
  *
  * 族条目让项目可以登记内置族覆盖不到的游戏/富文本标记（如
  * `[Grm:Qty S="" P="" Idx=""]`、`[time(...)]`），登记后进入与内置族
@@ -63,9 +62,34 @@ export interface LinguistTagProfileCandidate {
   status: LinguistTagCandidateStatus
 }
 
+/** 项目规则要求在特定句段补入的确切变量；原译或 TM 命中不能充当来源。 */
+export interface LinguistPlaceholderException {
+  segmentId: string
+  source: string
+  targetLocale: string
+  placeholders: readonly string[]
+  ruleReference: string
+  ruleQuote: string
+  evidence: { segmentId: string; source: string; reason: string }
+}
+
+export interface SetPlaceholderExceptionInput {
+  segmentId: string
+  source: string
+  /** null 删除该句段的例外，恢复默认守恒规则。 */
+  exception: {
+    placeholders: readonly string[]
+    ruleReference: string
+    ruleQuote: string
+    evidenceSegmentId: string
+    reason: string
+  } | null
+}
+
 export interface LinguistTagProfile {
   families: readonly LinguistTagFamily[]
   candidates?: readonly LinguistTagProfileCandidate[]
+  placeholderExceptions?: readonly LinguistPlaceholderException[]
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -141,9 +165,35 @@ function normalizeCandidate(value: unknown): LinguistTagProfileCandidate | undef
   }
 }
 
+function normalizePlaceholderException(value: unknown): LinguistPlaceholderException {
+  if (typeof value !== 'object' || value === null) throw new TypeError('Invalid project placeholder exception')
+  const raw = value as Record<string, unknown>
+  const evidence = raw.evidence as Record<string, unknown> | undefined
+  if (!nonEmptyString(raw.segmentId) || typeof raw.source !== 'string' || !nonEmptyString(raw.targetLocale)
+    || !nonEmptyString(raw.ruleReference) || !nonEmptyString(raw.ruleQuote)
+    || typeof evidence !== 'object' || evidence === null || !nonEmptyString(evidence.segmentId)
+    || !nonEmptyString(evidence.source) || !nonEmptyString(evidence.reason)
+    || evidence.segmentId === raw.segmentId || !Array.isArray(raw.placeholders)
+    || raw.placeholders.length === 0 || raw.placeholders.length > 32
+    || !raw.placeholders.every(token => typeof token === 'string' && /^\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(token))
+    || new Set(raw.placeholders).size !== raw.placeholders.length) {
+    throw new TypeError('Placeholder exceptions need exact named variables, a rule citation and related source evidence')
+  }
+  const sourceTokens: readonly string[] = raw.source.match(/(?<![{$])\{[A-Za-z_][A-Za-z0-9_]*\}(?!\})/g) ?? []
+  const evidenceTokens: readonly string[] = (evidence.source as string).match(/(?<![{$])\{[A-Za-z_][A-Za-z0-9_]*\}(?!\})/g) ?? []
+  if (raw.placeholders.some(token => sourceTokens.includes(token) || !evidenceTokens.includes(token))) {
+    throw new TypeError('Additional variables must be absent from this source and present in the cited related source')
+  }
+  return {
+    segmentId: raw.segmentId as string, source: raw.source as string, targetLocale: raw.targetLocale as string,
+    placeholders: raw.placeholders as string[], ruleReference: raw.ruleReference as string, ruleQuote: raw.ruleQuote as string,
+    evidence: { segmentId: evidence.segmentId as string, source: evidence.source as string, reason: evidence.reason as string },
+  }
+}
+
 /**
- * 缺失/非法一律回落 undefined（= 仅内置族），绝不抛错；
- * 非法族条目整条丢弃，合法条目保留登记顺序（扫描时项目族按此顺序压内置族）。
+ * 缺省使用内置族；族条目保留既有规范化行为。
+ * 变量例外会改变硬门预期，缺少依据或范围非法时直接报错。
  */
 export function normalizeTagProfile(value: unknown): LinguistTagProfile | undefined {
   if (typeof value !== 'object' || value === null) return undefined
@@ -158,7 +208,14 @@ export function normalizeTagProfile(value: unknown): LinguistTagProfile | undefi
         .map((entry) => normalizeCandidate(entry))
         .filter((candidate): candidate is LinguistTagProfileCandidate => candidate !== undefined)
     : []
-  return families.length > 0 || candidates.length > 0
-    ? { families, ...(candidates.length > 0 ? { candidates } : {}) }
+  if (record.placeholderExceptions !== undefined && !Array.isArray(record.placeholderExceptions)) {
+    throw new TypeError('Project placeholder exceptions must be an array')
+  }
+  const placeholderExceptions = (record.placeholderExceptions as unknown[] | undefined)?.map(normalizePlaceholderException) ?? []
+  if (new Set(placeholderExceptions.map(entry => entry.segmentId)).size !== placeholderExceptions.length) {
+    throw new TypeError('Duplicate project placeholder exception for a segment')
+  }
+  return families.length > 0 || candidates.length > 0 || placeholderExceptions.length > 0
+    ? { families, ...(candidates.length > 0 ? { candidates } : {}), ...(placeholderExceptions.length > 0 ? { placeholderExceptions } : {}) }
     : undefined
 }

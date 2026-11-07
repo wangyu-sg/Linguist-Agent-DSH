@@ -384,7 +384,7 @@ export function saveTagProfileCandidate(
   }
   const candidates = (profile?.candidates ?? []).filter((item) => item.id !== candidate.id)
   return {
-    profile: { families: profile?.families ?? [], candidates: [...candidates, candidate] },
+    profile: { ...profile, families: profile?.families ?? [], candidates: [...candidates, candidate] },
     candidate,
   }
 }
@@ -405,6 +405,7 @@ export function activateTagProfileCandidate(
     enabled: true,
   }
   return {
+    ...profile,
     families: [...profile.families.filter((item) => item.id !== family.id), family],
     candidates: profile.candidates?.filter((item) => item.id !== candidateId),
   }

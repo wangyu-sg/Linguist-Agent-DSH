@@ -39,6 +39,9 @@ import {
   type CatToolRuntime,
 } from './tool-runtime'
 
+// Keep receipt-bearing text inline under the native spill policy, including its envelope.
+const MAX_READ_RESULT_BYTES = 32_000
+
 const EMPTY_TM_NOTE =
   'No TM units matched the query. Import TMX or CSV into this project to add translation memory.'
 const EMPTY_TB_NOTE =
@@ -109,7 +112,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       neighborCount: Type.Optional(Type.Integer({ minimum: 0, maximum: 5, description: 'Number of adjacent segments on each side, 0-5. Keep unchanged when continuing a text cursor.' })),
       tmLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Maximum optional TM evidence per segment, 0-10; keep unchanged with a text cursor. A match is reference evidence, not automatic approval.' })),
       termLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Advisory match limit, 0-10. Required/forbidden authority and conflicts remain available even at 0. Keep unchanged with a text cursor.' })),
-      maxBytes: Type.Optional(Type.Integer({ minimum: 1_024, maximum: 262_144, description: 'UTF-8 byte budget for the complete text result, 1024-262144. Default 65536. Oversized single-context content uses contextFragment and nextCursor; continue with the same request.' })),
+      maxBytes: Type.Optional(Type.Integer({ minimum: 1_024, maximum: MAX_READ_RESULT_BYTES, description: `UTF-8 byte budget for the complete text result, 1024-${MAX_READ_RESULT_BYTES}. Default ${MAX_READ_RESULT_BYTES}. Oversized single-context content uses contextFragment and nextCursor; continue with the same request.` })),
       cursor: Type.Optional(Type.String({ description: 'The exact nextCursor from a prior text page. Reuse the same original segmentIds and matching options; For rulesOnly, use it only to continue a contextFragment. Never combine with restartStage=true.' })),
       stageScope: Type.Optional(Type.Union([Type.Literal('segments'), Type.Literal('batches'), Type.Literal('project')], { description: 'Execution task scope on the first read: segments freezes exactly these IDs; batches freezes every segment in each batch represented by these IDs; project freezes the entire bound project. Omit on continuation. Not permitted with readOnly=true; never broaden a selected subset to all batches to bypass the 50-ID read limit.' })),
       restartStage: Type.Optional(Type.Boolean({ description: 'True only when the user explicitly requests a new professional round, such as reviewing the same scope again. Omit/false for continuation, pagination, retries and ordinary resume. Requires a fresh request without cursor and cannot be used with readOnly=true.' })),
@@ -129,7 +132,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const judgmentFocus = params.judgmentFocus ?? []
       const functionHints = Object.fromEntries((params.functionHints ?? []).map(item => [item.segmentId, item.functions]))
       if (Object.keys(functionHints).some(id => !params.segmentIds.includes(id))) throw new LinguistCatInvalidArgumentError('functionHints', 'must refer to requested segmentIds')
-      const maxBytes = params.maxBytes ?? 65_536
+      const maxBytes = params.maxBytes ?? MAX_READ_RESULT_BYTES
       if (!Number.isInteger(neighborCount) || neighborCount < 0 || neighborCount > 5) {
         throw new LinguistCatInvalidArgumentError('neighborCount', 'expected an integer from 0 to 5')
       }
@@ -139,8 +142,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       if (!Number.isInteger(termLimit) || termLimit < 0 || termLimit > 10) {
         throw new LinguistCatInvalidArgumentError('termLimitPerSegment', 'expected an integer from 0 to 10')
       }
-      if (!Number.isInteger(maxBytes) || maxBytes < 1_024 || maxBytes > 262_144) {
-        throw new LinguistCatInvalidArgumentError('maxBytes', 'expected an integer from 1024 to 262144')
+      if (!Number.isInteger(maxBytes) || maxBytes < 1_024 || maxBytes > MAX_READ_RESULT_BYTES) {
+        throw new LinguistCatInvalidArgumentError('maxBytes', `expected an integer from 1024 to ${MAX_READ_RESULT_BYTES}`)
       }
       const readOnly = params.readOnly === true
       if (readOnly && params.stageScope !== undefined) {
@@ -314,6 +317,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           targetLocale: segment.targetLocale,
           ...(project.tagProfile !== undefined ? { profile: project.tagProfile } : {}),
         })
+        const placeholderException = project.tagProfile?.placeholderExceptions?.find(entry => entry.segmentId === segment.id
+          && entry.source === segment.source && entry.targetLocale === segment.targetLocale)
         const evidence: CatEvidenceRef[] = [
           { id: `segment:${segment.id as string}@${segment.revision}`, kind: 'segment-revision' },
           ...neighbors.previous.map((item) => ({
@@ -349,6 +354,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           previous: neighbors.previous.map(brief),
           next: neighbors.next.map(brief),
           tags,
+          ...(placeholderException === undefined ? {} : { placeholderException }),
           targetTags: scanTagTokens(segment.target, {
             targetLocale: segment.targetLocale,
             ...(project.tagProfile === undefined ? {} : { profile: project.tagProfile }),
@@ -464,6 +470,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         pending: completion.presentation.pending.length,
       }
       let caseLimit: 0 | 2 = 2
+      const snapshotId = runtime.newSnapshotId()
       const professionalFor = (items: readonly ResolvedTranslationContext[], limit: 0 | 2 = caseLimit) => deps.professionalJudgment === undefined || items.length === 0 ? {}
         : { professionalJudgment: selectProfessionalContext(deps.professionalJudgment, items.map(item => segments.find(segment => segment.id === item.segmentId)!), judgmentFocus, limit, functionHints) }
       const page = (items: ResolvedTranslationContext[]): CatGetTranslationContextResult => {
@@ -471,6 +478,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         const truncated = !params.rulesOnly && nextIndex < params.segmentIds.length
         const unprovidedReferences = unprovidedFor(items)
         const result: CatGetTranslationContextResult = {
+          ...(items.length ? { snapshotId } : {}),
           contextFormatVersion: 2,
           ...shareTranslationContexts(items),
           ...professionalFor(items),
@@ -560,6 +568,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           const more = end < payload.length
           const nextIndex = params.rulesOnly ? params.segmentIds.length : cursorOffset + 1
           const result: CatGetTranslationContextResult = {
+            snapshotId,
             contextFormatVersion: 2, ...shareTranslationContexts([]), totalRequested: params.segmentIds.length, cursor: params.cursor ?? null,
             contextFragment: { encoding: 'json', offset: start, totalChars: payload.length, text: payload.slice(start, end) },
             truncated: more || nextIndex < params.segmentIds.length,
@@ -604,6 +613,11 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       }
       for (const rule of receiptRules) presented.push({ ref: { kind: rule.kind, id: rule.ruleId }, anchorIds: [] })
       for (const context of receiptContexts) for (const profile of context.voiceProfiles ?? []) presented.push({ ref: { kind: 'voice-profile', id: profile.id }, anchorIds: [] })
+      if (dto.snapshotId) {
+        const provided = new Set(receiptContexts.map(context => context.segmentId))
+        if (!runtime.captureRead(dto.snapshotId, segments.filter(segment => provided.has(segment.id)), payloadPart)) delete dto.snapshotId
+      }
+      for (let index = 0; index < 4; index++) dto.usedBytes = measured(dto)
       const result = toolResult(dto, deps.resultProjectId, dto.contexts.map((context) => context.segmentId))
       if (!readOnly) {
         runtime.prepareEvidencePresentation(
@@ -625,11 +639,14 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       'Search the translation memory of the bound CAT project. concordance mode is a case-insensitive literal substring ' +
       'over TM source or target; segment mode ranks complete-source matches deterministically. Returns at most ' +
       `${CAT_TOOL_PAGE_LIMITS.searchTm.maxLimit} units per call (default ${CAT_TOOL_PAGE_LIMITS.searchTm.defaultLimit}). ` +
-      'An empty result carries a note and is not an error.',
+      'Segment mode defaults to minimumScore 75 (LA score, not Trados). Lower minimumScore or use concordance ' +
+      'to inspect short or structurally different references; an empty result does not prove no history exists. ' +
+      'Original TU dates/authors are provenance, not approval or proof of independent history.',
     promptSnippet: 'Search the bound project translation memory',
     parameters: Type.Object({
       query: Type.String({ minLength: 1 }),
       mode: Type.Optional(Type.Union([Type.Literal('concordance'), Type.Literal('segment')])),
+      minimumScore: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: 'Segment mode only; defaults to 75. Lower it to inspect weaker references that require review.' })),
       limit: Type.Optional(Type.Integer({ minimum: 1 })),
     }),
     async execute(toolCallId, params) {
@@ -642,19 +659,15 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.searchTm)
       let segmentMatches: TmMatchDiagnostics[] = []
       if (mode === 'segment') {
-        const exactCandidates = db.tmUnits.listCandidates(
+        const candidates = db.tmUnits.listCandidates(
           project.sourceLocale,
           project.targetLocale,
-          query,
         )
-        const candidates = exactCandidates.length > 0
-          ? exactCandidates
-          : db.tmUnits.listCandidates(project.sourceLocale, project.targetLocale)
-        segmentMatches = matchTmCandidates(query, candidates, { minimumScore: 75 })
+        segmentMatches = matchTmCandidates(query, candidates, { minimumScore: params.minimumScore ?? 75 })
       }
       const results: TmUnit[] | TmMatchDiagnostics[] = mode === 'segment'
         ? segmentMatches.slice(0, page.limit)
-        : db.tmUnits.list({ query, limit: page.limit })
+        : db.tmUnits.concordance({ query, limit: page.limit })
       const total = mode === 'segment' ? segmentMatches.length : db.tmUnits.count({ query })
       const dto: CatSearchTmResult = {
         query,
@@ -768,7 +781,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       metadataOffset: Type.Optional(Type.Integer({ minimum: 0, description: 'Start at 0. Follow nextMetadataOffset while keeping the same text offset and returned limit; this pages related anchors, images and warnings, not the document text.' })),
       metadataOnly: Type.Optional(Type.Boolean({ description: 'Return only anchor/media/warning metadata for a previously returned text range. Requires its docVersion, offset and returned limit. Does not repeat text or prepare a text-disclosure receipt; does not prove the text remains in model context.' })),
       docVersion: Type.Optional(Type.String({ minLength: 1, description: 'Exact document version from the preceding response. Required for metadataOnly; if it changed, retrieve the affected current text instead of joining versions.' })),
-      maxBytes: Type.Optional(Type.Integer({ minimum: 1_024, maximum: 262_144, description: 'Complete text-envelope UTF-8 byte budget. Default 65536, maximum 262144. If minimumRequiredBytes is returned without a continuation, increase the budget; do not loop on an unchanged insufficient request.' })),
+      maxBytes: Type.Optional(Type.Integer({ minimum: 1_024, maximum: MAX_READ_RESULT_BYTES, description: `Complete text-envelope UTF-8 byte budget. Default and maximum ${MAX_READ_RESULT_BYTES}. If minimumRequiredBytes is returned without a continuation, increase the budget within this limit; do not loop on an unchanged insufficient request.` })),
       readOnly: Type.Optional(Type.Boolean({
         description: 'When true, read content without changing a professional Stage or preparing evidence receipts. Omitted/false preserves execution evidence behavior.',
       })),
@@ -787,9 +800,9 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const readOnly = params.readOnly === true
       if (!readOnly && !metadataOnly) deps.prepareContextDoc?.(doc.parentContextDocId ?? doc.id)
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.readContextDoc)
-      const maxBytes = params.maxBytes ?? 65_536
+      const maxBytes = params.maxBytes ?? MAX_READ_RESULT_BYTES
       const metadataOffset = params.metadataOffset ?? 0
-      if (!Number.isInteger(maxBytes) || maxBytes < 1_024 || maxBytes > 262_144
+      if (!Number.isInteger(maxBytes) || maxBytes < 1_024 || maxBytes > MAX_READ_RESULT_BYTES
         || !Number.isInteger(metadataOffset) || metadataOffset < 0) {
         throw new LinguistCatInvalidArgumentError('maxBytes/metadataOffset', 'invalid page budget or metadata position')
       }
@@ -842,8 +855,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       }
       let dto = makePage()
       while (dto.usedBytes! > maxBytes && ((!metadataOnly && textLength > 1) || metadataLimit > 1)) {
-        if (!metadataOnly && textLength > 1) textLength = Math.max(1, Math.floor(textLength / 2))
-        else metadataLimit = Math.max(1, Math.floor(metadataLimit / 2))
+        if (metadataLimit > 1) metadataLimit = Math.max(1, Math.floor(metadataLimit / 2))
+        else textLength = Math.max(1, Math.floor(textLength / 2))
         dto = makePage()
       }
       if (dto.usedBytes! > maxBytes) {

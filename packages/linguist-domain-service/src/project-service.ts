@@ -34,6 +34,8 @@ import {
   type LinguistProject,
   type LinguistWorkbookMappingProfile,
   type SaveTagProfileCandidateInput,
+  type SetPlaceholderExceptionInput,
+  type LinguistPlaceholderException,
   type QaProfile,
   type QaFindingDisposition,
   type QaFindingSeverity,
@@ -313,6 +315,20 @@ export class LinguistProjectService {
       () => this.store.updateProject(projectId, { sourceLocale, targetLocale }),
       projectId,
     )
+  }
+
+  /** 显式修改项目词典；不触碰句段、术语或审校状态。 */
+  setProjectSpellingWord(projectId: string, locale: string, word: string, included: boolean): string[] {
+    this.assertProjectWritable(projectId)
+    const project = this.getProject(projectId)
+    const dictionary = { ...project.spellingDictionary }
+    const words = new Set(dictionary[locale] ?? [])
+    if (included) words.add(word)
+    else words.delete(word)
+    if (words.size > 10_000) throw new TypeError('Project spelling dictionary supports up to 10000 words per language')
+    dictionary[locale] = [...words].sort()
+    this.call(() => this.store.updateProject(projectId, { spellingDictionary: dictionary }), projectId)
+    return dictionary[locale]!
   }
 
   reorderActiveProjects(orderedProjectIds: string[]): LinguistProject[] {
@@ -916,6 +932,32 @@ export class LinguistProjectService {
       projectId,
     )
     return { project: updated, tagProfile, candidate: saved.candidate, validation }
+  }
+
+  setPlaceholderException(projectId: string, input: SetPlaceholderExceptionInput): LinguistPlaceholderException | null {
+    this.assertProjectWritable(projectId)
+    const project = this.getProject(projectId)
+    const db = this.openProject(projectId)
+    const segment = db.segments.getById(input.segmentId)
+    if (!segment) throw new StoreNotFoundError('segment', input.segmentId)
+    if (segment.source !== input.source) throw new Error('句段原文已变化，请重新核对变量例外的适用范围')
+    const profile = project.tagProfile ?? { families: [] }
+    const entries = (profile.placeholderExceptions ?? []).filter(entry => entry.segmentId !== segment.id)
+    let exception: LinguistPlaceholderException | null = null
+    if (input.exception !== null) {
+      const request = input.exception
+      const evidence = db.segments.getById(request.evidenceSegmentId)
+      if (!evidence) throw new StoreNotFoundError('segment', request.evidenceSegmentId)
+      if (evidence.assetId !== segment.assetId) throw new Error('变量来源必须是同批次内已核对关联关系的原文句段')
+      exception = {
+        segmentId: segment.id, source: segment.source, targetLocale: segment.targetLocale,
+        placeholders: request.placeholders, ruleReference: request.ruleReference, ruleQuote: request.ruleQuote,
+        evidence: { segmentId: evidence.id, source: evidence.source, reason: request.reason },
+      }
+      entries.push(exception)
+    }
+    this.call(() => this.store.index.setTagProfile(projectId, { ...profile, placeholderExceptions: entries }), projectId)
+    return exception
   }
 
   updateTagProfile(

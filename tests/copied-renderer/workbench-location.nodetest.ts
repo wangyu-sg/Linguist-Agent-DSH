@@ -12,7 +12,7 @@ test('CAT 工作台位置按项目隔离，并收敛持久化的非法布局值'
   try {
     const initial = readWorkbenchLocation('project-A').value
     assert.equal(initial.dock, 'qa')
-    assert.equal(initial.assetNavigatorWidth, 240)
+    assert.equal(initial.assetNavigatorWidth, 200)
     writeWorkbenchLocation('project-A', { ...initial, assetId: 'asset-A', segmentId: 'segment-A', dock: 'proposals', dockHeight: 300, inspectorWidth: 360 })
     assert.equal(readWorkbenchLocation('project-A').value.segmentId, 'segment-A')
     assert.equal(readWorkbenchLocation('project-A').value.dock, 'proposals')

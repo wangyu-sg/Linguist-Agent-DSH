@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Value } from 'typebox/value'
 import {
   createAsset,
   createSeededEntropy,
@@ -164,6 +165,22 @@ async function invoke(
   toolCallId = 'call-1',
 ): Promise<LinguistToolResult<unknown>> {
   return tool.execute(toolCallId, params as never)
+}
+
+/** Explicit reads only: callers choose the read point before any concurrent edits. */
+async function readSnapshotIds(tools: LinguistCatTool[], segmentIds: readonly string[]): Promise<string[]> {
+  const snapshots: string[] = []
+  for (let offset = 0; offset < segmentIds.length; offset += 50) {
+    const pageIds = segmentIds.slice(offset, offset + 50)
+    const page = (await invoke(toolByName(tools, 'cat_get_translation_context'), {
+      segmentIds: pageIds, readOnly: true, includeNeighbors: false,
+      tmLimitPerSegment: 0, termLimitPerSegment: 0, maxBytes: 32_000,
+    })).details as import('./types').CatGetTranslationContextResult
+    assert.deepEqual(page.contexts.map(item => item.segmentId), pageIds)
+    assert.ok(page.snapshotId)
+    snapshots.push(page.snapshotId)
+  }
+  return snapshots
 }
 
 /** 测试中按真实分片合同组回一页，不把空 contexts 当作丢失正文。 */
@@ -348,14 +365,18 @@ test('cat_confirm_segments: Reviewer 的 101 段冻结范围跨两批后才 comp
       linguistRole: 'reviewer',
       stageEvidenceRunId: stageRunId,
       reviewScopeSegmentIds: scope,
+      readDeliveryPreflight: assetId => ({
+        assetId, workflowStage: 'editing', segmentCount: scope.length,
+        lockedSegments: 0, unconfirmedUnlockedSegments: scope.length, pendingProposalCount: 0,
+        qa: { openErrors: 0, openWarnings: 0, waived: 0 },
+        evidence: { status: 'blocked', stageRuns: 1, required: 1, presented: 0, pending: 1 },
+        ready: false, blockers: [],
+      }),
     })
     const tool = toolByName(tools, 'cat_confirm_segments')
+    const snapshotIds = await readSnapshotIds(tools, scope)
     const first = (await invoke(tool, {
-      items: segments.slice(0, 100).map((segment) => ({
-        segmentId: segment.id,
-        expectedRevision: 0,
-        decision: 'unchanged',
-      })),
+      snapshotIds, segmentIds: scope.slice(0, 100),
     }, 'confirm-page-1')).details as { coverage: { confirmed: number; unchanged: number; pending: number; status: string } }
     assert.deepEqual(first.coverage, {
       scope: 'delegated',
@@ -369,11 +390,7 @@ test('cat_confirm_segments: Reviewer 的 101 段冻结范围跨两批后才 comp
     })
 
     const second = (await invoke(tool, {
-      items: [{
-        segmentId: segments[100]!.id,
-        expectedRevision: 0,
-        decision: 'unchanged',
-      }],
+      snapshotIds, segmentIds: [segments[100]!.id],
     }, 'confirm-page-2')).details as {
       stage: string
       coverage: { pending: number; status: string }
@@ -389,7 +406,17 @@ test('cat_confirm_segments: Reviewer 的 101 段冻结范围跨两批后才 comp
       pendingEvidence: 1,
       blockingGaps: 0,
       warnings: 0,
+      remainingEvidence: [{ evidence: requirement.evidence.ref, missingAnchorCount: 0, scope: { kind: 'assets', count: 1 }, rationale: requirement.rationale }],
+      gapExamples: [],
+      omittedGapCount: 0,
     })
+    const summary = (await invoke(toolByName(tools, 'cat_project_summary'), {
+      includeDelivery: true, batchId: asset.id,
+    })).details as { delivery: { currentTask: { remainingEvidence: unknown[]; gapExamples: unknown[] } } }
+    assert.deepEqual(summary.delivery.currentTask.remainingEvidence, [{
+      evidence: requirement.evidence.ref, missingAnchorCount: 0, scope: { kind: 'assets', count: 1 }, rationale: requirement.rationale,
+    }])
+    assert.deepEqual(summary.delivery.currentTask.gapExamples, [])
     fixture.db.stageEvidence.recordReceipt({
       stageRunId,
       baselineHash: baseline.baselineHash,
@@ -399,11 +426,7 @@ test('cat_confirm_segments: Reviewer 的 101 段冻结范围跨两批后才 comp
       evidence: [{ ref: requirement.evidence.ref, anchorIds: [], version: requirement.evidence.version, submission: 'provider-response-v1' }],
     })
     const completed = (await invoke(tool, {
-      items: [{
-        segmentId: segments[100]!.id,
-        expectedRevision: 0,
-        decision: 'unchanged',
-      }],
+      snapshotIds, segmentIds: [segments[100]!.id],
     }, 'confirm-after-evidence')).details as { fullReview: { status: string } }
     assert.equal(completed.fullReview.status, 'complete')
     assert.equal(fixture.db.segments.listStageEvents(segments[100]!.id).at(-1)?.action, 'unchanged')
@@ -416,23 +439,23 @@ test('cat_confirm_segments: corrected 先写回，blocked 可记录 locked/stale
   const fixture = setup()
   try {
     const correctedSegment = fixture.segmentsA[0]!
-    fixture.db.segments.applyTargetEdit(correctedSegment.id, 'Reviewer 最新译文', 0)
     const lockedSegment = fixture.segmentsA[2]!
     fixture.db.segments.setLocked(lockedSegment.id, true)
     const staleSegment = fixture.segmentsA[4]!
-    fixture.db.segments.applyTargetEdit(staleSegment.id, '并发新译文', 0)
 
     const reviewerTools = createLinguistCatTools({
       resolveProject: makeOkResolver(fixture),
       sessionId: 'review-session',
       linguistRole: 'reviewer',
     })
+    const snapshotIds = await readSnapshotIds(reviewerTools, [correctedSegment.id, lockedSegment.id, staleSegment.id])
+    await invoke(toolByName(reviewerTools, 'cat_apply_translations'), {
+      snapshotIds, edits: [{ segmentId: correctedSegment.id, target: 'Reviewer 最新译文' }],
+    }, 'apply-before-confirm')
+    fixture.db.segments.applyTargetEdit(staleSegment.id, '并发新译文', 0)
     const result = (await invoke(toolByName(reviewerTools, 'cat_confirm_segments'), {
-      items: [
-        { segmentId: correctedSegment.id, expectedRevision: 1, decision: 'corrected' },
-        { segmentId: lockedSegment.id, expectedRevision: 0, decision: 'blocked' },
-        { segmentId: staleSegment.id, expectedRevision: 0, decision: 'blocked' },
-      ],
+      snapshotIds, segmentIds: [correctedSegment.id, lockedSegment.id, staleSegment.id],
+      blockedSegmentIds: [lockedSegment.id, staleSegment.id],
     }, 'confirm-mixed')).details as {
       stage: string
       coverage: { corrected: number; blocked: number; status: string }
@@ -448,8 +471,9 @@ test('cat_confirm_segments: corrected 先写回，blocked 可记录 locked/stale
       sessionId: 'proof-session',
       linguistRole: 'proofreader',
     })
+    const proofSnapshots = await readSnapshotIds(proofreaderTools, [correctedSegment.id])
     const proof = (await invoke(toolByName(proofreaderTools, 'cat_confirm_segments'), {
-      items: [{ segmentId: correctedSegment.id, expectedRevision: 1, decision: 'unchanged' }],
+      snapshotIds: proofSnapshots, segmentIds: [correctedSegment.id],
     }, 'confirm-proof')).details as { stage: string }
     assert.equal(proof.stage, 'proofreading')
   } finally {
@@ -526,10 +550,11 @@ test('cat_accept_proposals atomically applies pending proposals without exportin
       sessionId: 'session-accept',
       onMutation: (mutation) => mutations.push(mutation),
     })
+    const snapshotIds = await readSnapshotIds(tools, [fixture.segmentsA[0]!.id])
     const proposed = await invoke(toolByName(tools, 'cat_propose_translations'), {
+      snapshotIds,
       segmentProposals: [{
         segmentId: fixture.segmentsA[0]!.id,
-        baseRevision: 1,
         proposedTarget: '已由 Agent 写入 0',
       }],
     })
@@ -949,17 +974,17 @@ test('cat_propose_translations creates proposals atomically without changing seg
       fixture.segmentsA[0]!.id,
       fixture.segmentsA[1]!.id,
     ])
+    const snapshotIds = await readSnapshotIds(tools, fixture.segmentsA.map(segment => segment.id))
     const result = await invoke(toolByName(tools, 'cat_propose_translations'), {
+      snapshotIds,
       segmentProposals: [
         {
           segmentId: fixture.segmentsA[0]!.id,
-          baseRevision: 0,
           proposedTarget: '译文 A 0',
           evidenceRefs: ['tm:1'],
         },
         {
           segmentId: fixture.segmentsA[1]!.id,
-          baseRevision: 0,
           proposedTarget: '译文 B 1',
           warnings: ['需复核'],
         },
@@ -1004,16 +1029,15 @@ test('cat_propose_translations creates proposals atomically without changing seg
       proposalIds: dto.proposalIds,
     }])
     await invoke(toolByName(tools, 'cat_propose_translations'), {
+      snapshotIds,
       segmentProposals: [
         {
           segmentId: fixture.segmentsA[0]!.id,
-          baseRevision: 0,
           proposedTarget: '译文 A 0',
           evidenceRefs: ['tm:1'],
         },
         {
           segmentId: fixture.segmentsA[1]!.id,
-          baseRevision: 0,
           proposedTarget: '译文 B 1',
           warnings: ['需复核'],
         },
@@ -1024,9 +1048,9 @@ test('cat_propose_translations creates proposals atomically without changing seg
     assert.equal(fixture.db.runs.getRunChangeSummary(dto.runId).mutationCount, 1)
     await assert.rejects(
       invoke(toolByName(tools, 'cat_propose_translations'), {
+        snapshotIds,
         segmentProposals: [{
           segmentId: fixture.segmentsA[2]!.id,
-          baseRevision: 0,
           proposedTarget: '同一 toolCall 的冲突 payload 2',
         }],
       }),
@@ -1041,9 +1065,9 @@ test('cat_propose_translations creates proposals atomically without changing seg
       },
     })
     const committed = await invoke(toolByName(deliveryFailureTools, 'cat_propose_translations'), {
+      snapshotIds: await readSnapshotIds(deliveryFailureTools, [fixture.segmentsA[2]!.id]),
       segmentProposals: [{
         segmentId: fixture.segmentsA[2]!.id,
-        baseRevision: 0,
         proposedTarget: '通知失败仍已提交 2',
       }],
     })
@@ -1066,8 +1090,9 @@ test('cat_apply_translations defaults to direct apply and can leave Pending prop
     })
     const first = fixture.segmentsA[0]!
     const second = fixture.segmentsA[1]!
+    const snapshotIds = await readSnapshotIds(tools, [first.id, second.id])
     const applied = (await invoke(toolByName(tools, 'cat_apply_translations'), {
-      edits: [{ segmentId: first.id, baseRevision: 0, target: '一次写回 0' }],
+      snapshotIds, edits: [{ segmentId: first.id, target: '一次写回 0' }],
     })).details as { applied: number; pending: number; proposalIds: string[] }
     assert.deepEqual((applied as { failed?: unknown }).failed, [])
     assert.equal(applied.applied, 1)
@@ -1081,7 +1106,7 @@ test('cat_apply_translations defaults to direct apply and can leave Pending prop
     assert.equal(fixture.db.proposals.getById(applied.proposalIds[0]!), undefined)
 
     const pending = (await invoke(toolByName(tools, 'cat_apply_translations'), {
-      edits: [{ segmentId: second.id, baseRevision: 0, target: '先看建议 1' }],
+      snapshotIds, edits: [{ segmentId: second.id, target: '先看建议 1' }],
       mode: 'proposal',
     }, 'call-2')).details as { applied: number; pending: number }
     assert.equal(pending.applied, 0)
@@ -1098,19 +1123,20 @@ test('apply 回执只含成功 savepoint，replay 保留原 revision，旧回执
   try {
     const [first, second, stale, locked, malformed, sqlFailure] = fixture.segmentsA
     assert.ok(first && second && stale && locked && malformed && sqlFailure)
-    fixture.db.segments.applyTargetEdit(stale.id, '外部修改', 0)
     fixture.db.segments.setLocked(locked.id, true)
     fixture.db.catDb.db.exec(`CREATE TRIGGER reject_test_target BEFORE UPDATE OF target ON segments
       WHEN NEW.target = 'reject-target' BEGIN SELECT RAISE(ABORT, 'TEST_ACCEPT_FAILURE'); END`)
     const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture), sessionId: 'receipt-test' })
     const tool = toolByName(tools, 'cat_apply_translations')
-    const params = { edits: [
-      { segmentId: first.id, baseRevision: 0, target: '成功一' },
-      { segmentId: second.id, baseRevision: 0, target: '成功二' },
-      { segmentId: stale.id, baseRevision: 0, target: '过期' },
-      { segmentId: locked.id, baseRevision: 0, target: '锁定' },
-      { segmentId: malformed.id, baseRevision: 0, target: '新增 {undeclared}' },
-      { segmentId: sqlFailure.id, baseRevision: 0, target: 'reject-target' },
+    const snapshotIds = await readSnapshotIds(tools, [first.id, second.id, stale.id, locked.id, malformed.id, sqlFailure.id])
+    fixture.db.segments.applyTargetEdit(stale.id, '外部修改', 0)
+    const params = { snapshotIds, edits: [
+      { segmentId: first.id, target: '成功一' },
+      { segmentId: second.id, target: '成功二' },
+      { segmentId: stale.id, target: '过期' },
+      { segmentId: locked.id, target: '锁定' },
+      { segmentId: malformed.id, target: '新增 {undeclared}' },
+      { segmentId: sqlFailure.id, target: 'reject-target' },
     ] }
     const result = (await invoke(tool, params)).details as CatApplyTranslationsResult
     assert.equal(result.applied, 2)
@@ -1138,7 +1164,8 @@ test('apply 回执只含成功 savepoint，replay 保留原 revision，旧回执
     assert.equal(fixture.db.segments.getById(second.id)?.revision, 1)
     assert.equal(fixture.db.proposals.list({}).length, 2)
     const pending = (await invoke(tool, {
-      mode: 'proposal', edits: [{ segmentId: second.id, baseRevision: 1, target: '仅候选' }],
+      snapshotIds: await readSnapshotIds(tools, [second.id]),
+      mode: 'proposal', edits: [{ segmentId: second.id, target: '仅候选' }],
     }, 'pending')).details as CatApplyTranslationsResult
     assert.equal(pending.pending, 1)
     assert.deepEqual(pending.appliedItems, [])
@@ -1172,29 +1199,27 @@ test('cat_propose_translations enforces batch, target, signature, lock and CAS r
       sourceHash: 'tagged-hash',
     }
     fixture.db.assets.insert(taggedAsset, [taggedSegment])
-    const tool = toolByName(
-      createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }),
-      'cat_propose_translations',
-    )
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    const tool = toolByName(tools, 'cat_propose_translations')
+    const snapshotIds = await readSnapshotIds(tools, [...fixture.segmentsA.map(segment => segment.id), taggedSegment.id])
     const item = {
       segmentId: fixture.segmentsA[0]!.id,
-      baseRevision: 0,
       proposedTarget: '译文 0',
     }
 
     await assertThrowsCode(
-      invoke(tool, { segmentProposals: Array.from({ length: 51 }, () => item) }),
+      invoke(tool, { snapshotIds, segmentProposals: Array.from({ length: 51 }, () => item) }),
       'INVALID_ARGUMENT',
     )
     await assertThrowsCode(
-      invoke(tool, { segmentProposals: [{ ...item, proposedTarget: '   ' }] }),
+      invoke(tool, { snapshotIds, segmentProposals: [{ ...item, proposedTarget: '   ' }] }),
       'INVALID_ARGUMENT',
     )
     await assertThrowsCode(
       invoke(tool, {
+        snapshotIds,
         segmentProposals: [{
           segmentId: taggedSegment.id,
-          baseRevision: 0,
           proposedTarget: '你好 world',
         }],
       }),
@@ -1202,46 +1227,46 @@ test('cat_propose_translations enforces batch, target, signature, lock and CAS r
     )
     await assert.doesNotReject(
       invoke(tool, {
+        snapshotIds,
         segmentProposals: [{
           segmentId: taggedSegment.id,
-          baseRevision: 0,
           proposedTarget: '你好 {name} <b>世界</b> Level 7',
         }],
       }, 'soft-newline'),
     )
     await assert.doesNotReject(
       invoke(tool, {
+        snapshotIds,
         segmentProposals: [{
           segmentId: taggedSegment.id,
-          baseRevision: 0,
           proposedTarget: '你好 {name} <b>世界</b>\n等级 8',
         }],
       }, 'soft-number'),
     )
 
     fixture.db.segments.setLocked(fixture.segmentsA[0]!.id, true)
-    await assert.rejects(invoke(tool, { segmentProposals: [item] }), SegmentLockedError)
+    await assert.rejects(invoke(tool, { snapshotIds, segmentProposals: [item] }), SegmentLockedError)
     fixture.db.segments.setLocked(fixture.segmentsA[0]!.id, false)
     fixture.db.segments.applyTargetEdit(fixture.segmentsA[1]!.id, '人工译文', 0)
     await assert.rejects(
       invoke(tool, {
+        snapshotIds,
         segmentProposals: [{
           segmentId: fixture.segmentsA[1]!.id,
-          baseRevision: 0,
           proposedTarget: '陈旧 1',
         }],
       }),
       StaleProposalError,
     )
-    await assert.rejects(
+    await assertThrowsCode(
       invoke(tool, {
+        snapshotIds,
         segmentProposals: [{
           segmentId: deriveSegmentId(fixture.assetA.id, 999),
-          baseRevision: 0,
           proposedTarget: '未知',
         }],
       }),
-      UnknownSegmentError,
+      'INVALID_ARGUMENT',
     )
     assert.equal(fixture.db.proposals.listPending().length, 2)
   } finally {
@@ -1278,23 +1303,22 @@ test('PB-097 cat_propose_translations：tag 族违规拒绝提案（内置 print
     fixture.db.assets.insert(tagAsset, [printfSegment, grmSegment])
 
     // 内置 printf 族（无需 tagProfile）：丢 %.2f%% 拒绝；保留放行
-    const builtinTool = toolByName(
-      createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }),
-      'cat_propose_translations',
-    )
+    const builtinTools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    const builtinTool = toolByName(builtinTools, 'cat_propose_translations')
+    const snapshotIds = await readSnapshotIds(builtinTools, [printfSegment.id, grmSegment.id])
     await assertThrowsCode(
       invoke(builtinTool, {
-        segmentProposals: [{ segmentId: printfSegment.id, baseRevision: 0, proposedTarget: '命中率' }],
+        snapshotIds, segmentProposals: [{ segmentId: printfSegment.id, proposedTarget: '命中率' }],
       }),
       'INVALID_ARGUMENT',
     )
     const accepted = await invoke(builtinTool, {
-      segmentProposals: [{ segmentId: printfSegment.id, baseRevision: 0, proposedTarget: '命中率 %.2f%%' }],
+      snapshotIds, segmentProposals: [{ segmentId: printfSegment.id, proposedTarget: '命中率 %.2f%%' }],
     })
     assert.equal((accepted.details as { proposalIds: string[] }).proposalIds.length, 1)
     // 未登记 tagProfile 时 [Grm:Qty …] 无内置族认领，不锁定
     const unregistered = await invoke(builtinTool, {
-      segmentProposals: [{ segmentId: grmSegment.id, baseRevision: 0, proposedTarget: '获得 个' }],
+      snapshotIds, segmentProposals: [{ segmentId: grmSegment.id, proposedTarget: '获得 个' }],
     }, 'call-unregistered-tag')
     assert.equal((unregistered.details as { proposalIds: string[] }).proposalIds.length, 1)
 
@@ -1302,15 +1326,14 @@ test('PB-097 cat_propose_translations：tag 族违规拒绝提案（内置 print
     const tagProfile = {
       families: [{ id: 'grm-qty', pattern: '\\[Grm:Qty[^\\]]*\\]', class: 'singleton' as const }],
     }
-    const profiledTool = toolByName(
-      createLinguistCatTools({
-        resolveProject: () => ({ project: { ...fixture.project, tagProfile }, db: fixture.db }),
-      }),
-      'cat_propose_translations',
-    )
+    const profiledTools = createLinguistCatTools({
+      resolveProject: () => ({ project: { ...fixture.project, tagProfile }, db: fixture.db }),
+    })
+    const profiledTool = toolByName(profiledTools, 'cat_propose_translations')
+    const profiledSnapshots = await readSnapshotIds(profiledTools, [grmSegment.id])
     await assertThrowsCode(
       invoke(profiledTool, {
-        segmentProposals: [{ segmentId: grmSegment.id, baseRevision: 0, proposedTarget: '获得 个' }],
+        snapshotIds: profiledSnapshots, segmentProposals: [{ segmentId: grmSegment.id, proposedTarget: '获得 个' }],
       }, 'call-profiled-tag'),
       'INVALID_ARGUMENT',
     )
@@ -1339,11 +1362,12 @@ test('cat_project_summary: archived project reads fine (read-only open) and carr
     // reads keep working on the archived (read-only) handle
     const segments = await invoke(toolByName(tools, 'cat_get_segments'), { limit: 5 })
     assert.equal((segments.details as PagedResult<unknown>).items.length, 5)
+    const snapshotIds = await readSnapshotIds(tools, [fixture.segmentsA[0]!.id])
     await assert.rejects(
       invoke(toolByName(tools, 'cat_propose_translations'), {
+        snapshotIds,
         segmentProposals: [{
           segmentId: fixture.segmentsA[0]!.id as string,
-          baseRevision: fixture.segmentsA[0]!.revision,
           proposedTarget: '归档项目不可写 0',
         }],
       }),
@@ -1420,15 +1444,13 @@ test('cat_get_segments: default page returns stable content-derived ids and shap
     assert.equal(dto.items.length, 12)
     const seededIds = new Set([...fixture.segmentsA, ...fixture.segmentsB].map((segment) => segment.id as string))
     for (const item of dto.items) {
-      assert.ok(seededIds.has(item.id as string), `unexpected segment id ${item.id}`)
+      assert.ok(seededIds.has(item.segmentId as string), `unexpected segment id ${item.segmentId}`)
       assert.deepEqual(
         Object.keys(item).sort(),
         [
           'batchId',
-          'id',
           'key',
           'locked',
-          'ordinal',
           'originalOrdinal',
           'revision',
           'segmentId',
@@ -1438,10 +1460,8 @@ test('cat_get_segments: default page returns stable content-derived ids and shap
         ].sort(),
       )
     }
-    const first = dto.items.find((item) => item.id === (fixture.segmentsA[0]!.id as string))!
-    assert.equal(first.ordinal, 0)
+    const first = dto.items.find((item) => item.segmentId === (fixture.segmentsA[0]!.id as string))!
     assert.equal(first.originalOrdinal, 1)
-    assert.equal(first.segmentId, first.id)
     assert.equal(first.key, 'key-0')
     assert.equal(first.status, 'translated')
     assert.equal(first.locked, false)
@@ -1460,16 +1480,16 @@ test('cat_get_segments: pagination — deterministic order across pages, clamp, 
     const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
     const tool = toolByName(tools, 'cat_get_segments')
 
-    const page1 = (await invoke(tool, { limit: 5 })).details as PagedResult<{ id: string }>
-    const page2 = (await invoke(tool, { limit: 5, offset: 5 })).details as PagedResult<{ id: string }>
-    const page3 = (await invoke(tool, { limit: 5, offset: 10 })).details as PagedResult<{ id: string }>
+    const page1 = (await invoke(tool, { limit: 5 })).details as PagedResult<{ segmentId: string }>
+    const page2 = (await invoke(tool, { limit: 5, offset: 5 })).details as PagedResult<{ segmentId: string }>
+    const page3 = (await invoke(tool, { limit: 5, offset: 10 })).details as PagedResult<{ segmentId: string }>
     assert.equal(page1.hasMore, true)
     assert.equal(page2.hasMore, true)
     assert.equal(page3.hasMore, false)
     assert.equal(page3.items.length, 2)
-    const pagedIds = [...page1.items, ...page2.items, ...page3.items].map((item) => item.id)
-    const full = (await invoke(tool, { limit: 20 })).details as PagedResult<{ id: string }>
-    assert.deepEqual(pagedIds, full.items.map((item) => item.id))
+    const pagedIds = [...page1.items, ...page2.items, ...page3.items].map((item) => item.segmentId)
+    const full = (await invoke(tool, { limit: 20 })).details as PagedResult<{ segmentId: string }>
+    assert.deepEqual(pagedIds, full.items.map((item) => item.segmentId))
 
     const beyond = (await invoke(tool, { offset: 999 })).details as PagedResult<unknown>
     assert.equal(beyond.items.length, 0)
@@ -1491,7 +1511,7 @@ test('cat_get_segments: index view keeps content paging and filters without send
   try {
     const tool = toolByName(createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }), 'cat_get_segments')
     const filter = { batchId: fixture.assetA.id as string, status: 'translated', search: 'alpha', limit: 2 }
-    const content = (await invoke(tool, filter)).details as PagedResult<{ id: string; source: string; target: string }>
+    const content = (await invoke(tool, filter)).details as PagedResult<{ segmentId: string; source: string; target: string }>
     const explicitContent = (await invoke(tool, { ...filter, view: 'content' })).details
     assert.deepEqual(explicitContent, content)
 
@@ -1503,12 +1523,11 @@ test('cat_get_segments: index view keeps content paging and filters without send
     assert.equal(index.limit, content.limit)
     assert.equal(index.hasMore, true)
     assert.deepEqual(
-      [...index.items, ...next.items].map(item => item.id),
-      ((await invoke(tool, { ...filter, limit: 20 })).details as PagedResult<{ id: string }>).items.map(item => item.id),
+      [...index.items, ...next.items].map(item => item.segmentId),
+      ((await invoke(tool, { ...filter, limit: 20 })).details as PagedResult<{ segmentId: string }>).items.map(item => item.segmentId),
     )
     for (const item of [...index.items, ...next.items]) {
       assert.ok(!('source' in item) && !('target' in item))
-      assert.equal(item.segmentId, item.id)
       assert.equal(typeof item.currentStageState, 'string')
     }
     assert.ok(!resultText(first).includes('Alpha source'))
@@ -1524,12 +1543,12 @@ test('cat_get_segments: batchId filter; unknown batch throws BATCH_NOT_FOUND', a
     const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
     const tool = toolByName(tools, 'cat_get_segments')
 
-    const filtered = (await invoke(tool, { batchId: fixture.assetB.id as string })).details as PagedResult<{ batchId: string; id: string }>
+    const filtered = (await invoke(tool, { batchId: fixture.assetB.id as string })).details as PagedResult<{ batchId: string; segmentId: string }>
     assert.equal(filtered.total, 4)
     assert.equal(filtered.items.length, 4)
     for (const item of filtered.items) assert.equal(item.batchId, fixture.assetB.id as string)
     assert.deepEqual(
-      filtered.items.map((item) => item.id),
+      filtered.items.map((item) => item.segmentId),
       fixture.segmentsB.map((segment) => segment.id as string),
     )
 
@@ -1621,6 +1640,9 @@ test('cat_search_tm / cat_search_terms: seeded rows are found (search is real, p
       target: '你好，世界',
       sourceLocale: 'en',
       targetLocale: 'zh-CN',
+      sourceLabel: 'Legacy TM',
+      enabled: true,
+      sourceKind: 'legacy',
     })
     assert.equal(tm.note, undefined)
     const tmTargetSide = (await invoke(toolByName(tools, 'cat_search_tm'), { query: '世界' })).details as {
@@ -1659,6 +1681,43 @@ test('cat_search_tm / cat_search_terms: seeded rows are found (search is real, p
     assert.equal(tmMatch.results[0]?.matchClass, 'exact')
 
     await assertThrowsCode(invoke(toolByName(tools, 'cat_search_tm'), { query: '   ' }), 'INVALID_ARGUMENT')
+  } finally {
+    fixture.db.close()
+  }
+})
+
+test('cat_search_tm keeps original provenance and exposes low-score review candidates on request', async () => {
+  const fixture = setup()
+  try {
+    const source = 'Please carefully review every translated sentence and preserve all original placeholders before delivery.'
+    fixture.db.tmUnits.importMany([
+      { source, target: 'Exact target', originalTuid: 'original-42', metadata: { creation_user: 'original-author', creation_date: '2024-05-01' } },
+      { source: source.replace('carefully', 'thoroughly'), target: 'Historical alternative' },
+      { source: '领取奖品', target: 'Claim a prize' },
+      { source: 'Click to collect your daily reward.', target: 'Collect the daily reward.' },
+    ].map((entry, index) => ({ ...entry, sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic-history', occurrenceKey: String(index) })))
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    const search = toolByName(tools, 'cat_search_tm')
+    const exact = (await invoke(search, { query: source, mode: 'segment' })).details as {
+      results: Array<{ matchClass: string; originalTuid?: string; metadata?: Record<string, string> }>
+    }
+    assert.equal(exact.results.length, 2)
+    assert.equal(exact.results[0]!.matchClass, 'exact')
+    assert.equal(exact.results[1]!.matchClass, 'fuzzy')
+    assert.equal(exact.results[0]!.originalTuid, 'original-42')
+    assert.equal(exact.results[0]!.metadata!.creation_user, 'original-author')
+    const concordance = (await invoke(search, { query: 'carefully' })).details as typeof exact
+    assert.deepEqual(concordance.results[0]!.metadata, exact.results[0]!.metadata)
+    const defaultShort = (await invoke(search, { query: '领取奖励', mode: 'segment' })).details as { total: number }
+    assert.equal(defaultShort.total, 0)
+    const short = (await invoke(search, { query: '领取奖励', mode: 'segment', minimumScore: 0 })).details as {
+      results: Array<{ unitId: string; matchedSource: string; structure: { safety: string; reasons: string[] } }>
+    }
+    assert.equal(short.results.find(item => item.matchedSource === '领取奖品')!.structure.safety, 'review')
+    const changed = (await invoke(search, { query: 'Click {name} to collect your daily reward.', mode: 'segment', minimumScore: 0 })).details as typeof short
+    const reference = changed.results.find(item => item.matchedSource === 'Click to collect your daily reward.')!
+    assert.equal(reference.structure.safety, 'review')
+    assert.ok(reference.structure.reasons.includes('Placeable 数量不一致'))
   } finally {
     fixture.db.close()
   }
@@ -1917,8 +1976,9 @@ test('proposal mode preserves the existing Stage and enforces the trusted delega
     })
     const before = fixture.db.segments.getById(segment.id)!
     const stageCount = fixture.db.stageEvidence.list().length
+    const snapshotIds = await readSnapshotIds(tools, [segment.id, outside.id])
     const created = (await invoke(toolByName(tools, 'cat_apply_translations'), {
-      edits: [{ segmentId: segment.id, baseRevision: before.revision, target: '提案译文' }],
+      snapshotIds, edits: [{ segmentId: segment.id, target: '提案译文' }],
       mode: 'proposal',
     })).details as { proposalIds: string[] }
     assert.equal(created.proposalIds.length, 1)
@@ -1929,7 +1989,7 @@ test('proposal mode preserves the existing Stage and enforces the trusted delega
     assert.equal(prepareStageCalls, 0)
 
     await assertThrowsCode(invoke(toolByName(tools, 'cat_propose_translations'), {
-      segmentProposals: [{ segmentId: outside.id, baseRevision: outside.revision, proposedTarget: '越界建议' }],
+      snapshotIds, segmentProposals: [{ segmentId: outside.id, proposedTarget: '越界建议' }],
     }), 'INVALID_ARGUMENT')
     assert.equal(prepareStageCalls, 0)
     const outsideAfter = fixture.db.segments.getById(outside.id)!
@@ -1938,6 +1998,56 @@ test('proposal mode preserves the existing Stage and enforces the trusted delega
   } finally {
     fixture.db.close()
   }
+})
+
+test('receipt-bearing reads keep a safe default envelope and reject oversized explicit budgets', async () => {
+  const fixture = setup()
+  try {
+    const segment = fixture.segmentsA[0]!
+    const source = 'Synthetic source language evidence. '.repeat(4_000)
+    fixture.db.catDb.db.prepare('UPDATE segments SET source = ? WHERE id = ?').run(source, segment.id)
+    const warnings = Array.from({ length: 20 }, (_, index) => ({ code: 'PARTIAL_EXTRACTION', message: `warning-${index}: ${'Metadata evidence. '.repeat(120)}` }))
+    const doc = fixture.db.contextDocs.insert({ kind: 'doc', originalFilename: 'bounded-evidence.txt', blobRelpath: 'blobs/bounded-evidence.txt', textExtract: source, extractionWarnings: warnings })
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    for (const [name, args] of [
+      ['cat_get_translation_context', { segmentIds: [segment.id], includeNeighbors: false, tmLimitPerSegment: 0, termLimitPerSegment: 0, readOnly: true }],
+      ['cat_read_context_doc', { docId: doc.id, limit: 8000, readOnly: true }],
+    ] as const) {
+      const tool = toolByName(tools, name)
+      const result = await invoke(tool, args)
+      assert.ok(Buffer.byteLength(resultText(result), 'utf8') <= 32_000, `${name} must fit the unspilled model envelope`)
+      assert.equal((result.details as { maxBytes: number }).maxBytes, 32_000)
+      for (const maxBytes of [32_001, 65_536, 262_144]) {
+        assert.equal(Value.Check(tool.parameters, { ...args, maxBytes }), false, `${name} schema must reject a budget above the safe envelope`)
+        await assertThrowsCode(invoke(tool, { ...args, maxBytes }), 'INVALID_ARGUMENT')
+      }
+    }
+    const context = await completeContextPage(toolByName(tools, 'cat_get_translation_context'), {
+      segmentIds: [segment.id], includeNeighbors: false, tmLimitPerSegment: 0, termLimitPerSegment: 0, readOnly: true,
+    })
+    assert.equal(context.contexts[0]!.source, source, 'bounded fragments preserve the full language evidence')
+    const readDoc = toolByName(tools, 'cat_read_context_doc')
+    let text = '', offset = 0
+    while (offset < source.length) {
+      const result = await invoke(readDoc, { docId: doc.id, offset, limit: 8000, readOnly: true })
+      const page = result.details as import('./types').CatReadContextDocResult
+      assert.ok(Buffer.byteLength(resultText(result), 'utf8') <= 32_000)
+      text += page.text
+      let metadataOffset = page.nextMetadataOffset
+      const receivedWarnings = [...page.extractionWarnings ?? []]
+      while (metadataOffset !== undefined) {
+        const metadataResult = await invoke(readDoc, { docId: doc.id, offset, limit: page.limit, docVersion: page.docVersion, metadataOnly: true, metadataOffset, readOnly: true })
+        const metadata = metadataResult.details as import('./types').CatReadContextDocResult
+        assert.equal(metadata.text, undefined, 'metadata continuation does not repeat the language text')
+        assert.ok(Buffer.byteLength(resultText(metadataResult), 'utf8') <= 32_000)
+        receivedWarnings.push(...metadata.extractionWarnings ?? [])
+        metadataOffset = metadata.nextMetadataOffset
+      }
+      assert.deepEqual(receivedWarnings, warnings)
+      offset = page.nextOffset ?? source.length
+    }
+    assert.equal(text, source, 'document offsets recover every original character')
+  } finally { fixture.db.close() }
 })
 
 test('cat_get_translation_context: enforces 50-item and UTF-8 byte budgets with resumable truncation', async () => {
@@ -2092,6 +2202,7 @@ test('cat_get_translation_context: 资料分页不因 Proposal、已处理批次
     assert.equal(fixture.db.runs.latestEventSequence, 0)
     const first = (await invoke(contextTool, pageParams)).details as {
       contexts: Array<{ segmentId: string }>
+      snapshotId?: string
       nextCursor?: string
     }
     assert.ok(first.nextCursor !== undefined)
@@ -2109,8 +2220,10 @@ test('cat_get_translation_context: 资料分页不因 Proposal、已处理批次
       'INVALID_ARGUMENT',
     )
     // Proposal 不改变当前双语正文，正常写回已提供的批次也不污染剩余页。
+    assert.ok(first.snapshotId)
     await invoke(toolByName(tools, 'cat_propose_translations'), {
-      segmentProposals: [{ segmentId: fixture.segmentsA[0]!.id, baseRevision: 0, proposedTarget: '漂移译文 0' }],
+      snapshotIds: [first.snapshotId],
+      segmentProposals: [{ segmentId: fixture.segmentsA[0]!.id, proposedTarget: '漂移译文 0' }],
     })
     fixture.db.segments.applyTargetEdit(fixture.segmentsA[0]!.id, '当前批次写回 0', 0)
     fixture.db.segments.applyTargetEdit(fixture.segmentsB[0]!.id, '无关批次写回 0', 0)
@@ -2296,18 +2409,17 @@ test('binding errors: unbound session, missing project, resolver that throws typ
         confidence: 1,
         explanation: 'test',
       },
+      cat_set_placeholder_exception: { segmentId: fixture.segmentsA[0]!.id, source: fixture.segmentsA[0]!.source, exception: null },
       cat_export_batch: { batchId: fixture.assetA.id, destinationPath: '/missing' },
       cat_get_translation_context: { segmentIds: [fixture.segmentsA[0]!.id] },
       cat_get_proposal_snapshot: { proposalId: 'prp-0000000000000000' },
       cat_apply_translations: {
-        edits: [{ segmentId: fixture.segmentsA[0]!.id, baseRevision: 0, target: 'x' }],
+        snapshotIds: ['unavailable-in-missing-project'],
+        edits: [{ segmentId: fixture.segmentsA[0]!.id, target: 'x' }],
       },
       cat_confirm_segments: {
-        items: [{
-          segmentId: fixture.segmentsA[0]!.id,
-          expectedRevision: 0,
-          decision: 'unchanged',
-        }],
+        snapshotIds: ['unavailable-in-missing-project'],
+        segmentIds: [fixture.segmentsA[0]!.id],
       },
       cat_search_tm: { query: 'x' },
       cat_search_terms: { query: 'x' },
@@ -2318,7 +2430,8 @@ test('binding errors: unbound session, missing project, resolver that throws typ
       cat_list_term_conflicts: {},
       cat_validate_terms: { segmentIds: [fixture.segmentsA[0]!.id] },
       cat_propose_translations: {
-        segmentProposals: [{ segmentId: fixture.segmentsA[0]!.id, baseRevision: 0, proposedTarget: 'x' }],
+        snapshotIds: ['unavailable-in-missing-project'],
+        segmentProposals: [{ segmentId: fixture.segmentsA[0]!.id, proposedTarget: 'x' }],
       },
       cat_accept_proposals: {
         proposals: [{ proposalId: 'prp-0000000000000000', expectedRevision: 0 }],
@@ -2430,17 +2543,17 @@ test('perf: 10k-segment project — paged queries stay capped and fast', async (
         const started = performance.now()
         const result = await invoke(tool, { limit: 100, offset })
         durations.push(performance.now() - started)
-        const dto = result.details as PagedResult<{ id: string }>
+        const dto = result.details as PagedResult<{ segmentId: string }>
         assert.equal(dto.total, 10_000)
         assert.ok(dto.items.length <= 100, 'page size is hard-capped')
-        assert.ok(resultText(result).length < 1_000_000, 'result payload stays small')
+        assert.ok(Buffer.byteLength(resultText(result), 'utf8') <= 24 * 1024, 'complete result stays within the byte budget')
       }
     }
     // exact ids at a page boundary
-    const page = (await invoke(tool, { limit: 100, offset: 9900 })).details as PagedResult<{ id: string; ordinal: number }>
-    assert.equal(page.items[0]!.id, segments[9900]!.id as string)
-    assert.equal(page.items[0]!.ordinal, 9900)
-    assert.equal(page.hasMore, false)
+    const page = (await invoke(tool, { limit: 100, offset: 9900 })).details as PagedResult<{ segmentId: string; originalOrdinal: number }>
+    assert.equal(page.items[0]!.segmentId, segments[9900]!.id as string)
+    assert.equal(page.items[0]!.originalOrdinal, 9901)
+    assert.equal(page.hasMore, page.items.length < 100)
 
     durations.sort((a, b) => a - b)
     const p95 = durations[Math.floor(0.95 * (durations.length - 1))]!
@@ -3324,7 +3437,7 @@ test('schema2 在装页前共享正文与 Voice，保留异源权威、每段 re
     const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
     await invoke(toolByName(tools, 'cat_upsert_voice_profile'), { speaker: 'Narrator', register: 'formal', toneMarkers: ['restrained'] })
     const result = await invoke(toolByName(tools, 'cat_get_translation_context'), {
-      segmentIds: selected.map(item => item.id), tmLimitPerSegment: 0, termLimitPerSegment: 0, neighborCount: 1, maxBytes: 45_000, readOnly: true,
+      segmentIds: selected.map(item => item.id), tmLimitPerSegment: 0, termLimitPerSegment: 0, neighborCount: 1, maxBytes: 32_000, readOnly: true,
     })
     const dto = result.details as import('./types').CatGetTranslationContextResult
     assert.equal(dto.contextFormatVersion, 2)

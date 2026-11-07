@@ -1,39 +1,83 @@
 # BrowserSkill for LA-DSH
 
 This directory adapts the pinned upstream DSH plugin in `BASELINE.json`. It adds
-`browser_files` to the same BrowserSkill Host/Client plugin instance and keeps its
+`bsk_files` to the same BrowserSkill Host/Client plugin instance and keeps its
 owned sessions, runner, queue, cancellation, observation, and UI. There is no
 second browser-control path.
 
-The supported host baseline is DSH 0.2.0-rc.2 on macOS ARM64. Use the local
-0.3.2-la-dsh.1 plugin tarball, bsk 0.3.2 CLI, and extension 0.3.2. The extension
-must show a connection to the configured daemon port before browser actions work.
-Install the tarball through the official DSH plugin manager.
+The supported host baseline is DSH 0.2.2-rc.1 on macOS ARM64. Use the local
+0.4.1-la-dsh.2 plugin tarball, bsk 0.4.1 CLI/daemon, and extension 0.4.1 with
+protocol 1.8. The extension must show a connection to the configured daemon port
+before browser actions work. Install or update the tarball through the official
+DSH plugin manager, following its prompts to enable the plugin and reload if required.
 
-This release rebases onto official 0.3.2. Official lifecycle, tool-history and
-streaming fixes replace the old compatibility patches. The remaining patch adds
-`browser_files`, durable receipts, canonical request deduplication, configured
+The 0.4.1-la-dsh.2 adaptation adds English/Chinese plugin-list titles and
+descriptions and an original PNG icon. All previously packed files except the
+package manifest remain byte-identical to 0.4.1-la-dsh.1; the manifest changes
+only its adaptation version and display-resource exports/files declarations.
+For this metadata-only update, keep the existing CLI, extension and plugin settings.
+The 0.4.1-la-dsh.1 runtime previously passed the pinned build, native
+installation/restart, and real Chrome checks against generated localhost pages
+for navigation, form editing, exact upload/download bytes, non-overwrite,
+interrupted-download cleanup and owned-session isolation. The new display
+resources are package-checked; their installed native rendering still requires
+user verification. Model-driven customer-platform tasks have not been verified
+in this upgrade.
+
+The runtime is based on official 0.4.1 and uses its `bsk_*` tool names.
+Reload `/browser-skill` in existing conversations to obtain the current tool instructions.
+The patch targets the DSH 0.2.2 attachment API and current-session UI binding, retains notification sources and terminal labels, and adds
+`bsk_files`, durable receipts, canonical request deduplication, configured
 staging/home paths, and disables CLI self-update. Updating to the unmodified
 marketplace package drops these additions.
 
-Update the plugin, CLI and extension together. Keep `bskPath`, `bskHome`, the
-session recovery directory and daemon port. With no browser tasks running, stop
-the owned daemon, replace the CLI, restart it, update the Chrome extension and
+Shared-control arguments retain the official `contextId`, `observationId`,
+`dependsOn` and `expect` names and map to the corresponding CLI flags. File
+transfers have one public entry, `bsk_files`: it reuses the official handlers
+while enforcing workspace/staging paths and durable receipts. The duplicate
+upload/download actions are removed from `bsk_interact`. Native dialog handling
+remains available; resume a pending file save through `bsk_files` status with
+the original request ID.
+
+When upgrading the upstream runtime, upgrade the plugin, CLI/daemon and Chrome
+extension together to the versions pinned in BASELINE.json. Keep `bskPath`, `bskHome`, `fileStagingDirectory`,
+`sessionStateDirectory` and the daemon port. With no browser tasks running, stop
+the owned daemon, install the plugin through the native manager, replace the
+CLI at the configured path, restart the daemon, update the Chrome extension and
 connect it to that same port. Loading an unpacked extension from a new directory
 can create a new extension identity; disable the old instance to avoid duplicate
 connections. Preserve its user settings until the new connection is working.
 
-The following are maintainer helpers for a prepared, pinned upstream checkout
-and local tooling described in BASELINE.json; they are not normal LA installation
-prerequisites. From this repository root:
+The following are maintainer helpers, not normal LA installation prerequisites.
+The source build uses the prepared, pinned upstream checkout and local tooling
+in BASELINE.json. From this repository root:
 
 ```sh
 node integrations/browser-skill/build-adapted-plugin.mjs
 node integrations/browser-skill/install-cli.mjs
 ```
 
-The build verifies upstream source, patch, adapted dependency lock, package version and tarball SHA, runs
-the upstream plugin suite plus the file-action tests, and writes `dist/BUILD.json`.
+The source build verifies upstream source, patch and adapted dependency lock,
+runs the upstream plugin suite plus the file-action tests, then applies the
+version and display metadata from `metadata/` before packing. It verifies the
+actual packed display resources and pinned tarball SHA and writes `dist/BUILD.json`.
+
+For a metadata-only change with the unchanged runtime, use the fixed existing
+0.4.1-la-dsh.1 tarball in `dist/`, pinned separately by `metadataBase` in
+BASELINE.json. This path uses Node/npm without an upstream rebuild or dependency
+installation:
+
+```sh
+node integrations/browser-skill/build-adapted-plugin.mjs --metadata-only
+node --test tests/required/browser-skill-metadata-repack.nodetest.mjs
+```
+
+It applies the same metadata overlay, repacks with lifecycle scripts disabled,
+and compares the actual unpacked result: every original non-manifest file must
+remain byte-identical; only the adaptation version, display exports/files and
+three display assets may differ. Both build paths check the new tarball SHA
+before writing it. Existing tarballs are verified, never overwritten.
+
 Install the resulting `dist/*.tgz` in the official DSH default desktop profile as its sole
 BrowserSkill plugin. Set `bskPath` to the absolute path in
 `.toolchain/browser-skill/INSTALL.json`, `fileStagingDirectory` to the new
@@ -55,8 +99,8 @@ BSK_HOME=/path/to/new/product/bsk-home node integrations/browser-skill/smoke-loc
 
 If several browser instances are connected, set `BSK_BROWSER_ID` to the chosen
 instance ID. The smoke script disables daemon autostart, serves only generated
-content on `127.0.0.1`, and checks navigation, observation, form edit, file
-attachment, exact download bytes, and cleanup of its own session. Its receipt is
+content on `127.0.0.1`, and checks navigation, observation, form edit, exact
+upload/download bytes, and cleanup of its own tracked request. Its receipt is
 `dist/LOCALHOST_SMOKE.json`. A missing daemon or extension yields `BLOCKED_ENV`;
 the script never reports a browser pass from a simulated connection.
 

@@ -42,6 +42,7 @@ import { validateLinguistTurnContext } from './automation-context'
 import type { TurnContextReceipts } from './turn-context'
 import type { ScheduleContextManager } from './schedule-context'
 import type { LinguistDelegationControl } from './delegation-control'
+import { editorConcordance, editorDetails, editorRowSignals, editorSpelling, editorTermMatches } from './editor-assistance'
 
 const PROJECT_ID = /^prj-[0-9a-f]{16}$/
 const ASSET_ID = /^ast(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})$/
@@ -533,6 +534,30 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const result = service.confirmCurrentStageBulk(id, items)
       if (result.succeeded.length > 0) notify(mutations, id, 'segment-updated', { segmentIds: result.succeeded.map((item) => item.id) })
       return result
+    }
+    case 'linguistCatEditorTerms':
+    case 'linguistCatRowSignals': {
+      const ids = strings(payload.segmentIds, 'segmentIds', 200, SEGMENT_ID)
+      if (new Set(ids).size !== ids.length) throw new TypeError('segmentIds must be unique')
+      return operation === 'linguistCatRowSignals' ? editorRowSignals(service, projectId(payload), ids) : editorTermMatches(service, projectId(payload), ids)
+    }
+    case 'linguistCatEditorDetails':
+      return editorDetails(service, projectId(payload), segmentId(payload))
+    case 'linguistCatConcordance': {
+      const { limit, offset } = page(payload, 20)
+      return editorConcordance(service, projectId(payload), string(payload.query, 'query', 500).trim(), payload.assetId === undefined ? undefined : assetId(payload), limit, offset)
+    }
+    case 'linguistCatSpellcheck': {
+      if (typeof payload.text !== 'string' || payload.text.length > 100_000) throw new TypeError('text must be a string of up to 100000 characters')
+      return editorSpelling(service, projectId(payload), string(payload.locale, 'locale', LOCALE_MAX_LENGTH, LOCALE_PATTERN), payload.text)
+    }
+    case 'linguistCatSetSpellingWord': {
+      const id = projectId(payload)
+      const locale = string(payload.locale, 'locale', LOCALE_MAX_LENGTH, LOCALE_PATTERN)
+      const word = string(payload.word, 'word', 100, /^[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*$/u).normalize('NFC')
+      const dictionary = service.setProjectSpellingWord(id, locale, word, boolean(payload.included, 'included'))
+      notify(mutations, id, 'project-updated')
+      return { dictionary }
     }
     case 'linguistCatGetContext':
       return service.getSegmentContext(projectId(payload), segmentId(payload))

@@ -58,6 +58,14 @@ PDF.js 4.10.38, Copyright Mozilla Foundation and contributors, is used for
 original PDF previews. Its unmodified Apache License 2.0 is included in
 `resources/third-party/pdfjs-dist-LICENSE`. Source: https://github.com/mozilla/pdf.js.
 
+## Offline spelling
+
+The optional editor spelling checks use nspell 2.1.5 (MIT) with the en_US
+Hunspell dictionary distributed by dictionary-en 4.0.0 (MIT and BSD).
+They are declared runtime dependencies and retain their upstream license
+files in the installed packages. No dictionary files are copied into the
+Linguist source tree. Project custom words are separate project metadata.
+
 ## DeepSeek Harness
 
 The Linguist native preset in `cordis.patch.yml` is adapted from DeepSeek

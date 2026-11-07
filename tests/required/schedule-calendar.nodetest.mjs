@@ -56,22 +56,31 @@ test('calendar tasks use native at, re-arm after authorization, retain history, 
     const events = new Map()
     const native = {
       rows: [], deliveries: new Map(), creates: 0, failAfterCreate: false,
-      async create(sessionId, request) {
+      async create(request, actorSessionId) {
         this.creates++
         const id = ScheduleId(`schedule-${randomUUID()}`)
-        const record = request.at ? createAtScheduleRecord(id, request.prompt, request.at, now, request.title) : createEveryScheduleRecord(id, request.prompt, request.every_seconds, now, request.title)
-        this.rows.push({ ...record, sessionId, status: 'active' })
+        const rule = request.timing.kind === 'at' ? createAtScheduleRecord(id, request.prompt, request.timing.at, now, request.title) : createEveryScheduleRecord(id, request.prompt, request.timing.every_seconds, now, request.title)
+        const record = { ...rule, target: request.target, involvedSessionIds: [actorSessionId, request.target.sessionId], status: 'active' }
+        this.rows.push(record)
         await this.afterCreate?.(record)
         if (this.failAfterCreate) { this.failAfterCreate = false; throw new Error('Synthetic native create response lost') }
         return record
       },
       async catalog() { return this.rows },
       async history({ id }) { return { id, records: this.deliveries.get(id) ?? [], earlierRecordsUnavailable: false, earlierRecordsPruned: false } },
-      async delete({ id }) { const before = this.rows.length; this.rows = this.rows.filter(row => row.id !== id); return { id, deleted: before !== this.rows.length } },
-      async update() { assert.fail('calendar cadence should be carried by real native at records') },
+      async edit({ id, action, expectedUpdatedAt }) {
+        assert.equal(action, 'delete', 'calendar cadence should be carried by real native at records')
+        const record = this.rows.find(row => row.id === id)
+        if (!record) return { id, code: 'schedule_not_found' }
+        assert.notEqual(expectedUpdatedAt, undefined, 'deletion must guard the catalog revision, including a legacy null revision')
+        if (expectedUpdatedAt !== (record.updatedAt ?? null)) return { id, code: 'schedule_conflict' }
+        const before = this.rows.length
+        this.rows = this.rows.filter(row => row.id !== id)
+        return before !== this.rows.length ? { id, deleted: true } : { id, code: 'schedule_not_found' }
+      },
       due(row) {
         now = Date.parse(row.scheduledAt)
-        row.status = 'inactive'
+        row.status = 'ended'
         const id = `due-${row.id}`
         this.deliveries.set(row.id, [{ scheduledAt: row.scheduledAt, deliveredAt: new Date(now).toISOString(), messageId: id, prompt: row.prompt }])
         return { id, role: 'user', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming(row) }] }
@@ -111,11 +120,11 @@ test('calendar tasks use native at, re-arm after authorization, retain history, 
     assert.equal(Date.parse(created.scheduledAt), local(2027, 2, 28))
     assert.deepEqual((await manager.list('source-calendar')).items[0].timing, request.timing)
     const owner = actors.get(created.sessionId)
-    const originalDelete = native.delete
-    native.delete = async () => ({ deleted: false })
+    const originalEdit = native.edit
+    native.edit = async ({ id }) => ({ id, code: 'schedule_not_found' })
     await assert.rejects(manager.pause('source-calendar', created.scheduleId, created.version), /still active/)
     assert.equal(native.rows.length, 1, 'failed deletion cannot be reported as success')
-    native.delete = originalDelete
+    native.edit = originalEdit
     await manager.enforceRunPolicy(created.sessionId)
     const pausedForDeletion = (await manager.list('source-calendar')).items[0]
     await manager.update({ ...request, scheduleId: created.scheduleId, expectedVersion: pausedForDeletion.version })
@@ -180,7 +189,7 @@ test('calendar tasks use native at, re-arm after authorization, retain history, 
     const failing = await manager.create({ ...request, title: 'Synthetic admission failures' })
     const failureOwner = actors.get(failing.sessionId)
     for (let turn = 1; turn <= 5; turn++) {
-      const row = native.rows.find(row => row.sessionId === failing.sessionId)
+      const row = native.rows.find(row => row.target.sessionId === failing.sessionId)
       const message = native.due(row)
       manager.recordAttempts(failureOwner, [message], turn)
       const own = events.get(failing.sessionId)

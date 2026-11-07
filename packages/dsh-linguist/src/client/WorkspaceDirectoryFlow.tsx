@@ -1,7 +1,7 @@
 import * as React from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
+import { DEFAULT_PROJECT_SETUP, ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
 import { useT } from './ui-locale'
 import styles from './ProjectsPage.module.css'
 
@@ -16,6 +16,7 @@ export function WorkspaceDirectoryFlow({ open, busy: ownerBusy, onPicked, onCanc
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
   const [created, setCreated] = React.useState<string>()
+  const [projectInput, setProjectInput] = React.useState<ProjectSetup>(DEFAULT_PROJECT_SETUP)
   React.useEffect(() => { if (!open) { setKind(undefined); setPath(''); setError(''); setCreated(undefined) } }, [open])
   const openProject = async (projectId: string) => {
     setBusy(true); setError('')
@@ -28,7 +29,10 @@ export function WorkspaceDirectoryFlow({ open, busy: ownerBusy, onPicked, onCanc
     try {
       const selected = await pickDirectory()
       if (selected !== null) {
-        if (linguist) setPath(selected)
+        if (linguist) {
+          setPath(selected)
+          setProjectInput({ ...DEFAULT_PROJECT_SETUP, name: selected.split(/[\\/]/).filter(Boolean).at(-1) ?? '' })
+        }
         else onPicked(selected)
       }
     } catch (cause) { setError(String(cause)) }
@@ -42,7 +46,7 @@ export function WorkspaceDirectoryFlow({ open, busy: ownerBusy, onPicked, onCanc
     </div> : <div className={styles.form}>
       <p className={styles.formHint}>{t('选择目录、设置语言对，创建项目后进入 Linguist 通用岗位。')}</p>
       <div className={styles.toolbar}><Button variant="outline" size="sm" disabled={busy || ownerBusy || Boolean(created)} onClick={() => void pick(true)}>{t(path ? '更换目录' : '选择目录')}</Button><span className={styles.formHint}>{path}</span></div>
-      {created ? <Button variant="primary" size="sm" disabled={busy} onClick={() => void openProject(created)}>{t('项目已创建，打开会话')}</Button> : path && <ProjectCreateForm key={path} initialName={path.split(/[\\/]/).filter(Boolean).at(-1)} onBusyChange={setBusy} onCreate={async input => { const id = await onCreate(path, input); setCreated(id); await openProject(id) }} />}
+      {created ? <Button variant="primary" size="sm" disabled={busy} onClick={() => void openProject(created)}>{t('项目已创建，打开会话')}</Button> : path && <ProjectCreateForm input={projectInput} onInputChange={setProjectInput} onBusyChange={setBusy} onCreate={async input => { const id = await onCreate(path, input); setCreated(id); await openProject(id) }} />}
     </div>}
     {error && <p className={styles.warning} role="alert">{error}</p>}
   </Modal>

@@ -6,8 +6,9 @@ import {
   type DeterministicHardRuleCode,
   type DeterministicHardRuleInput,
 } from './hard-rules'
-import { compileTagFamilyRegex } from './tag-families'
+import { compileTagFamilyRegex, scanTagTokens } from './tag-families'
 import { normalizeTagProfile } from './tag-profile'
+import { scanUnknownTagPatterns } from './unknown-tag-patterns'
 import { runQa } from './qa-core'
 import type { Segment } from './segment'
 
@@ -42,6 +43,73 @@ describe('PB-052 确定性硬规则', () => {
     const first = run()
     expect(first).toEqual({ ok: true, violations: [] })
     expect(run()).toEqual(first)
+  })
+
+  const link = '<a^前往 {name}^a>'
+  const color = '[27CA28]{0}:{1}后完成[-]'
+  const rgba = '[007B40FF]{0}后完成[-]'
+  const boundaryCases: Array<{ name: string; source: string; target: string; valid: boolean; sourceTokens?: string[]; targetTokens?: string[]; tagProfile?: DeterministicHardRuleInput['tagProfile'] }> = [
+    { name: 'caret 显示文字可译，命名变量独立保留', source: link, target: '<a^Go {name}^a>', valid: true,
+      sourceTokens: ['<a^', '{name}', '^a>'], targetTokens: ['<a^', '{name}', '^a>'] },
+    { name: 'caret 缺开边界', source: link, target: 'Go {name}^a>', valid: false },
+    { name: 'caret 缺闭边界', source: link, target: '<a^Go {name}', valid: false },
+    { name: 'caret 边界逆序', source: link, target: '^a>Go {name}<a^', valid: false },
+    { name: 'caret 与 XML 交叉嵌套', source: '<a^<b>前往</b>^a>', target: '<a^<b>Go^a></b>', valid: false },
+    { name: 'caret 内命名变量删除', source: link, target: '<a^Go^a>', valid: false },
+    { name: 'caret 内命名变量改名', source: link, target: '<a^Go {other}^a>', valid: false },
+    { name: 'NGUI 颜色边界与数字变量独立保留', source: color, target: '[27CA28]Complete after {0}:{1}[-]', valid: true,
+      sourceTokens: ['[27CA28]', '{0}', '{1}', '[-]'], targetTokens: ['[27CA28]', '{0}', '{1}', '[-]'] },
+    { name: 'NGUI 色码仅签名忽略大小写，原始文本保留', source: color, target: '[27ca28]Complete after {0}:{1}[-]', valid: true,
+      sourceTokens: ['[27CA28]', '{0}', '{1}', '[-]'], targetTokens: ['[27ca28]', '{0}', '{1}', '[-]'] },
+    { name: 'NGUI 缺开边界', source: color, target: 'Complete after {0}:{1}[-]', valid: false },
+    { name: 'NGUI 色码修改', source: color, target: '[FF0000]Complete after {0}:{1}[-]', valid: false },
+    { name: 'NGUI 缺闭边界', source: color, target: '[27CA28]Complete after {0}:{1}', valid: false },
+    { name: 'NGUI 边界逆序', source: color, target: '[-]Complete after {0}:{1}[27CA28]', valid: false },
+    { name: 'NGUI 与 XML 交叉嵌套', source: '[27CA28]<b>前往</b>[-]', target: '[27CA28]<b>Go[-]</b>', valid: false },
+    { name: 'NGUI 内变量修改', source: color, target: '[27CA28]Complete after {0}:{2}[-]', valid: false },
+    { name: '八位色码边界与变量独立保留', source: rgba, target: '[007B40FF]Complete after {0}[-]', valid: true,
+      sourceTokens: ['[007B40FF]', '{0}', '[-]'], targetTokens: ['[007B40FF]', '{0}', '[-]'] },
+    { name: '八位色码大小写不改写原文', source: rgba, target: '[007b40fF]Complete after {0}[-]', valid: true,
+      sourceTokens: ['[007B40FF]', '{0}', '[-]'], targetTokens: ['[007b40fF]', '{0}', '[-]'] },
+    { name: '八位色码删除', source: rgba, target: 'Complete after {0}[-]', valid: false },
+    { name: '八位色码修改', source: rgba, target: '[007B40FE]Complete after {0}[-]', valid: false },
+    { name: '八位色码缺闭边界', source: rgba, target: '[007B40FF]Complete after {0}', valid: false },
+    { name: 'c 样式边界与命名变量独立保留', source: '[c]前往 {name}[/c]', target: '[c]Go {name}[/c]', valid: true,
+      sourceTokens: ['[c]', '{name}', '[/c]'], targetTokens: ['[c]', '{name}', '[/c]'] },
+    { name: 'c 样式缺开边界', source: '[c]前往[/c]', target: 'Go[/c]', valid: false },
+    { name: 'c 样式缺闭边界', source: '[c]前往[/c]', target: '[c]Go', valid: false },
+    { name: 'c 样式边界改名', source: '[c]前往[/c]', target: '[x]Go[/x]', valid: false },
+    { name: 'c 样式边界逆序', source: '[c]前往[/c]', target: '[/c]Go[c]', valid: false },
+    { name: 'c 样式内命名变量删除', source: '[c]前往 {name}[/c]', target: '[c]Go[/c]', valid: false },
+    { name: 'c 和八位色码允许正确嵌套', source: '[c][007B40FF]前往[-][/c]', target: '[c][007B40FF]Go[-][/c]', valid: true,
+      sourceTokens: ['[c]', '[007B40FF]', '[-]', '[/c]'], targetTokens: ['[c]', '[007B40FF]', '[-]', '[/c]'] },
+    { name: 'c 和八位色码不能交叉嵌套', source: '[c][007B40FF]前往[-][/c]', target: '[c][007B40FF]Go[/c][-]', valid: false },
+    { name: 'caret 和 NGUI 允许正确嵌套', source: '[27CA28]<a^前往 {name}^a>[-]', target: '[27CA28]<a^Go {name}^a>[-]', valid: true,
+      sourceTokens: ['[27CA28]', '<a^', '{name}', '^a>', '[-]'], targetTokens: ['[27CA28]', '<a^', '{name}', '^a>', '[-]'] },
+    { name: '真实 XML 属性仍守恒', source: '<a href="original">前往</a>', target: '<a href="changed">Go</a>', valid: false },
+    { name: '已登记项目族仍优先于内置边界', source: link, target: '<a^Go {name}^a>', valid: false,
+      tagProfile: normalizeTagProfile({ families: [{ id: 'project-link', pattern: '<a\\^[^<>]*\\^a>', class: 'singleton' }] }) },
+  ]
+  test.each(boundaryCases)('内置 caret/NGUI 边界：$name', ({ source, target, valid, sourceTokens, targetTokens, tagProfile }) => {
+    expect(runDeterministicHardRules({ segment: { ...segment, source, sourceLocale: 'zh-CN', targetLocale: 'en-US' }, proposedTarget: target, tagProfile }).ok).toBe(valid)
+    if (valid) {
+      expect(scanTagTokens(source).map(token => source.slice(token.start, token.end))).toEqual(sourceTokens!)
+      expect(scanTagTokens(target).map(token => target.slice(token.start, token.end))).toEqual(targetTokens!)
+      expect(scanUnknownTagPatterns([{ id: 'synthetic-boundaries', source, target }])).toEqual([])
+    }
+  })
+
+  test('中文方括号 UI 文字可译，括号内运行变量仍单独保护', () => {
+    for (const [source, target, variables] of [
+      ['[交易]', '[Trade]', []], ['[摆摊]', '[Stall]', []], ['[我要出售]', '[Sell]', []],
+      ['[{0}]', '[{0}]', ['{0}']], ['[{1}]', '[{1}]', ['{1}']],
+    ] as const) {
+      expect(runDeterministicHardRules({ segment: { ...segment, source }, proposedTarget: target }).ok).toBe(true)
+      expect(scanTagTokens(source).map(token => source.slice(token.start, token.end))).toEqual([...variables])
+      expect(scanTagTokens(target).map(token => target.slice(token.start, token.end))).toEqual([...variables])
+    }
+    expect(runDeterministicHardRules({ segment: { ...segment, source: '[{0}]' }, proposedTarget: '[0]' }).ok).toBe(false)
+    expect(runDeterministicHardRules({ segment: { ...segment, source: '[{1}]' }, proposedTarget: '[{2}]' }).ok).toBe(false)
   })
 
   test('locked、placeholder/tag、ICU 等结构问题独立阻断', () => {
@@ -307,6 +375,36 @@ describe('PB-097 tag 族引擎', () => {
     expect(codesOf('<color=#FFF>白</color>', '<color=#000>白</color>')).toContain(
       DETERMINISTIC_HARD_RULE_CODES.TAG_SIGNATURE_MISMATCH,
     )
+  })
+
+  test('XML QName 边界：带冒号空格的装饰名称是正文，内部变量独立保护', () => {
+    expect(pb097Run('获得<饰品·晨光>。', 'Obtain <Accessory: Morning Light>.')).toEqual({ ok: true, violations: [] })
+    const source = '获得<饰品·{name}>。'
+    const target = 'Obtain <Accessory: {name}>.'
+    expect(pb097Run(source, target)).toEqual({ ok: true, violations: [] })
+    for (const text of [source, target]) {
+      expect(scanTagTokens(text).map(token => text.slice(token.start, token.end))).toEqual(['{name}'])
+    }
+    expect(codesOf(source, 'Obtain <Accessory: Dawn>.')).toContain(DETERMINISTIC_HARD_RULE_CODES.PLACEHOLDER_SIGNATURE_MISMATCH)
+    expect(codesOf(source, 'Obtain <Accessory: {other}>.')).toContain(DETERMINISTIC_HARD_RULE_CODES.PLACEHOLDER_SIGNATURE_MISMATCH)
+  })
+
+  test('XML QName 边界：真实命名空间、属性与 Unity 简写仍识别和守恒', () => {
+    const source = '<g id="7"><x:g>文字 {name}</x:g></g><color=#fff>白</color><sprite=icon>'
+    const target = '<g id="7"><x:g>Text {name}</x:g></g><color=#fff>White</color><sprite=icon>'
+    expect(pb097Run(source, target)).toEqual({ ok: true, violations: [] })
+    expect(scanTagTokens(target).map(token => target.slice(token.start, token.end))).toEqual([
+      '<g id="7">', '<x:g>', '{name}', '</x:g>', '</g>', '<color=#fff>', '</color>', '<sprite=icon>',
+    ])
+    for (const changed of [
+      target.replace('<g id="7">', ''),
+      target.replace('id="7"', 'id="8"'),
+      target.replace('<x:g>', '<x:h>'),
+      target.replace('<x:g>', '<x: g>'),
+      target.replace('#fff', '#000'),
+      target.replace('sprite=icon', 'sprite=other'),
+    ]) expect(codesOf(source, changed)).toContain(DETERMINISTIC_HARD_RULE_CODES.TAG_SIGNATURE_MISMATCH)
+    expect(codesOf(source, target.replace('{name}', ''))).toContain(DETERMINISTIC_HARD_RULE_CODES.PLACEHOLDER_SIGNATURE_MISMATCH)
   })
 
   test('tag 调序合法（用户拍板：多重集比较不比顺序）', () => {

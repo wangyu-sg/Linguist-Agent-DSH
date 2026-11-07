@@ -15,10 +15,12 @@ const stores = {
     }
   },
   defineStore: spec => ({ spec }),
+  notifySubscribers: listeners => { for (const listener of [...listeners]) listener() },
 }
 
-const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
-const bundle = readFileSync(require.resolve('@deepseek-ai/dsh-client-ui-conversation/client'), 'utf8')
+const entry = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url)).resolve('@deepseek-ai/dsh-client-ui-conversation/client')
+const require = createRequire(entry)
+const bundle = readFileSync(entry, 'utf8')
 
 // The official public apply/input facade owns the real Lexical document and submit machine.
 function nativeComposer() {
@@ -38,6 +40,7 @@ function nativeComposer() {
   const events = new Map()
   const actx = {
     effect: setup => { const off = setup(); disposers.push(off); return off },
+    inject(_dependencies, setup) { return setup(this) },
     on: (name, listener) => { events.set(name, listener); return () => events.delete(name) },
     bail: (name, value) => events.get(name)?.(value),
   }
@@ -49,10 +52,13 @@ function nativeComposer() {
     projections: { faceOf: key => key === 'inbox' ? inbox : stores.createSnapshotStore(undefined) },
     beginSubmission: input => {
       sends.push({ input })
-      state.set({ ...state.getSnapshot(), pendingSubmissions: [{ requestId: 'real-native-request', text: input.text }] })
       return { requestId: 'real-native-request', abandon() {} }
     },
-    prompt: async (content, mode, _signal, requestId) => { sends.at(-1).prompt = { content, mode, requestId }; return promptResult },
+    prompt: async (content, mode, _signal, requestId) => {
+      sends.at(-1).prompt = { content, mode, requestId }
+      if (promptResult.ok) state.set({ ...state.getSnapshot(), pendingSubmissions: [{ requestId, text: sends.at(-1).input.text }] })
+      return promptResult
+    },
   }
   const binding = { sessionId: session.sessionId, session, ctx: actx }
   const ctx = {
@@ -60,7 +66,7 @@ function nativeComposer() {
     sessions: { sessionOf: scope => scope === actx ? session : undefined, binding: () => binding, scope: () => actx },
     effect: actx.effect,
     inject() {},
-    slots: { inject() {}, entries: () => [], subscribe: () => () => {} },
+    slots: { inject() {}, registerFactory() {}, entries: () => [], subscribe: () => () => {} },
     locale: { register: () => () => {}, bind: () => key => key, subscribe: () => () => {} },
     configForms: { get() {}, developerTools: { enabled: stores.createSnapshotStore(false) } },
     uiSession: { provide() {} },
@@ -82,7 +88,7 @@ function nativeComposer() {
     dispose: () => { for (const off of disposers.reverse()) off?.() } }
 }
 
-test('official native input keeps ordinary text and reference identity through asynchronous serialization', async () => {
+test('official native input retains the draft during serialization and preserves the next draft after Host acceptance', async () => {
   const native = nativeComposer()
   try {
     let release
@@ -90,12 +96,16 @@ test('official native input keeps ordinary text and reference identity through a
     native.input.setDraft('Keep this draft')
     assert.equal(native.input.insertReference({ source: 'test', ref: 'A', label: 'A', clipboardText: '@A' }, { start: 0, end: 0, draftRev: native.input.state.getSnapshot().draftRev }), true)
     native.input.submit('steer')
-    native.input.setDraft('Next draft')
+    assert.equal(native.input.state.getSnapshot().phase, 'sending')
+    assert.equal(native.input.state.getSnapshot().draft, '@A Keep this draft')
     release()
     await new Promise(resolve => setTimeout(resolve, 30))
     assert.equal(native.sends[0].prompt.content[0].text, 'frozen:A Keep this draft')
     assert.equal(native.sends[0].prompt.mode, 'steer')
     assert.equal(native.sends[0].prompt.requestId, 'real-native-request')
+    assert.equal(native.input.state.getSnapshot().draft, '')
+    native.input.setDraft('Next draft')
+    native.admit()
     assert.equal(native.input.state.getSnapshot().draft, 'Next draft')
   } finally { native.dispose() }
 })
@@ -109,7 +119,7 @@ const textOf = send => send.prompt.content.find(part => part.type === 'text').te
 const contextOf = text => JSON.parse(text.match(/\[LA-TURN-CONTEXT v1\]\n([^\n]+)\n\[\/LA-TURN-CONTEXT\]/)[1])
 const tick = () => new Promise(resolve => setTimeout(resolve, 30))
 
-test('CAT reference captures synchronously, preserves another reference and image, and leaves a quickly typed next draft alone', async () => {
+test('CAT reference captures synchronously, preserves another reference and image, and retains the next draft after echo retirement', async () => {
   const native = nativeComposer()
   let connected
   try {
@@ -126,13 +136,15 @@ test('CAT reference captures synchronously, preserves another reference and imag
     native.input.addAttachments([image.id])
     native.input.submit('steer')
     publish(['segment-B'])
-    native.input.setDraft('Next user draft')
+    assert.equal(native.input.state.getSnapshot().phase, 'sending')
     releaseFile()
     await tick()
     assert.equal(contextOf(textOf(native.sends[0])).context.selectedSegmentIds[0], 'segment-A')
     assert(textOf(native.sends[0]).includes('Original draft original-file'))
     assert.equal(native.sends[0].prompt.content[0].type, 'image')
     assert.equal(native.sends[0].prompt.content[0].data, Buffer.from('synthetic image bytes').toString('base64'))
+    assert.equal(native.input.state.getSnapshot().draft, '')
+    native.input.setDraft('Next user draft')
     native.admit()
     await tick()
     assert.equal(native.input.state.getSnapshot().draft, 'Next user draft')
@@ -151,7 +163,7 @@ test('CAT reference requires explicit attachment after clearing or manual remova
     assert(connected.attach({ start: 0, end: 0, draftRev: native.input.state.getSnapshot().draftRev }))
     assert.equal(native.input.state.getSnapshot().draft, '@CAT ')
     native.input.submit()
-    assert.equal(native.input.state.getSnapshot().draft, '')
+    assert.equal(native.input.state.getSnapshot().draft, '@CAT ')
     await tick()
     assert.equal(native.input.state.getSnapshot().draft, '')
     native.admit()

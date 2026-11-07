@@ -120,6 +120,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
   const url = `http://127.0.0.1:${server.address().port}/`
   evidence.fixtureUrl = url
   let sessionId
+  let requestId
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
     assert.equal(response.status, 200)
@@ -132,7 +133,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     step('pinned BrowserSkill CLI', 'PASS', evidence.cliSha256)
     const daemon = JSON.parse(await bsk(current, ['status', '--json']))
     assert.equal(daemon.daemon_version, baseline.cliRelease.version)
-    assert.equal(daemon.protocol_version, '1.3')
+    assert.equal(daemon.protocol_version, '1.8')
     assert(Number.isInteger(daemon.ws_port) && daemon.ws_port > 0)
     checks.daemon = 'PASS'
     evidence.bskPort = daemon.ws_port
@@ -201,20 +202,27 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
       return evidence
     }
 
-    const started = JSON.parse(await bsk(current, ['session', 'start', '--no-focus', '--browser', selected.instance_id, '--json']))
+    requestId = `${Date.now() + 300_000}:${randomUUID()}`
+    assert.equal(JSON.parse(await bsk(current, ['session', 'request', requestId, '--prepare', '--json'])).state, 'prepared')
+    const started = JSON.parse(await bsk(current, ['session', 'start', '--no-focus', '--browser', selected.instance_id, '--request-id', requestId, '--json']))
     sessionId = started.session_id
     assert(sessionId && started.browser_instance_id === selected.instance_id)
+    assert.equal(JSON.parse(await bsk(current, ['session', 'request', requestId, '--claim', '--json'])).state, 'active')
     evidence.agentWindow = { sessionId, browserInstanceId: selected.instance_id }
     checks.agentWindow = 'PASS'
     step('owned AgentWindow session start', 'PASS', `session ${sessionId}`)
 
     await bsk(current, ['navigate', url, '--session', sessionId, '--json'])
-    assert.match(await bsk(current, ['observe', '--session', sessionId]), /LA-001.*English.*Chinese/s)
+    const control = JSON.parse(await bsk(current, ['cooperate', 'sync', '--policy', 'target', '--session', sessionId, '--json']))
+    assert.equal(control.state.mode, 'ready')
+    assert.equal(control.control_policy, 'target')
+    assert(control.context_id)
+    assert.match(JSON.stringify(control), /LA-001.*English.*Chinese/s)
     checks.navigationAndObservation = 'PASS'
     step('AgentWindow navigate and observe', 'PASS', url)
 
-    await bsk(current, ['fill', '#target-la-001', '--value', targetText, '--session', sessionId, '--json'])
-    await bsk(current, ['click', '#save-la-001', '--session', sessionId, '--json'])
+    await bsk(current, ['fill', '#target-la-001', '--value', targetText, '--session', sessionId, '--context', control.context_id, '--json'])
+    await bsk(current, ['click', '#save-la-001', '--session', sessionId, '--context', control.context_id, '--json'])
     await waitFor(() => state.saved?.target, targetText, 'server-side save')
     assert.equal(state.saved.taskId, 'LA-001')
     assert.equal(state.otherTarget, 'Einstellungen öffnen')
@@ -223,7 +231,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
 
     const uploadPath = join(evidenceRoot, 'browser-skill-upload.txt')
     await writeFile(uploadPath, uploadBytes)
-    await bsk(current, ['upload', '#upload', '--file', uploadPath, '--session', sessionId, '--json'])
+    await bsk(current, ['upload', '#upload', '--file', uploadPath, '--session', sessionId, '--context', control.context_id, '--json'])
     await waitFor(() => state.uploadSha256, hash(uploadBytes), 'server-side upload')
     assert.equal(state.uploadFilename, 'browser-skill-upload.txt')
     const uploadReceiptPath = join(evidenceRoot, `browser-skill-upload-receipt-${randomUUID()}.json`)
@@ -235,7 +243,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
 
     const downloadPath = join(evidenceRoot, `browser-skill-download-${randomUUID()}.txt`)
     assert(!existsSync(downloadPath), 'download destination already exists')
-    await bsk(current, ['download', '#download', '--out', downloadPath, '--session', sessionId, '--json'])
+    await bsk(current, ['download', '#download', '--out', downloadPath, '--session', sessionId, '--context', control.context_id, '--json'])
     assert.deepEqual(readFileSync(downloadPath), downloadBytes)
     evidence.downloadPath = downloadPath
     evidence.downloadSha256 = hash(downloadBytes)
@@ -251,9 +259,10 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     step('browser chain', 'FAILED', evidence.error)
     return evidence
   } finally {
-    if (sessionId) {
+    if (requestId) {
       try {
-        await bsk(current, ['session', 'stop', sessionId, '--json'])
+        const stopped = JSON.parse(await bsk(current, ['session', 'request', requestId, '--cancel', '--json']))
+        assert.equal(stopped.state, 'closed')
         checks.ownedSessionStop = 'PASS'
         step('owned AgentWindow session stop', 'PASS', `session ${sessionId}`)
       } catch (error) {

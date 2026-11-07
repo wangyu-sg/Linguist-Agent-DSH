@@ -30,7 +30,7 @@ export function createLinguistCatTools(deps: LinguistCatToolsDeps) {
   const [previewWorkbookMappingTool, saveWorkbookMappingTool] = createWorkbookTools(runtime)
   const [upsertVoiceProfileTool, addApprovedExemplarTool, getVoiceContextTool] = createVoiceTools(runtime)
   const [exportBatchTool] = createDeliveryTools(runtime)
-  const [scanUnknownTagPatternsTool, saveTagProfileCandidateTool] = createTagTools(runtime)
+  const [scanUnknownTagPatternsTool, saveTagProfileCandidateTool, setPlaceholderExceptionTool] = createTagTools(runtime)
   const [upsertTermsTool, deleteTermsTool, listTermConflictsTool, validateTermsTool] =
     createTerminologyTools(runtime)
   const [
@@ -63,6 +63,7 @@ export function createLinguistCatTools(deps: LinguistCatToolsDeps) {
     getVoiceContextTool,
     scanUnknownTagPatternsTool,
     saveTagProfileCandidateTool,
+    setPlaceholderExceptionTool,
     exportBatchTool,
     getTranslationContextTool,
     getProposalSnapshotTool,

@@ -105,13 +105,23 @@ test('宿主冻结独立 Stage Plan，恢复本轮状态，并把未映射数据
     assert.equal(first.baseline.mappingRevision, createHash('sha256').update(JSON.stringify(originalMapping.sort())).digest('hex'), '流式哈希必须保持既有 Stage baseline')
     assert.equal(first.status, 'ready-with-gaps')
     assert.equal(first.plan.requirements.find((item) => item.evidence.ref.kind === 'context-doc')?.requiredness, 'required')
-    assert.deepEqual(db.stageEvidence.getPresentationCoverage(first.stageRunId), {
+    const presentation = db.stageEvidence.getPresentationCoverage(first.stageRunId)
+    assert.deepEqual({ ...presentation, pending: presentation.pending.map(({ evidence, anchorIds }) => ({ evidence, anchorIds })) }, {
       required: 2,
       presented: 0,
       pending: [
         { evidence: { kind: 'asset', id: imported.asset.id }, anchorIds: [] },
         { evidence: { kind: 'context-doc', id: context.id }, anchorIds: ['row-2-image', 'row-2-text'] },
       ],
+    })
+    const missingContext = presentation.pending.find(item => item.evidence.kind === 'context-doc')!
+    const requiredContext = first.plan.requirements.find(item => item.evidence.ref.kind === 'context-doc')!
+    assert.equal(missingContext.filename, context.originalFilename)
+    assert.equal(missingContext.rationale, requiredContext.rationale)
+    assert.deepEqual(missingContext.scope, requiredContext.scope)
+    assert.deepEqual(missingContext.nextAnchor, {
+      anchorId: missingContext.anchorIds[0],
+      locator: db.contextDocs.listAnchors(context.id).find(anchor => anchor.id === missingContext.anchorIds[0])!.locator,
     })
     assert.equal(db.stageEvidence.listOpenGaps(first.stageRunId).some((gap) =>
       gap.code === 'UNMAPPED_CLIENT_VISIBLE_CONTENT'

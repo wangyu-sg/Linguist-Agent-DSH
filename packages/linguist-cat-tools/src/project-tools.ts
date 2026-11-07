@@ -1,5 +1,5 @@
 import type { SegmentStatus } from '@linguist/cat-core'
-import type { ProjectDatabase } from '@linguist/cat-store'
+import { stageEvidenceDetails, type ProjectDatabase } from '@linguist/cat-store'
 import { Type } from 'typebox'
 import {
   LinguistCatBatchNotFoundError,
@@ -30,6 +30,7 @@ const SEGMENT_STATUSES: readonly SegmentStatus[] = [
 ]
 
 const ARCHIVED_NOTE = 'Project is archived: all data is read-only.'
+const SEGMENT_PAGE_BYTES = 24 * 1024
 
 /** 项目概览、批次目录与分页句段读取。 */
 export function createProjectTools(runtime: CatToolRuntime) {
@@ -57,6 +58,7 @@ export function createProjectTools(runtime: CatToolRuntime) {
       blockedSegments: completion.decisions.blocked,
       pendingEvidence: completion.presentation.pending.length,
       blockingGaps: completion.blockingGaps.length,
+      ...stageEvidenceDetails(completion),
     }
   }
 
@@ -191,13 +193,15 @@ export function createProjectTools(runtime: CatToolRuntime) {
       'cat_list_batches), status, or a case-insensitive literal substring over source/target. ' +
       'Paginated: default limit ' +
       `${CAT_TOOL_PAGE_LIMITS.getSegments.defaultLimit}, hard max ${CAT_TOOL_PAGE_LIMITS.getSegments.maxLimit} ` +
-      '(larger limits are clamped with a note). Use offset to page through large batches — never ' +
-      'expect more than the max in one call. Every item includes segmentId, one-based originalOrdinal, ' +
-      'source, and current target by default; view=index returns only IDs and navigation metadata, ' +
-      'not review content or evidence. Segment ids are stable across filtering and paging.',
+      '(larger limits are clamped with a note). Pages fit a 24 KiB UTF-8 result budget; continue with ' +
+      'the returned nextOffset, not offset+limit. Content rows include segmentId, one-based originalOrdinal, ' +
+      'complete source/current target and imported context notes. An oversized single row is returned ' +
+      'complete with oversized=true; if the host truncates it, use cat_get_translation_context with maxBytes=24576 for that ' +
+      'segment and collect its cursor fragments before reviewing. view=index returns only IDs and ' +
+      'navigation metadata, not review content or evidence. Segment ids are stable across filtering and paging.',
     promptSnippet: 'Read segments of the bound CAT project (paged)',
     promptGuidelines: [
-      'Page cat_get_segments with offset for large batches; each call returns at most 100 segments.',
+      'Continue cat_get_segments using its nextOffset; byte-limited pages can contain fewer than limit rows. Never treat host-truncated content as fully read.',
     ],
     parameters: Type.Object({
       batchId: Type.Optional(Type.String({ description: 'Batch ID from cat_list_batches.' })),
@@ -236,12 +240,10 @@ export function createProjectTools(runtime: CatToolRuntime) {
       }
       const pageFilter = { ...filter, limit: page.limit, offset: page.offset }
       const total = db.segments.count(filter)
-      const items: Array<CatSegmentListItem | CatSegmentIndexItem> = view === 'index'
+      const candidates: Array<CatSegmentListItem | CatSegmentIndexItem> = view === 'index'
         ? db.segments.queryIndex(pageFilter).map(segment => ({
             segmentId: segment.id as string,
-            id: segment.id as string,
             batchId: segment.assetId as string,
-            ordinal: segment.ordinal,
             originalOrdinal: segment.ordinal + 1,
             ...(segment.key !== undefined ? { key: segment.key } : {}),
             status: segment.status,
@@ -250,15 +252,38 @@ export function createProjectTools(runtime: CatToolRuntime) {
             revision: segment.revision,
           }))
         : db.segments.query(pageFilter).map(toSegmentItem)
-      const dto: PagedResult<CatSegmentListItem | CatSegmentIndexItem> = {
-        items,
+      let dto: PagedResult<CatSegmentListItem | CatSegmentIndexItem> & {
+        nextOffset: number | null
+        maxBytes: number
+        oversized?: true
+      } = {
+        items: [],
         total,
         limit: page.limit,
         offset: page.offset,
-        hasMore: pageHasMore(total, page.offset, items.length),
+        hasMore: false,
+        nextOffset: null,
+        maxBytes: SEGMENT_PAGE_BYTES,
         ...(page.note !== undefined ? { note: page.note } : {}),
       }
-      return toolResult(dto, deps.resultProjectId, items.map((item) => item.id))
+      let result = toolResult(dto, deps.resultProjectId)
+      for (const item of candidates) {
+        const items = [...dto.items, item]
+        const hasMore = pageHasMore(total, page.offset, items.length)
+        const next = { ...dto, items, hasMore, nextOffset: hasMore ? page.offset + items.length : null }
+        const nextResult = toolResult(next, deps.resultProjectId, [items[0]!.segmentId])
+        const bytes = Buffer.byteLength(JSON.stringify(nextResult.details), 'utf8')
+        if (bytes > SEGMENT_PAGE_BYTES && items.length > 1) break
+        dto = next
+        result = nextResult
+        if (bytes > SEGMENT_PAGE_BYTES) {
+          dto.oversized = true
+          dto.note = `${page.note === undefined ? '' : `${page.note} `}Single row exceeds the page budget; returned complete. If the host truncates it, read this segment through cat_get_translation_context with maxBytes=24576 and collect its cursor fragments.`
+          result = toolResult(dto, deps.resultProjectId, [item.segmentId])
+          break
+        }
+      }
+      return result
     },
   })
 

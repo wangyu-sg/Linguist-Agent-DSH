@@ -21,8 +21,9 @@
  *   mrk with the same mid ('' when absent); the aggregate `<source>` of a
  *   segmented unit is ignored, as in the legacy implementation;
  * - any other trans-unit yields one segment keyed by id / resname /
- *   synthesized `#tu-<ordinal>` (import warning), mirroring XliffAdapter
- *   (`<note>` -> context.note, `resname` -> context.origin);
+ *   synthesized `#tu-<ordinal>` (import warning), mirroring XliffAdapter;
+ * - direct unit notes and context groups -> context.note on each segment;
+ *   non-segmented resname -> context.origin;
  * - inline tags (`<g>`, `<ph>`, `<bpt>/<ept>`, ...) are preserved VERBATIM
  *   in segment strings (entities decoded, CDATA unwrapped) — they are NOT
  *   unwrapped into {placeholder} display values the way the legacy
@@ -102,12 +103,12 @@ import { FormatExportError, FormatParseError } from '../errors'
 import { sha256Hex, type HashFn } from '../hash'
 import { statusFromXliff } from './xliff'
 import {
-  decodeXmlEntities,
   decodeXmlInline,
   encodeXmlAttr,
   encodeXmlInline,
   findDirectChild,
   parseAttrs,
+  readUnitContext,
   setAttr,
   type XliffElementSpan,
   XliffSpanIndex,
@@ -527,6 +528,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
       for (const tuMatch of (fileMatch[3] ?? '').matchAll(TRANS_UNIT_PATTERN)) {
         const attrs = parseAttrs(tuMatch[2] ?? '')
         const inner = tuMatch[3] ?? ''
+        const note = readUnitContext(inner)
         const tuLocked = fileLocked || translateNo(attrs)
         const unit: ParsedSdlUnit = { full: tuMatch[0], segmented: false, segs: [] }
 
@@ -562,7 +564,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
                 : def !== undefined
                   ? 'document'
                   : undefined,
-              note: undefined,
+              note,
               origin: undefined,
             })
           }
@@ -576,7 +578,6 @@ export class SdlXliffAdapter implements CatFormatAdapter {
             )
           }
           const target = findDirectChild(inner, 'target')
-          const note = findDirectChild(inner, 'note')
           const id = attrs.id?.trim() || undefined
           const resname = attrs.resname?.trim() || undefined
           const key = id ?? resname ?? `#tu-${segmentCount}`
@@ -597,7 +598,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
             status: statusFromXliff(targetText, target?.attrs ?? {}, attrs),
             nativeStatus: target?.attrs.state ?? attrs.state,
             sdlSegDefinitionScope: undefined,
-            note: note ? decodeXmlEntities(note.inner).trim() : undefined,
+            note,
             origin: resname,
           })
         }

@@ -13,6 +13,8 @@
 .contextChip { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-base); padding-left: 8px; white-space: nowrap; }
 .contextAttached { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-state-business-primary); }
 .contextError { flex-basis: 100%; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }
+/* Leave the host's 36px composer fade above the dock rows. */
+:global([data-content-phase="active"]) > :global([data-conversation-scroll]) > :global([data-composer-seat]):has(.sessionSetup) { padding-top: 36px; }
 .sessionSetup { composes: surface from './Controls.module.css'; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: calc(100% - var(--dsh-composer-side-clearance) * 2); max-width: var(--dsh-composer-card-max-width); margin: 0 auto; }
 /* Match DSH AgentPresetSeat; Menu owns selection, keyboard navigation and the checkmark. */
 .presetButton { min-height: 28px; height: 28px; max-width: 240px; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--dsw-radius-sm); font-size: 13px; line-height: 20px; font-weight: 500; }

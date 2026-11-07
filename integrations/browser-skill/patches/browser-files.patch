@@ -1,15 +1,52 @@
-diff --git a/packages/dsh-plugin-browserskill/README.md b/packages/dsh-plugin-browserskill/README.md
 --- a/packages/dsh-plugin-browserskill/README.md
 +++ b/packages/dsh-plugin-browserskill/README.md
-@@ -62,6 +62,7 @@
- | `browser_page` | `navigate`, `back`, `forward`, `reload`, `wait` | Navigate the active tab and wait for page lifecycle events. |
- | `browser_inspect` | `observe`, `snapshot`, `html`, `screenshot`, `console`, `network` | Read semantic or diagnostic page state and capture screenshots. |
- | `browser_interact` | `click`, `hover`, `wheel`, `scroll-to`, `focus`, `blur`, `fill`, `select`, `press` | Interact with controls using fresh refs or selectors. |
-+| `browser_files` | `download`, `upload`, `status` | Transfer files through the same owned session; inspect uncertain results without replay. |
- | `browser_tabs` | `list`, `create`, `select`, `close`, `borrow`, `return` | Manage Agent Window tabs and temporarily borrow user tabs. |
- | `browser_assist` | `resize`, `emulate`, `request-help` | Resize or emulate the browser and pause for human-only steps. |
+@@ -37,10 +37,10 @@
  
-@@ -141,6 +142,8 @@
+ By default, the browser tools become available when the skill is invoked.
+ 
+-The plugin declares support for DSH `^0.1.5-rc.3 || ^0.2.0-rc.1`.
+-DSH 0.2 checks these peer requirements before loading the plugin; versions outside
+-this range are not declared compatible. The range preserves the existing 0.1.x
+-baseline and admits 0.2.x without opting into future 0.3.x hosts.
++This local adapted build requires DSH `0.2.2-rc.1` and is installed from its
++provided tarball. Keep the coordinated bsk CLI and extension at `0.4.1`.
++DSH checks the exact host peer requirements before loading the plugin.
++The unmodified marketplace package does not include the local file-transfer additions.
+ 
+ ## Updating
+ 
+@@ -134,7 +134,8 @@
+ | `bsk_session` | `start`, `stop`, `list`, `share`, `sync`, `wait-user`, `cooperation-status` | Manage owned sessions and shared-tab control. |
+ | `bsk_page` | `navigate`, `back`, `forward`, `reload`, `wait`, `wait-for-element` | Navigate the active tab; wait for page lifecycle events or one element condition. |
+ | `bsk_inspect` | `observe`, `snapshot`, `view`, `html`, `screenshot`, `console`, `network`, `debug`, `video`, `extract` | Inspect page state, read saved observations, debug websites, capture screenshots or requested task videos, and export structured tables/lists. |
+-| `bsk_interact` | `click`, `hover`, `drag`, `step`, `wheel`, `scroll-to`, `focus`, `blur`, `fill`, `select`, `press`, `evaluate`, `upload`, `download` | Interact with controls using fresh refs or selectors. |
++| `bsk_interact` | `click`, `hover`, `drag`, `step`, `wheel`, `scroll-to`, `focus`, `blur`, `fill`, `select`, `press`, `evaluate` | Interact with controls using fresh refs or selectors. |
++| `bsk_files` | `download`, `upload`, `status` | Transfer approved workspace/staging files with persistent receipts and no automatic replay. |
+ | `bsk_tabs` | `list`, `create`, `select`, `close`, `borrow`, `return` | Manage Agent Window tabs and temporarily borrow user tabs. |
+ | `bsk_assist` | `resize`, `emulate`, `request-help` | Resize or emulate the browser and pause for human-only steps. |
+ 
+@@ -169,8 +170,9 @@
+ [structured extraction](../../docs/structured-extraction.md) for discovery, list
+ fields, JSON/CSV output and loaded-DOM completeness.
+ 
+-Scripts and file transfers use `bsk_interact` actions `evaluate`, `upload` and `download`,
+-with the same session ownership and observation context as other actions. Interaction recording
++Scripts use `bsk_interact` action `evaluate`; file transfers use `bsk_files` with a unique
++`requestId` and the same observation context and expected business facts as other actions.
++After a pending dialog is decided, `bsk_files` action `status` resumes its recorded operation. Interaction recording
+ is not exposed by this plugin.
+ 
+ Human/agent collaboration is enabled automatically for new sessions and owned task tabs.
+@@ -181,7 +183,7 @@
+ 
+ ### Activation failures
+ 
+-The six tools register as a complete suite. If any registration fails, the plugin
++The tools register as a complete suite. If any registration fails, the plugin
+ rolls back that attempt and reports the failing tool through DSH's logger. A model
+ invocation of `skill` returns an error instead of claiming successful activation;
+ slash-command and restored conversations receive a scoped notice. Unrelated
+@@ -263,6 +265,8 @@
  | Option | Default | Purpose |
  | --- | --- | --- |
  | `bskPath` | `bsk` | Path to the CLI binary. |
@@ -18,33 +55,74 @@ diff --git a/packages/dsh-plugin-browserskill/README.md b/packages/dsh-plugin-br
  | `sessionStateDirectory` | Scoped under `$BSK_HOME/dsh-starts` (or `~/.bsk/dsh-starts`) | Durable recovery records; optionally isolate by host/profile. |
  | `defaultTimeoutMs` | `120000` | Default command execution timeout in milliseconds; output collection after exit has a separate 2-second limit. |
  | `maxSessions` | `5` | Maximum concurrent sessions started by this plugin. |
-@@ -150,7 +153,7 @@
+@@ -272,7 +276,7 @@
  | `lazyTools` | `true` | Reveal the browser tools when the skill is invoked. Set `false` to register them at startup. |
  
  With `lazyTools: true`, only the skill's catalog entry is initially advertised to
--the model. The six `browser_*` tool schemas are added to the system prompt after
-+the model. The `browser_*` tool schemas are added to the system prompt after
- the `browser-skill` skill is successfully invoked, either by the model or through
- `/browser-skill`. Set `lazyTools: false` to make the tools available immediately.
- 
-diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin-browserskill/package.json
+-the model. A successful model `skill` call makes the six `bsk_*` schemas available
++the model. A successful model `skill` call makes the `bsk_*` schemas available
+ in the next step. A user `/browser-skill` gesture activates them when the host
+ claims the input, before prompt assembly, so the first request includes both the
+ skill instructions and tool schemas. Set `lazyTools: false` to register at startup.
 --- a/packages/dsh-plugin-browserskill/package.json
 +++ b/packages/dsh-plugin-browserskill/package.json
 @@ -1,7 +1,7 @@
  {
    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
-   "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (browser_* tools) to the model",
--  "version": "0.3.2",
-+  "version": "0.3.2-la-dsh.1",
+   "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (bsk_* tools) to the model",
+-  "version": "0.4.1",
++  "version": "0.4.1-la-dsh.1",
    "license": "MIT",
    "publishConfig": {
      "access": "public",
-@@ -94,25 +94,25 @@
+@@ -49,7 +49,8 @@
+       "platform": "web",
+       "inject": [
+         "@deepseek-ai/dsh-client-ui-tool",
+-        "@deepseek-ai/dsh-client-ui-layout"
++        "@deepseek-ai/dsh-client-ui-layout",
++        "@deepseek-ai/dsh-client-ui-session"
+       ],
+       "external": [
+         "@deepseek-ai/dsh-client-ui-primitives"
+@@ -66,14 +67,15 @@
+     "lint:publint": "publint"
+   },
+   "peerDependencies": {
+-    "@deepseek-ai/cordis": "^4.0.2",
+-    "@deepseek-ai/dsh-attachment": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+-    "@deepseek-ai/dsh-client-ui-tool": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+-    "@deepseek-ai/schemastery": "^3.18.2",
+-    "react": "^18.2.0"
++    "@deepseek-ai/cordis": "4.1.0",
++    "@deepseek-ai/dsh-attachment": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-tool": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
++    "@deepseek-ai/schemastery": "3.19.0",
++    "react": "^18.2.0",
++    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1"
+   },
+   "peerDependenciesMeta": {
+     "@deepseek-ai/dsh-attachment": {
+@@ -87,33 +89,36 @@
+     },
+     "react": {
+       "optional": true
++    },
++    "@deepseek-ai/dsh-client-ui-session": {
++      "optional": true
+     }
    },
    "devDependencies": {
      "@browser-skill/ui": "workspace:*",
 -    "@deepseek-ai/cordis": "4.0.2",
 -    "@deepseek-ai/dsh-agent": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-agent-loop": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-api-session-controller": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-attachment": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-client-store": "0.1.5-rc.3",
@@ -59,32 +137,39 @@ diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin
 -    "@deepseek-ai/dsh-llm": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-scope": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-session": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-session-projection": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-skill": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.3",
+-    "@deepseek-ai/dsh-tool-skill": "0.1.5-rc.3",
 -    "@deepseek-ai/dsh-tools": "0.1.5-rc.3",
 -    "@deepseek-ai/schemastery": "3.18.2",
-+    "@deepseek-ai/cordis": "4.0.4",
-+    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-store": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-chat": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-ui-tool": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-skill": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-+    "@deepseek-ai/schemastery": "3.18.4",
++    "@deepseek-ai/cordis": "4.1.0",
++    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-attachment": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-store": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-chat": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-conversation": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-ui-tool": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-scope": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-session": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-skill": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-tool-skill": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
++    "@deepseek-ai/schemastery": "3.19.0",
      "@remixicon/react": "^4.9.0",
      "@tailwindcss/cli": "^4.3.3",
      "@testing-library/react": "^16.1.0",
-@@ -124,12 +124,49 @@
+@@ -125,12 +130,48 @@
      "lightningcss": "^1.30.0",
      "postcss": "^8.5.0",
      "postcss-prefix-selector": "^2.1.1",
@@ -99,46 +184,44 @@ diff --git a/packages/dsh-plugin-browserskill/package.json b/packages/dsh-plugin
 -    "vitest": "^4.1.6"
 -  }
 +    "vitest": "^4.1.6",
-+    "@deepseek-ai/dsh-util-code-language": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-util-workspace-path": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-util-time": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-commands": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-session-persistence": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-file-reference": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-subagent": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-agent-default-model": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-session-query": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-typert-registry": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-session-title": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-session-projection": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-native-command": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-client-file-upload": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-home-paths": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-invariants": "0.2.0-rc.2",
-+    "@deepseek-ai/cordis-plugin-include": "1.0.9",
-+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
-+    "@deepseek-ai/cordis-plugin-loader": "1.0.5",
-+    "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-tool-todo": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-ptc-runtime": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-app-boot": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-compaction": "0.2.0-rc.2",
-+    "@deepseek-ai/dsh-launch-environment": "0.2.0-rc.2"
++    "@deepseek-ai/cosmokit": "1.9.0",
++    "@deepseek-ai/dsh-agent-default-model": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-connection": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-client-file-upload": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-commands": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-credentials": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-file-reference": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-fs": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-home-paths": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-native-command": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-sandbox": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-session-query": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-session-title": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-settings": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-subagent": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-typert-registry": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-user-approval": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-util-time": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-workspace": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-tool-todo": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-storage": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-storage-domain": "0.2.2-rc.1",
++    "@deepseek-ai/cordis-plugin-include": "1.1.0",
++    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-app-boot": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-compaction": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-sandbox-policy": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-working-directory": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-launch-environment": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
++    "@deepseek-ai/cordis-plugin-group": "1.1.0",
++    "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.1"
 +  },
 +  "private": true
  }
-diff --git a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
 --- a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
 +++ b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
 @@ -34,7 +34,7 @@
@@ -150,31 +233,37 @@ diff --git a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs b/pac
      "@custom-variant dark (&:is(.dark *));",
      themeBlock,
      '@source "../ui/src";',
-diff --git a/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs b/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
---- a/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
-+++ b/packages/dsh-plugin-browserskill/scripts/validate-skill.mjs
-@@ -80,4 +80,5 @@
-   "browser_interact",
-   "browser_tabs",
-   "browser_assist",
-+  "browser_files",
- ];
-diff --git a/packages/dsh-plugin-browserskill/skill/SKILL.md b/packages/dsh-plugin-browserskill/skill/SKILL.md
 --- a/packages/dsh-plugin-browserskill/skill/SKILL.md
 +++ b/packages/dsh-plugin-browserskill/skill/SKILL.md
-@@ -77,4 +77,5 @@
- | Required profile, borrowing/returning user tabs with `browser_tabs`, or remote tab ownership | [Tabs and profiles](references/tabs-and-profiles.md) |
- | Hover menus, scrolling, `nextCursor`, console/network, or window/device settings with `browser_assist` | [Interaction details](references/interaction-details.md) |
+@@ -80,5 +80,6 @@
+ | Required profile, borrowing/returning user tabs with `bsk_tabs`, or remote tab ownership | [Tabs and profiles](references/tabs-and-profiles.md) |
+ | Drag, step, saved views, hover menus, scrolling, `nextCursor`, console/network, or window/device settings | [Interaction details](references/interaction-details.md) |
  | Screenshot or `[visual:screenshot]`/Canvas interaction | [Screenshots and Canvas](references/screenshots-and-canvas.md) |
-+| File download or upload with `browser_files` | [File transfers](references/file-transfers.md) |
++| File download or upload with `bsk_files` | [File transfers](references/file-transfers.md) |
+ | Video recording or MP4 export | [Video](references/video.md) |
  | Login/CAPTCHA/OTP/consent/payment confirmation, disabled help, failed operations, or interrupted cleanup | [Human help and recovery](references/help-and-recovery.md) |
-diff --git a/packages/dsh-plugin-browserskill/skill/references/file-transfers.md b/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
---- /dev/null
+--- a/packages/dsh-plugin-browserskill/skill/references/cooperation.md
++++ b/packages/dsh-plugin-browserskill/skill/references/cooperation.md
+@@ -101,9 +101,10 @@
+ `awaitPromise` and `returnByValue` default to true. Scripts can have arbitrary or deferred effects
+ and cannot be rolled back after dispatch. Inspect application evidence after an unknown result.
+ 
+-Use `action: "upload"` with an observed `target`, `files` and optional `mode: "input" | "drop"`.
+-Use `action: "download"` with an observed `target` and local `output`; `overwrite: true` explicitly
+-permits replacing a destination. Both retain existing staging, cancellation and path rules.
++Use `bsk_files` for uploads and downloads, with an observed target, a unique `requestId`,
++and the same `contextId`/`observationId`/`expect` fields as other actions. Paths must stay
++inside the current workspace or configured staging directory. Downloads never overwrite.
++See [File transfers](file-transfers.md) for receipts and recovery.
+ Human intervention revokes further input; once a browser download ID is uniquely attributed,
+ receipt collection continues within its original deadline. Keep that result and reconcile.
+ Explicit task stop, tab closure or cancellation still releases only owned resources.
+--- a/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
 +++ b/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,21 @@
 +# Browser file transfers
 +
-+Use `browser_files` in an owned session with a fresh observed target. File actions need
++Use `bsk_files` in an owned session with a fresh observed target. Pass the received `contextId`, and use `expect` for exact business facts; pass `observationId` when the chosen policy requires it. File actions need
 +a local BrowserSkill connection; remote connections cannot transfer files.
 +
 +- For `download`, choose a new `out` inside the current DSH session workspace or
@@ -184,12 +273,38 @@ diff --git a/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
 +  `input` requires an actual file chooser/input target; `drop` uses a drop target.
 +  Attaching files does not submit a form or prove that the server saved anything.
 +- Use a unique `requestId` for each new transfer. On `pending` or `unknown`, call
-+  `browser_files` with `action: "status"` and the same ID. A repeated ID never
++  `bsk_files` with `action: "status"` and the same ID. A repeated ID never
 +  triggers another click. Inspect the original destination and page before deciding
 +  whether a separate new action is appropriate. Receipts persist under the
 +  BrowserSkill session-state directory for restart recovery; a missing receipt
 +  is unknown, not a successful transfer.
-diff --git a/packages/dsh-plugin-browserskill/src/browser-tools.ts b/packages/dsh-plugin-browserskill/src/browser-tools.ts
++
++After deciding a native dialog with `bsk_assist`, call `status` with the original
++`requestId` to retrieve that operation and save its download to the original checked
++path. Do not execute the error message’s `resume_argv` or replay the transfer.
+--- a/packages/dsh-plugin-browserskill/skill/references/native-dialogs.md
++++ b/packages/dsh-plugin-browserskill/skill/references/native-dialogs.md
+@@ -13,13 +13,10 @@
+ Protocol 1.5 is required; unanswered dialogs reject after 60 seconds, and
+ cancellation does not undo already-dispatched page effects.
+ 
+-For a suspended download, `completed` means the browser download was captured,
+-not that the original output was saved. Use `bsk_assist` action `operation-await`
+-with the original `operationId` and `output` path to save the retained bytes.
+-Set `overwrite: true` only to replace an existing file. The initial error's
+-`download_output` preserves the absolute output path and overwrite choice.
+-`result.saved: true` confirms the write. Without `output`, await only retrieves
+-the result (`saved: false`); repeated await never triggers another download.
+-Retained downloads remain available until their transfer expires or the session
+-ends. Stopping the session dismisses pending dialogs as part of teardown,
+-including dialogs opened asynchronously after an action.
++For a suspended file transfer, decide the dialog with `bsk_assist`, then call
++`bsk_files` action `status` with the original `requestId`. The durable receipt retains
++its original operation and checked destination; status retrieves that operation and
++saves completed download bytes without replaying the browser action or overwriting.
++Do not pass an output path to `bsk_assist` operation-await. Retained downloads remain
++available until their transfer expires or the session ends. Stopping the session
++dismisses pending dialogs as part of teardown.
 --- a/packages/dsh-plugin-browserskill/src/browser-tools.ts
 +++ b/packages/dsh-plugin-browserskill/src/browser-tools.ts
 @@ -1,6 +1,6 @@
@@ -201,14 +316,45 @@ diff --git a/packages/dsh-plugin-browserskill/src/browser-tools.ts b/packages/ds
   * retains the existing ownership, cancellation, queuing, observation,
   * screenshot, and presentation behavior.
   */
-@@ -241,6 +241,30 @@
-       },
+@@ -293,7 +293,7 @@
+     description:
+       "Interact with the active Agent Window tab. Actions: click, hover, wheel, drag, step, scroll-to, focus, blur, fill, select, " +
+       "drag requires target plus to or a nonzero deltaX/deltaY. step runs one stepAction using params JSON, then optional untilVisible readiness and read-only sync; inspect ok/action/readiness/post before deciding what to do next and never blindly replay an action. " +
+-      "press, evaluate, upload, download. evaluate requires expression; upload requires target/files; download requires target/output. click/hover/scroll-to/focus/blur/fill/select require target; fill also requires value; select requires " +
++      "press, evaluate. evaluate requires expression. File transfers use bsk_files. click/hover/scroll-to/focus/blur/fill/select require target; fill also requires value; select requires " +
+       "values; press requires key and may optionally focus target first. wheel requires a nonzero deltaX or deltaY and optionally accepts target; observe afterwards to check the response.",
+     actions: {
+       click: "interact.click",
+@@ -308,8 +308,6 @@
+       select: "interact.select",
+       press: "interact.press",
+       evaluate: "interact.evaluate",
+-      upload: "interact.upload",
+-      download: "interact.download",
+     },
+     parameters: {
+       session: SESSION_PARAM,
+@@ -357,19 +355,35 @@
+       expression: { type: "string", description: "JavaScript expression for evaluate." },
+       awaitPromise: { type: "boolean", description: "Evaluate: await promises, default true." },
+       returnByValue: { type: "boolean", description: "Evaluate: return JSON, default true." },
+-      files: {
+-        type: "array",
+-        items: { type: "string" },
+-        description: "Upload: one to twenty local file paths.",
+-      },
+-      mode: { type: "string", enum: ["input", "drop"], description: "Upload mechanism." },
+-      output: { type: "string", description: "Download destination file." },
+-      overwrite: { type: "boolean", description: "Allow replacing the download destination." },
        key: { type: "string", description: "Key or combo for press." },
-       holdMs: { type: "integer", description: "Key hold duration for press." },
+       holdMs: {
+         type: "integer",
+         description: "Key hold for press or initial mouse hold for drag, in milliseconds.",
+       },
 +    },
 +  },
 +  {
-+    name: "browser_files",
++    name: toolNames.files,
 +    description:
 +      "Transfer files through the owned BrowserSkill session. download captures a browser download " +
 +      "from target before clicking and atomically writes to out without overwriting; upload attaches " +
@@ -232,26 +378,85 @@ diff --git a/packages/dsh-plugin-browserskill/src/browser-tools.ts b/packages/ds
      },
    },
    {
-@@ -373,7 +397,7 @@
+@@ -427,14 +441,6 @@
+         description: "Exact prompt input for dialog-accept; empty string is valid.",
+       },
+       waitMs: { type: "integer", description: "operation-await wait, 0..60000 ms." },
+-      output: {
+-        type: "string",
+-        description: "operation-await: save a retained download to this local path.",
+-      },
+-      overwrite: {
+-        type: "boolean",
+-        description: "Allow replacing operation-await's download destination.",
+-      },
+       tabId: TAB_ID_PARAM,
+       width: { type: "integer", description: "Window/viewport width." },
+       height: { type: "integer", description: "Window/viewport height." },
+@@ -525,7 +531,7 @@
    return indexed;
  }
  
--/** Register the complete six-tool browser suite; returns its combined disposer. */
-+/** Register the complete browser suite; returns its combined disposer. */
+-/** Register all six tools or roll back this attempt; never remove foreign entries. */
++/** Register all tools or roll back this attempt; never remove foreign entries. */
  export function registerBrowserTools(deps: ToolDeps): () => void {
-   const definitions = indexOperations(createBrowserOperationDefinitions(deps));
-   const disposers = BROWSER_TOOL_SPECS.map((spec) =>
-diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-plugin-browserskill/src/file-tools.ts
---- /dev/null
+   const operations = indexOperations(createBrowserOperationDefinitions(deps));
+   // Validate every definition before publishing any schema. The host emits
+--- a/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx
++++ b/packages/dsh-plugin-browserskill/src/client/BrowserInspectToolView.tsx
+@@ -43,6 +43,7 @@
+   copy: "Copy",
+   copied: "Copied",
+   noOutput: "No output",
++  commandLine: (line) => `Command line ${line}`,
+   noExitCode: "No exit code",
+   collapseAria: "Collapse output",
+   collapse: "Collapse",
+--- a/packages/dsh-plugin-browserskill/src/client/index.ts
++++ b/packages/dsh-plugin-browserskill/src/client/index.ts
+@@ -1,7 +1,7 @@
+ /**
+  * dsh-plugin-browserskill browser half: the `bsk_inspect` keyed toolview
+  * plus the observation overlay (live thumbnails + interrupt). The
+- * native right Sidebar is preferred when the host provides it; older hosts
++ * native right Sidebar is preferred when the host provides it; other profiles
+  * keep the floating card. The user may switch to floating for this page.
+  */
+ 
+@@ -26,8 +26,8 @@
+ import { type NativeSidebarHost, registerObservationSidebar } from "./observation-sidebar";
+ import { type EventSourceLike, ObservationClientStore } from "./observation-store";
+ 
+-/** Required services: slots, session-scoped attachment reads, and the overlay seat. */
+-export const inject = ["slots", "sessions"];
++/** Required services: slots, session-scoped attachment reads and current UI selection. */
++export const inject = ["slots", "sessions", "uiSession"];
+ 
+ /** Return a fresh component-owned URL; the host's loadImage may return shared cached URLs. */
+ async function loadSessionImage(
+@@ -39,7 +39,7 @@
+   if (session === undefined) {
+     throw new Error(`screenshot toolview: session "${String(sessionId)}" is not bound`);
+   }
+-  const result = await session.readAttachment(attachment.attachmentId);
++  const result = await session.readAttachment(attachment);
+   if (!result.ok) {
+     throw new Error(
+       `screenshot toolview: readAttachment failed: ${result.error.code}: ${result.error.message}`,
+--- a/packages/dsh-plugin-browserskill/src/file-tools.ts
 +++ b/packages/dsh-plugin-browserskill/src/file-tools.ts
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,364 @@
 +/** BrowserSkill file transfers through the existing session, runner and queues. */
 +
 +import { createHash, randomUUID } from "node:crypto";
 +import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 +import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-+import { defineTool, type ToolDefinition, type ToolResult, type ToolRunContext } from "@deepseek-ai/dsh-tools";
++import { defineTool, type ToolDefinition, type ToolRunContext } from "@deepseek-ai/dsh-tools";
 +import type { ToolDeps } from "./tools";
++import type { PhaseOneRuntime } from "./phase-one-runtime";
++import { BskError } from "./runner";
++import { registerScriptFileTools } from "./script-file-tools";
++import type { ActionExpectation } from "./tool-params";
 +import { defaultStartJournalDirectory } from "./start-journal";
 +import { SESSION_PARAM, TAB_ID_PARAM, TIMEOUT_MS_PARAM } from "./tool-params";
 +
@@ -265,6 +470,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +  fileNames?: string[];
 +  byteSize?: number;
 +  message?: string;
++  operationId?: string;
 +}
 +interface StoredReceipt {
 +  action: "download" | "upload";
@@ -272,13 +478,8 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +  value: TransferReceipt;
 +}
 +
-+interface FileToolHelpers {
-+  run(exec: ToolRunContext, args: string[], label: string, session: string): Promise<unknown>;
-+  commandLine(args: string[]): string;
-+  presentTerminalResult(args: never, result: ToolResult): { card: "terminal"; output: string; exitCode: number } | undefined;
-+}
 +
-+const BROWSER_DOWNLOAD_QUEUE = "__browser_skill_global_download__";
++const BROWSER_DOWNLOAD_QUEUE = "__bsk_skill_global_download__";
 +const RESULT_SCHEMA = {
 +  type: "object",
 +  additionalProperties: false,
@@ -291,6 +492,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +    fileNames: { type: "array", items: { type: "string" } },
 +    byteSize: { type: "integer" },
 +    message: { type: "string" },
++    operationId: { type: "string" },
 +  },
 +} as const;
 +
@@ -350,12 +552,31 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +    (value.message === undefined ? "" : `: ${value.message}`);
 +}
 +
++function decision(exec: ToolRunContext) {
++  const metadata = exec as ToolRunContext & { actionExpectations?: ActionExpectation[]; observationDependencies?: string[] };
++  return {
++    expect: metadata.actionExpectations?.map(({ target, field, equals, attribute }) => ({ target, field, equals, attribute })),
++    dependsOn: metadata.observationDependencies,
++  };
++}
++
++function pendingOperation(error: unknown): string | undefined {
++  return error instanceof BskError && error.code === "dialog_pending"
++    ? (error.data as { operation_id?: string } | undefined)?.operation_id
++    : undefined;
++}
++
 +/** Register three private actions in the same BrowserSkill instance. */
 +export function registerFileTools(
 +  deps: ToolDeps,
 +  register: (definition: ToolDefinition) => void,
-+  helpers: FileToolHelpers,
++  helpers: PhaseOneRuntime,
 +): void {
++  const native = new Map<string, ToolDefinition>();
++  registerScriptFileTools(deps, (definition) => {
++    if (definition.name === "interact.evaluate") register(definition);
++    else native.set(definition.name, definition);
++  }, helpers);
 +  const receipts = new Map<string, StoredReceipt>();
 +  const active = new Set<string>();
 +  const directory = join(
@@ -446,8 +667,8 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +      verifyRequestId(args.requestId);
 +      if (args.target.trim() === "") throw new Error("target must be non-empty");
 +      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
-+      const session = deps.registry.resolve(args.session, "browser_files(action=download)");
-+      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "download", JSON.stringify({ action: "download", target: args.target, out: args.out, tabId: args.tabId, timeoutMs: args.timeoutMs }));
++      const session = deps.registry.resolve(args.session, "bsk_files(action=download)");
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "download", JSON.stringify({ action: "download", target: args.target, out: args.out, tabId: args.tabId, timeoutMs: args.timeoutMs, ...decision(exec) }));
 +      if (repeated) return refresh(key, stored);
 +      active.add(key);
 +      let dispatched = false;
@@ -455,12 +676,13 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +        const out = await transferPath(deps, exec, args.out, "download");
 +        stored.value = { ...stored.value, out };
 +        await save(key, stored);
-+        const command = ["download", args.target, "--session", session, "--out", out];
-+        if (args.tabId !== undefined) command.push("--tab-id", String(args.tabId));
-+        if (args.timeoutMs !== undefined) command.push("--timeout", `${args.timeoutMs}ms`);
 +        const reply = await deps.queue.run(BROWSER_DOWNLOAD_QUEUE, () => {
 +          dispatched = true;
-+          return helpers.run(exec, command, "download", session);
++          return native.get("interact.download")!.execute({
++            session, target: args.target, output: out,
++            ...(args.tabId !== undefined ? { tabId: args.tabId } : {}),
++            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
++          } as never, exec);
 +        }, exec.signal) as { tab_id: number; path: string; byte_size?: number };
 +        if (resolve(reply.path) !== out) throw new Error("bsk returned a different download path");
 +        const file = await stat(out);
@@ -482,7 +704,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +            if ((readError as NodeJS.ErrnoException).code !== "ENOENT") throw readError;
 +          }
 +        }
-+        stored.value = { ...stored.value, status: dispatched ? "unknown" : "failed", message };
++        stored.value = { ...stored.value, status: dispatched ? "unknown" : "failed", message, operationId: pendingOperation(error) };
 +        await save(key, stored);
 +      } finally {
 +        active.delete(key);
@@ -511,20 +733,20 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +      if (args.target.trim() === "") throw new Error("target must be non-empty");
 +      if (args.files.length < 1 || args.files.length > 20) throw new Error("upload requires 1..20 files");
 +      if (args.timeoutMs !== undefined && (args.timeoutMs <= 0 || args.timeoutMs > 0xffffffff)) throw new Error("timeoutMs must be 1..4294967295");
-+      const session = deps.registry.resolve(args.session, "browser_files(action=upload)");
-+      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "upload", JSON.stringify({ action: "upload", target: args.target, files: args.files, tabId: args.tabId, mode: args.mode, timeoutMs: args.timeoutMs }));
++      const session = deps.registry.resolve(args.session, "bsk_files(action=upload)");
++      const { key, stored, repeated } = await existingOrNew(session, args.requestId, "upload", JSON.stringify({ action: "upload", target: args.target, files: args.files, tabId: args.tabId, mode: args.mode, timeoutMs: args.timeoutMs, ...decision(exec) }));
 +      if (repeated) return refresh(key, stored);
 +      active.add(key);
 +      let dispatched = false;
 +      try {
 +        const paths = await Promise.all(args.files.map((path) => transferPath(deps, exec, path, "upload")));
-+        const command = ["upload", args.target, "--session", session];
-+        for (const path of paths) command.push("--file", path);
-+        if (args.tabId !== undefined) command.push("--tab-id", String(args.tabId));
-+        if (args.mode !== undefined) command.push("--mode", args.mode);
-+        if (args.timeoutMs !== undefined) command.push("--timeout", `${args.timeoutMs}ms`);
 +        dispatched = true;
-+        const reply = await helpers.run(exec, command, "upload", session) as { tab_id: number; file_names: string[] };
++        const reply = await native.get("interact.upload")!.execute({
++          session, target: args.target, files: paths,
++          ...(args.tabId !== undefined ? { tabId: args.tabId } : {}),
++          ...(args.mode !== undefined ? { mode: args.mode } : {}),
++          ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
++        } as never, exec) as { tab_id: number; file_names: string[] };
 +        stored.value = { ...stored.value, status: "attached", tabId: reply.tab_id, fileNames: reply.file_names };
 +        await save(key, stored);
 +      } catch (error) {
@@ -532,6 +754,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +          ...stored.value,
 +          status: dispatched ? "unknown" : "failed",
 +          message: error instanceof Error ? error.message : String(error),
++          operationId: pendingOperation(error),
 +        };
 +        await save(key, stored);
 +      } finally {
@@ -545,28 +768,51 @@ diff --git a/packages/dsh-plugin-browserskill/src/file-tools.ts b/packages/dsh-p
 +
 +  register(defineTool({
 +    name: "files.status",
-+    description: "Read the last known result for a file requestId without starting another browser action.",
++    description: "Read a file receipt or finish its original suspended operation after a dialog decision; never replay the upload/download action.",
 +    parameters: { session: SESSION_PARAM, requestId: { type: "string", required: true } },
 +    output,
-+    isConcurrencySafe: () => true,
-+    async execute(args) {
++    async execute(args, exec) {
 +      verifyRequestId(args.requestId);
-+      const session = deps.registry.resolve(args.session, "browser_files(action=status)");
++      const session = deps.registry.resolve(args.session, "bsk_files(action=status)");
 +      const key = keyFor(session, args.requestId);
 +      const stored = receipts.get(key) ?? await load(key);
-+      return stored === undefined ? {
++      if (stored === undefined) return {
 +        session, requestId: args.requestId, status: "unknown" as const,
 +        message: "no record in this plugin instance; inspect the original destination before any new action",
-+      } : refresh(key, stored);
++      };
++      return deps.queue.run(key, async () => {
++        const current = await refresh(key, stored);
++        if ((current.status !== "pending" && current.status !== "unknown") || current.operationId === undefined)
++          return current;
++        const command = ["operation", "await", current.operationId, "--session", session];
++        if (stored.action === "download") command.push("--out", await transferPath(deps, exec, current.out!, "download"));
++        try {
++          const reply = await helpers.run(exec, command, "operation-await", session) as {
++            state: string; result?: { tab_id: number; file_names?: string[] }; error?: { message?: string };
++          };
++          if (reply.state === "completed") {
++            stored.value = stored.action === "download"
++              ? { ...stored.value, status: "downloaded", tabId: reply.result!.tab_id, byteSize: (await stat(current.out!)).size }
++              : { ...stored.value, status: "attached", tabId: reply.result!.tab_id, fileNames: reply.result!.file_names };
++            delete stored.value.message;
++          } else if (reply.state === "failed" || reply.state === "cancelled") {
++            stored.value = { ...stored.value, status: "failed", message: reply.error?.message ?? reply.state };
++          }
++          await save(key, stored);
++        } catch (error) {
++          stored.value = { ...stored.value, message: error instanceof Error ? error.message : String(error) };
++          await save(key, stored);
++        }
++        return stored.value;
++      }, exec.signal);
 +    },
 +    presentCall: (args) => ({ card: "terminal", title: `browser file request ${args.requestId}`, description: "Read file transfer status" }),
 +    presentResult: helpers.presentTerminalResult,
 +  }));
 +}
-diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin-browserskill/src/index.ts
 --- a/packages/dsh-plugin-browserskill/src/index.ts
 +++ b/packages/dsh-plugin-browserskill/src/index.ts
-@@ -33,6 +33,10 @@
+@@ -34,6 +34,10 @@
    bskPath: Schema.string()
      .default("bsk")
      .description("Path to the bsk CLI binary (defaults to resolving `bsk` from PATH)."),
@@ -577,7 +823,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin
    sessionStateDirectory: Schema.string().description(
      "Directory for durable browser start recovery records; defaults to BSK_HOME/dsh-starts scoped by working directory and CLI.",
    ),
-@@ -76,6 +80,8 @@
+@@ -77,6 +81,8 @@
  ): void {
    const resolved: PluginConfig = {
      bskPath: config.bskPath ?? "bsk",
@@ -586,7 +832,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin
      sessionStateDirectory: config.sessionStateDirectory,
      defaultTimeoutMs: config.defaultTimeoutMs ?? 120_000,
      maxSessions: config.maxSessions ?? 5,
-@@ -84,7 +90,7 @@
+@@ -85,7 +91,7 @@
      idleIntervalMs: config.idleIntervalMs ?? 8000,
      lazyTools: config.lazyTools ?? true,
    };
@@ -595,10 +841,97 @@ diff --git a/packages/dsh-plugin-browserskill/src/index.ts b/packages/dsh-plugin
    const registry = new SessionRegistry(resolved.maxSessions);
    const queue = new KeyedExecutor();
    const observation = new ObservationService({
-diff --git a/packages/dsh-plugin-browserskill/src/runner.ts b/packages/dsh-plugin-browserskill/src/runner.ts
+--- a/packages/dsh-plugin-browserskill/src/lazy-tools.ts
++++ b/packages/dsh-plugin-browserskill/src/lazy-tools.ts
+@@ -1,6 +1,6 @@
+ /**
+  * Lazy tool-schema injection ("progressive disclosure", final stage): with
+- * `lazyTools` on (the default), the six browser tool schemas stay OUT of the
++ * `lazyTools` on (the default), the browser tool schemas stay OUT of the
+  * system prompt until the `browser-skill` skill has actually been invoked —
+  * the skill catalog entry is the only advertisement. A successful model
+  * invocation or a claimed user `/browser-skill` gesture reveals
+@@ -32,6 +32,7 @@
+ import { browserSkillSource } from "./message-source";
+ import { BSK_SKILL_NAME } from "./skill-content.generated";
+ 
++
+ /** Structural view of the pieces of the session seam we consume. */
+ interface SessionLike {
+   header?: { readonly version: number };
+@@ -183,7 +184,7 @@
+ /**
+  * Arm the lazy reveal. Returns a disposer tearing down listeners and — when
+  * the reveal already happened — the tool suite itself.
+- * @param registerSuite - registers the six browser tools and returns their disposer.
++ * @param registerSuite - registers the browser tools and returns their disposer.
+  */
+ export function armLazyTools(ctx: Context, registerSuite: () => () => void): () => void {
+   // Idle -> registering -> active. Failure returns to idle with intent retained;
+@@ -353,7 +354,7 @@
+             createUserMessage({
+               content: [{ type: "text", text }],
+               source: {
+-                ...browserSkillSource(session.header?.version),
++                ...browserSkillSource(),
+                 form: "notice",
+                 summary:
+                   suiteDisposer === undefined
+--- a/packages/dsh-plugin-browserskill/src/message-source.ts
++++ b/packages/dsh-plugin-browserskill/src/message-source.ts
+@@ -11,8 +11,6 @@
+   }
+ }
+ 
+-export function browserSkillSource(version = 4) {
+-  return version < 4
+-    ? { kind: "plugin" as const, plugin: BROWSER_SKILL_PRODUCER }
+-    : { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" as const };
++export function browserSkillSource() {
++  return { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" as const };
+ }
+--- a/packages/dsh-plugin-browserskill/src/phase-one-tools-support.ts
++++ b/packages/dsh-plugin-browserskill/src/phase-one-tools-support.ts
+@@ -209,17 +209,8 @@
+               throw new Error("waitMs is only valid for operation-await and must be 0..60000");
+             cmd.push("--wait-ms", String(args.waitMs));
+           }
+-          if (args.output !== undefined) {
+-            if (action !== "operation-await")
+-              throw new Error("output is only valid for operation-await");
+-            requireNonEmpty(args.output, "output");
+-            cmd.push("--out", args.output);
+-          }
+-          if (args.overwrite) {
+-            if (action !== "operation-await" || args.output === undefined)
+-              throw new Error("overwrite requires operation-await output");
+-            cmd.push("--overwrite");
+-          }
++          if (args.output !== undefined || args.overwrite !== undefined)
++            throw new Error("Resume file downloads with bsk_files(action=status) and the original requestId.");
+           return (await runtime.run(
+             exec,
+             cmd,
+--- a/packages/dsh-plugin-browserskill/src/phase-one-tools.ts
++++ b/packages/dsh-plugin-browserskill/src/phase-one-tools.ts
+@@ -6,7 +6,6 @@
+ import { registerPhaseOneNavigationTools } from "./phase-one-tools-navigation";
+ import { registerPhaseOneSupportTools } from "./phase-one-tools-support";
+ import { registerPhaseOneTabTools } from "./phase-one-tools-tabs";
+-import { registerScriptFileTools } from "./script-file-tools";
+ import type { ToolDeps } from "./tools";
+ import { registerVideoTool } from "./video-tool";
+ 
+@@ -23,6 +22,5 @@
+   registerDebugTool(deps, register, runtime);
+   registerVideoTool(deps, register, runtime);
+   registerExtractTool(deps, register, runtime);
+-  registerScriptFileTools(deps, register, runtime);
+   registerGestureObservationTools(deps, register, runtime);
+ }
 --- a/packages/dsh-plugin-browserskill/src/runner.ts
 +++ b/packages/dsh-plugin-browserskill/src/runner.ts
-@@ -98,7 +98,7 @@
+@@ -107,7 +107,7 @@
    requestKill: () => boolean;
  }
  
@@ -607,7 +940,7 @@ diff --git a/packages/dsh-plugin-browserskill/src/runner.ts b/packages/dsh-plugi
    const live = new Map<ChildProcess, LiveRun>();
    const windows = process.platform === "win32";
    const cancelling = new Map<ChildProcess, ReturnType<typeof setTimeout>>();
-@@ -140,9 +140,9 @@
+@@ -149,9 +149,9 @@
              windows
                ? {
                    windowsHide: true,
@@ -619,7 +952,27 @@ diff --git a/packages/dsh-plugin-browserskill/src/runner.ts b/packages/dsh-plugi
            );
            // A child exiting while cancellation closes stdin may report EPIPE.
            // Process completion remains the authority for the run result.
-diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin-browserskill/src/tools.ts
+--- a/packages/dsh-plugin-browserskill/src/step-receipt.ts
++++ b/packages/dsh-plugin-browserskill/src/step-receipt.ts
+@@ -35,7 +35,7 @@
+               },
+               { type: "text", text: serialized },
+             ],
+-            source: browserSkillSource(exec.agent?.session.header.version),
++            source: browserSkillSource(),
+           }),
+         );
+       }
+--- a/packages/dsh-plugin-browserskill/src/tool-names.json
++++ b/packages/dsh-plugin-browserskill/src/tool-names.json
+@@ -4,5 +4,6 @@
+   "inspect": "bsk_inspect",
+   "interact": "bsk_interact",
+   "tabs": "bsk_tabs",
+-  "assist": "bsk_assist"
++  "assist": "bsk_assist",
++  "files": "bsk_files"
+ }
 --- a/packages/dsh-plugin-browserskill/src/tools.ts
 +++ b/packages/dsh-plugin-browserskill/src/tools.ts
 @@ -1,5 +1,5 @@
@@ -634,10 +987,10 @@ diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin
  } from "@deepseek-ai/dsh-tools";
  import { ownerSessionIds } from "./archive-cleanup";
 +import { registerFileTools } from "./file-tools";
- import { trySaveScreenshot } from "./image";
- import { actionForLabel, type ObservationService } from "./observation";
- import { registerPhaseOneTools } from "./phase-one-tools";
-@@ -34,7 +35,10 @@
+ import {
+   appendSavedObservationOptions,
+   SAVED_OBSERVATION_PARAMETERS,
+@@ -49,7 +50,10 @@
  
  /** Plugin configuration resolved from the Schemastery schema in index.ts. */
  export interface PluginConfig {
@@ -648,12 +1001,13 @@ diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin
    /** Optional durable start journal directory (isolated by host/profile when configured). */
    sessionStateDirectory?: string;
    defaultTimeoutMs: number;
-@@ -1050,11 +1054,16 @@
+@@ -1250,11 +1254,17 @@
      commandLine: (args) => cmdline(deps, args),
      presentTerminalResult,
    });
 +  registerFileTools(deps, register, {
-+    run: (exec, args, label, session) => runBsk(deps, exec, args, label, session, 0),
++    run: (exec, args, label, session, timeout, parseOptions) =>
++      runBsk(deps, exec, args, label, session, timeout, false, parseOptions),
 +    commandLine: (args) => cmdline(deps, args),
 +    presentTerminalResult,
 +  });
@@ -666,10 +1020,97 @@ diff --git a/packages/dsh-plugin-browserskill/src/tools.ts b/packages/dsh-plugin
   * rendering, cancellation, ownership, UI presentation, and attachments.
   */
  export function createBrowserOperationDefinitions(deps: ToolDeps): ToolDefinition[] {
-diff --git a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
---- /dev/null
+--- a/packages/dsh-plugin-browserskill/tests/client/client-bundle.test.tsx
++++ b/packages/dsh-plugin-browserskill/tests/client/client-bundle.test.tsx
+@@ -126,7 +126,7 @@
+     view.unmount();
+   }
+   expect(binding).toHaveBeenCalledWith("owning-session");
+-  expect(readAttachment.mock.calls).toEqual([[attachment.attachmentId], [attachment.attachmentId]]);
++  expect(readAttachment.mock.calls).toEqual([[attachment], [attachment]]);
+   expect(revoke).toHaveBeenCalledTimes(2);
+ });
+ 
+--- a/packages/dsh-plugin-browserskill/tests/client/step-web-card.test.tsx
++++ b/packages/dsh-plugin-browserskill/tests/client/step-web-card.test.tsx
+@@ -21,12 +21,12 @@
+ 
+ afterEach(cleanup);
+ 
++const webToolPath = createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-ui-tool/client");
++const { PartialArguments } = createRequire(webToolPath)("@deepseek-ai/dsh-util-values");
++
+ /** Load the real DSH plugin boundary and capture its whole-call renderer. */
+ function webToolTree(): React.ComponentType<Record<string, unknown>> {
+-  const source = readFileSync(
+-    createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-ui-tool/client"),
+-    "utf8",
+-  );
++  const source = readFileSync(webToolPath, "utf8");
+   const modules: Record<string, unknown> = {
+     react: React,
+     "react/jsx-runtime": jsxRuntime,
+@@ -77,6 +77,12 @@
+         options.fallback
+       }
+       useHostInfo={(selector: (host: object) => unknown) => selector({})}
++      useContextMenu={() => ({ getTriggerProps: () => ({}) })}
++      useDisclosure={() => {
++        const [expanded, setExpanded] = React.useState(false);
++        return { expanded, toggle: () => setExpanded((value) => !value) };
++      }}
++      resolveFilePath={(path: string) => path}
+       t={(key: string) => labels[key] ?? key}
+       openFile={() => {}}
+       inspectCall={() => {}}
+@@ -99,6 +105,8 @@
+     seq: 1,
+     time: 0,
+     callId: "legacy-step",
++    name: "bsk_interact",
++    args: PartialArguments.fromText('{"action":"step"}'),
+     call: { name: "bsk_interact", argsRaw: '{"action":"step"}' },
+     callTime: 0,
+     content: [{ type: "text", text: output }],
+@@ -124,20 +132,18 @@
+     content: result.content,
+     isError: result.isError,
+   });
+-  const toolResult = message.content.find((block) => block.type === "tool-result");
+-  if (!toolResult) throw new Error("DSH did not create a tool result block");
+   return {
+     kind: "tool-result",
+     seq: 1,
+     time: 0,
+     callId: "web-step",
++    name: "bsk_interact",
++    args: PartialArguments.fromObject(STEP_ARGS),
+     call: { name: "bsk_interact", argsRaw: JSON.stringify(STEP_ARGS) },
+     callTime: 0,
+-    content: toolResult.content,
+-    isError: toolResult.isError,
++    content: message.content,
++    isError: message.isError,
+     ...(result.isError && result.error.info ? { error: result.error.info } : {}),
+-    callView: null,
+-    resultView: null,
+     subCalls: [],
+   } as unknown as ToolResultNode;
+ }
+--- a/packages/dsh-plugin-browserskill/tests/cooperation.browser.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/cooperation.browser.test.ts
+@@ -11,7 +11,7 @@
+ import {
+   attachVideoBackground,
+   type BrowserSend,
+-} from "../../../apps/extension/src/video/browser-fixture";
++} from "./helpers/browser-fixture";
+ import { registerBrowserTools } from "../src/browser-tools";
+ import { ObservationService } from "../src/observation";
+ import { KeyedExecutor } from "../src/queue";
+--- a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,200 @@
 +import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
@@ -718,10 +1159,10 @@ diff --git a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts b/package
 +      acquireForeground: () => () => {}, beginAction() {}, endAction() {},
 +    } as never,
 +  });
-+  const tool = tools.get("browser_files")!;
-+  const exec = { callId: "file-call", name: "browser_files", agent: { id: "dsh-session" }, signal: new AbortController().signal } as ToolRunContext;
++  const tool = tools.get("bsk_files")!;
++  const exec = { callId: "file-call", name: "bsk_files", agent: { id: "dsh-session" }, signal: new AbortController().signal } as ToolRunContext;
 +  const call = (args: Record<string, unknown>) => tool.execute(args as never, exec) as Promise<Record<string, unknown>>;
-+  return { workspace, staging, calls, call };
++  return { workspace, staging, calls, call, tools, exec };
 +}
 +
 +it("downloads atomically once, reports conflicts, and attaches only approved local files", async () => {
@@ -777,21 +1218,433 @@ diff --git a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts b/package
 +  expect(await reopened.call(download)).toMatchObject({ status: "unknown" });
 +  expect(reopened.calls).toHaveLength(0);
 +});
-diff --git a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
++
++it("forwards observation guards through file actions and deduplicates reordered arguments", async () => {
++  const { workspace, staging, calls, call } = fixture((args) => {
++    if (args[0] === "download") {
++      const out = args[args.indexOf("--out") + 1];
++      writeFileSync(out, "guarded export");
++      return { code: 0, stdout: JSON.stringify({ tab_id: 7, path: out }), stderr: "", timedOut: false, aborted: false };
++    }
++    return { code: 0, stdout: JSON.stringify({ tab_id: 7, file_names: ["guarded.txt"] }), stderr: "", timedOut: false, aborted: false };
++  });
++  const conditions = [{ target: "#record", field: "text", equals: "record-7" }];
++  const download = { action: "download", session: "s1", requestId: "guarded-download", target: "#export", out: "guarded.txt",
++    contextId: "context-7", observationId: "observation-7", dependsOn: ["@e7"], expect: conditions };
++  expect(await call(download)).toMatchObject({ status: "downloaded", out: join(realpathSync(workspace), "guarded.txt") });
++  expect(await call({ expect: conditions, dependsOn: ["@e7"], observationId: "observation-7", contextId: "context-7",
++    out: "guarded.txt", target: "#export", requestId: "guarded-download", session: "s1", action: "download" }))
++    .toMatchObject({ status: "downloaded" });
++  writeFileSync(join(staging, "guarded.txt"), "guarded upload");
++  expect(await call({ action: "upload", session: "s1", requestId: "guarded-upload", target: "#file", files: [join(staging, "guarded.txt")],
++    contextId: "context-7", observationId: "observation-7", dependsOn: ["@e7"], expect: conditions }))
++    .toMatchObject({ status: "attached" });
++  expect(calls).toHaveLength(2);
++  for (const args of calls) {
++    expect(args[args.indexOf("--context") + 1]).toBe("context-7");
++    expect(args[args.indexOf("--observation") + 1]).toBe("observation-7");
++    expect(args[args.indexOf("--depends-on") + 1]).toBe("@e7");
++    expect(JSON.parse(args[args.indexOf("--expect") + 1])).toEqual(conditions);
++  }
++});
++
++it("keeps native file actions unavailable and rejects assist download destinations before dispatch", async () => {
++  const { tools, exec, calls } = fixture(() => ({ code: 0, stdout: JSON.stringify({ state: "completed" }), stderr: "", timedOut: false, aborted: false }));
++  const interact = tools.get("bsk_interact")!;
++  for (const args of [
++    { action: "upload", session: "s1", target: "#file", files: ["outside.txt"] },
++    { action: "download", session: "s1", target: "#export", output: "outside.txt" },
++  ]) await expect(interact.execute(args as never, exec)).rejects.toThrow(/unsupported browser action|invalid arguments/);
++  const assist = tools.get("bsk_assist")!;
++  for (const destination of [{ output: "outside.txt" }, { overwrite: true }, { overwrite: false }, { output: "outside.txt", overwrite: true }]) {
++    await expect(assist.execute({ action: "operation-await", session: "s1", operationId: "original", ...destination } as never, exec)).rejects.toThrow();
++  }
++  expect(calls).toHaveLength(0);
++  await assist.execute({ action: "operation-await", session: "s1", operationId: "original" } as never, exec);
++  expect(calls).toHaveLength(1);
++  expect(calls[0]).toEqual(["operation", "await", "original", "--session", "s1"]);
++});
++
++it("persists a suspended download and resumes its original operation after restart without another click", async () => {
++  const download = { action: "download", session: "s1", requestId: "dialog-download", target: "#export", out: "dialog.txt" };
++  const first = fixture((args) => {
++    if (args[0] === "download") {
++      const out = args[args.indexOf("--out") + 1];
++      return { code: 1, stdout: JSON.stringify({ code: "dialog_pending", message: "Decide the original dialog", data: {
++        operation_id: "operation-download-7", download_output: { path: out, saved: false, overwrite: false,
++          resume_argv: ["bsk", "operation", "await", "operation-download-7", "--session", "s1", "--out", out, "--json"] },
++      } }), stderr: "", timedOut: false, aborted: false };
++    }
++    expect(args.slice(0, 3)).toEqual(["operation", "await", "operation-download-7"]);
++    return { code: 0, stdout: JSON.stringify({ operation_id: "operation-download-7", method: "tool.download", state: "running" }), stderr: "", timedOut: false, aborted: false };
++  });
++  expect(await first.call(download)).toMatchObject({ status: "unknown" });
++  expect(await first.call({ action: "status", session: "s1", requestId: "dialog-download" })).toMatchObject({ status: "unknown" });
++  expect(first.calls.map(args => args.slice(0, 2))).toEqual([["download", "#export"], ["operation", "await"]]);
++  const reopened = fixture((args) => {
++    expect(args.slice(0, 3)).toEqual(["operation", "await", "operation-download-7"]);
++    expect(args[args.indexOf("--session") + 1]).toBe("s1");
++    const out = args[args.indexOf("--out") + 1];
++    expect(out).toBe(join(realpathSync(first.workspace), "dialog.txt"));
++    expect(args).not.toContain("--overwrite");
++    writeFileSync(out, "recovered retained download");
++    return { code: 0, stdout: JSON.stringify({ operation_id: "operation-download-7", method: "tool.download", state: "completed",
++      result: { tab_id: 7, path: out, saved: true } }), stderr: "", timedOut: false, aborted: false };
++  }, first.workspace);
++  expect(await reopened.call({ action: "status", session: "s1", requestId: "dialog-download" }))
++    .toMatchObject({ status: "downloaded", out: join(realpathSync(first.workspace), "dialog.txt"), tabId: 7 });
++  expect(await reopened.call(download)).toMatchObject({ status: "downloaded" });
++  expect(reopened.calls).toHaveLength(1);
++  expect(first.calls.filter(args => args[0] === "download")).toHaveLength(1);
++});
++
++it.each([
++  { action: "upload", session: "unknown", files: ["input.txt"], rejects: true },
++  { action: "download", session: "unknown", out: "result.txt", rejects: true },
++  { action: "upload", session: "s1", files: [], rejects: true },
++  { action: "upload", session: "s1", files: [""], rejects: false },
++  { action: "download", session: "s1", out: " ", rejects: false },
++])("rejects invalid or unowned $action before launching a file command: %j", async ({ rejects, ...args }) => {
++  const { call, calls } = fixture(() => { throw new Error("must not dispatch"); });
++  const result = call({ ...args, requestId: "invalid-file", target: "#file" });
++  if (rejects) await expect(result).rejects.toThrow();
++  else expect(await result).toMatchObject({ status: "failed", message: expect.stringContaining("file path must be non-empty") });
++  expect(calls).toHaveLength(0);
++});
+--- a/packages/dsh-plugin-browserskill/tests/helpers/browser-fixture.ts
++++ b/packages/dsh-plugin-browserskill/tests/helpers/browser-fixture.ts
+@@ -0,0 +1,52 @@
++// Browser fixture from upstream apps/extension/src/video/browser-fixture.ts.
++import { expect } from "vitest";
++
++export type BrowserSend = <T = Record<string, unknown>>(
++  method: string,
++  params?: object,
++  sessionId?: string,
++) => Promise<T>;
++
++/** Chrome may also start built-in extension workers named background.js. Match
++ * the fixture manifest instead of accidentally attaching to a component worker. */
++export async function attachVideoBackground(send: BrowserSend, name: string) {
++  let found: { sessionId: string; origin: string } | undefined;
++  await expect
++    .poll(
++      async () => {
++        const { targetInfos } = await send<{
++          targetInfos: { targetId: string; url: string; type: string }[];
++        }>("Target.getTargets");
++        for (const target of targetInfos) {
++          if (target.type !== "service_worker" || !target.url.startsWith("chrome-extension://"))
++            continue;
++          const { sessionId } = await send<{ sessionId: string }>("Target.attachToTarget", {
++            targetId: target.targetId,
++            flatten: true,
++          });
++          try {
++            const reply = await send<{ result: { value?: string } }>(
++              "Runtime.evaluate",
++              {
++                expression: "chrome.runtime.getManifest().name",
++                returnByValue: true,
++              },
++              sessionId,
++            );
++            if (reply.result.value === name) {
++              found = { sessionId, origin: target.url.split("/").slice(0, 3).join("/") };
++              return true;
++            }
++          } finally {
++            if (found?.sessionId !== sessionId)
++              await send("Target.detachFromTarget", { sessionId });
++          }
++        }
++        return false;
++      },
++      { timeout: 15_000, message: `Wait for extension background: ${name}` },
++    )
++    .toBe(true);
++  return found!;
++}
++
+--- a/packages/dsh-plugin-browserskill/tests/helpers/step-runtime.ts
++++ b/packages/dsh-plugin-browserskill/tests/helpers/step-runtime.ts
+@@ -1,6 +1,8 @@
+ import { Context } from "@deepseek-ai/cordis";
+ import { ToolCallId } from "@deepseek-ai/dsh-llm";
+ import ToolRuntime from "@deepseek-ai/dsh-tools";
++import * as NativeToolExecutor from "@deepseek-ai/dsh-tool-executor-native";
++import * as PtcToolExecutor from "@deepseek-ai/dsh-tool-executor-ptc";
+ import { registerBrowserTools } from "../../src/browser-tools";
+ import { ObservationService } from "../../src/observation";
+ import { KeyedExecutor } from "../../src/queue";
+@@ -55,8 +57,12 @@
+     section: () => () => {},
+     getSectionOrder: () => 0,
+   });
+-  const runtime = root.plugin(ToolRuntime, { mode });
++  const runtime = root.plugin(ToolRuntime);
+   await runtime;
++  const executor = mode === "native"
++    ? root.plugin(NativeToolExecutor)
++    : root.plugin(PtcToolExecutor, {});
++  if (mode === "native") await executor;
+   const runner: BskRunner = { run, killAll() {}, killFor: () => 0 };
+   const registry = new SessionRegistry(5);
+   for (const sessionId of ["s1", "s2"]) registry.completeStart({ sessionId, startedAtMs: 0 });
+@@ -87,26 +93,32 @@
+   let sequence = 0;
+   return {
+     root,
+-    execute(
++    ready: executor,
++    async execute(
+       controller = new AbortController(),
+       args: Record<string, unknown> = {},
+       callId = `step-${++sequence}`,
+     ) {
+-      return root.tools.execute({
+-        callId: ToolCallId(callId),
+-        name: "bsk_interact",
+-        arguments: {
+-          action: "step",
+-          stepAction: "click",
+-          params: '{"ref":"e1"}',
+-          session: "s1",
+-          ...args,
+-        },
++      await executor;
++      return (await root.tools.execute({
++        calls: [{
++          type: "tool-call",
++          id: ToolCallId(callId),
++          name: "bsk_interact",
++          arguments: JSON.stringify({
++            action: "step",
++            stepAction: "click",
++            params: '{"ref":"e1"}',
++            session: "s1",
++            ...args,
++          }),
++        }],
+         signal: controller.signal,
+-      });
++      })).results[0].result;
+     },
+     async dispose() {
+       unregister();
++      await executor.dispose();
+       await runtime.dispose();
+     },
+   };
+--- a/packages/dsh-plugin-browserskill/tests/host-compatibility.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/host-compatibility.test.ts
+@@ -18,12 +18,7 @@
+ 
+   describe.each(dshPeers)("%s (%s)", (_name, range) => {
+     it.each([
+-      "0.1.5-rc.3",
+-      "0.1.5",
+-      "0.1.7-rc.2",
+-      "0.2.0-rc.1",
+-      "0.2.0",
+-      "0.2.1",
++      "0.2.2-rc.1",
+     ])("admits supported host %s", (version) => {
+       expect(satisfies(version, range, { includePrerelease: true })).toBe(true);
+     });
+@@ -32,6 +27,8 @@
+       "0.1.0",
+       "0.1.5-rc.2",
+       "0.2.0-rc.0",
++      "0.2.1-rc.3",
++      "0.2.2",
+       "0.3.0-rc.1",
+       "0.3.0",
+       "1.0.0",
+--- a/packages/dsh-plugin-browserskill/tests/lazy-tools.agent-loop.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/lazy-tools.agent-loop.test.ts
+@@ -19,6 +19,7 @@
+ import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+ import * as ToolSkill from "@deepseek-ai/dsh-tool-skill";
+ import ToolRuntime, { defineTool } from "@deepseek-ai/dsh-tools";
++import * as NativeToolExecutor from "@deepseek-ai/dsh-tool-executor-native";
+ import { afterEach, describe, expect, it, vi } from "vitest";
+ import { apply } from "../src/index";
+ import { memoryStartJournal } from "../src/start-journal";
+@@ -46,7 +47,7 @@
+   return agent.session.snapshotEvents().flatMap((event) => {
+     if (
+       event.type !== "user/message" ||
+-      event.data.source.kind !== "plugin" ||
++      event.data.source.kind !== "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" ||
+       event.data.source.form !== "notice"
+     )
+       return [];
+@@ -59,9 +60,13 @@
+ }
+ 
+ /** Real loop, prompt assembly, skill injection, tool execution and durable log;
+- * only the model and browser subprocess boundary are fixtures. */
++ * only the model, browser subprocess and deployment directory are fixtures. */
+ async function host() {
+   const root = new Context();
++  root.provide("workingDirectory", {
++    get: () => process.cwd(),
++    ensure: async () => process.cwd(),
++  } as never);
+   const requests: GenerateOptions[] = [];
+   const responses: (TextBlock | ToolCallBlock)[] = [];
+   const errors: unknown[] = [];
+@@ -91,6 +96,7 @@
+   for (const fiber of [
+     root.plugin(SystemPrompt),
+     root.plugin(ToolRuntime),
++    root.plugin(NativeToolExecutor),
+     root.plugin(AgentRegistry),
+     root.plugin(SkillRegistry),
+     root.plugin(SessionStore),
+@@ -129,7 +135,7 @@
+             startJournal: memoryStartJournal(),
+             runnerFactory: () => ({
+               async run(args) {
+-                expect(args).toEqual(["--version", "--json"]);
++                expect(args).toEqual(["--version"]);
+                 return {
+                   code: 0,
+                   stdout: '{"version":"0.3.2"}',
+@@ -214,7 +220,7 @@
+       agent,
+       createUserMessage({
+         content: [{ type: "text", text: "/browser-skill" }],
+-        source: { kind: "plugin", plugin: "fixture", form: "notice", summary: "Fixture" },
++        source: { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin", form: "notice", summary: "Fixture" },
+       }),
+     );
+     expect(browserSchemas(h.requests[0])).toEqual([]);
+--- a/packages/dsh-plugin-browserskill/tests/lazy-tools.integration.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/lazy-tools.integration.test.ts
+@@ -3,6 +3,7 @@
+ import { ToolCallId } from "@deepseek-ai/dsh-llm/brand";
+ import { SessionId, SessionStore } from "@deepseek-ai/dsh-session";
+ import ToolRuntime, { defineTool } from "@deepseek-ai/dsh-tools";
++import * as NativeToolExecutor from "@deepseek-ai/dsh-tool-executor-native";
+ import { describe, expect, it, vi } from "vitest";
+ import { apply } from "../src/index";
+ import { armLazyTools } from "../src/lazy-tools";
+@@ -192,9 +193,11 @@
+     const root = new Context();
+     // Only prompt assembly is absent in this headless composition. Registry,
+     // validation, middleware, result materialization, and disposal are real DSH.
+-    root.provide("systemPrompt", { tools: () => () => {} });
++    root.provide("systemPrompt", { tools: () => () => {}, section: () => () => {} });
+     const runtime = root.plugin(ToolRuntime);
+     await runtime;
++    const executor = root.plugin(NativeToolExecutor);
++    await executor;
+     const tool = (name: string) =>
+       defineTool({
+         name,
+@@ -237,13 +240,16 @@
+     await plugin;
+     if (order === "after") root.tools.register(foreign);
+     let call = 0;
+-    const invoke = (name: string, args: Record<string, unknown>) =>
+-      root.tools.execute({
+-        callId: ToolCallId(`pipeline-${++call}`),
+-        name,
+-        arguments: args,
++    const invoke = async (name: string, args: Record<string, unknown>) =>
++      (await root.tools.execute({
++        calls: [{
++          type: "tool-call",
++          id: ToolCallId(`pipeline-${++call}`),
++          name,
++          arguments: JSON.stringify(args),
++        }],
+         signal: new AbortController().signal,
+-      });
++      })).results[0].result;
+     const active = () =>
+       Object.values(toolNames).filter((name) => root.tools.get(name) !== undefined);
+     try {
+@@ -266,6 +272,7 @@
+     } finally {
+       await plugin.dispose();
+       occupied();
++      await executor.dispose();
+       await runtime.dispose();
+     }
+   });
 --- a/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/lazy-tools.test.ts
-@@ -631,6 +631,7 @@
+@@ -648,6 +648,7 @@
      const { tools } = applyHarness({ lazyTools: false });
      expect([...tools.keys()].sort()).toEqual([
-       "browser_assist",
-+      "browser_files",
-       "browser_inspect",
-       "browser_interact",
-       "browser_page",
-diff --git a/packages/dsh-plugin-browserskill/tests/runner.test.ts b/packages/dsh-plugin-browserskill/tests/runner.test.ts
+       "bsk_assist",
++      "bsk_files",
+       "bsk_inspect",
+       "bsk_interact",
+       "bsk_page",
+@@ -742,9 +743,9 @@
+     expect(register).not.toHaveBeenCalled();
+   });
+ 
+-  it.each([3, 4])("uses a compatible source for format %s activation notices", async (version) => {
++  it("uses the plugin producer for format v4 activation notices", async () => {
+     const host = fakeEventCtx();
+-    const session = { header: { version }, events: [] };
++    const session = { header: { version: 4 }, events: [] };
+     const register = vi
+       .fn()
+       .mockImplementationOnce(() => {
+@@ -756,10 +757,7 @@
+       id: "gesture-source",
+       source: { kind: "skill-invocation", name: "browser-skill", form: "instructions" },
+     };
+-    const source =
+-      version < 4
+-        ? { kind: "plugin", plugin: "@wxg-prc-cpg/browser-skill-dsh-plugin" }
+-        : { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" };
++    const source = { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" };
+     const failed = (await preStep(host, session, [gesture])) as { messages: { source: object }[] };
+     expect(failed.messages[1].source).toEqual({
+       ...source,
+--- a/packages/dsh-plugin-browserskill/tests/message-source.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/message-source.test.ts
+@@ -4,14 +4,14 @@
+ import { createStepReceiptHandler } from "../src/step-receipt";
+ 
+ // The public SDK supplies the session on nested calls as well as direct calls.
+-describe("step receipt source compatibility", () => {
+-  it.each([3, 4])("preserves receipt evidence for session format %s", (version) => {
++describe("step receipt source", () => {
++  it("preserves receipt evidence with the format v4 plugin producer", () => {
+     const contexts: Message[] = [];
+     const exec = {
+       callId: "source-compatibility",
+       parent: Symbol("run_code"),
+       signal: new AbortController().signal,
+-      agent: { session: { header: { version } } },
++      agent: { session: { header: { version: 4 } } },
+       deferContext: (message: Message) => contexts.push(message),
+     } as unknown as ToolRunContext;
+     const receipt = { ok: false, action: { performed: true }, action_replayed: false };
+@@ -19,11 +19,7 @@
+       "Browser step needs attention",
+     );
+     expect(contexts).toHaveLength(1);
+-    expect(contexts[0].source).toEqual(
+-      version < 4
+-        ? { kind: "plugin", plugin: "@wxg-prc-cpg/browser-skill-dsh-plugin" }
+-        : { kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" },
+-    );
++    expect(contexts[0].source).toEqual({ kind: "plugin:@wxg-prc-cpg/browser-skill-dsh-plugin" });
+     expect(contexts[0].content.at(-1)).toEqual({ type: "text", text: JSON.stringify(receipt) });
+   });
+ });
 --- a/packages/dsh-plugin-browserskill/tests/runner.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/runner.test.ts
-@@ -65,6 +65,42 @@
+@@ -85,6 +85,43 @@
  });
  
  describe("createBskRunner", () => {
@@ -831,10 +1684,11 @@ diff --git a/packages/dsh-plugin-browserskill/tests/runner.test.ts b/packages/ds
 +    expect(process.env.BSK_HOME).toBe(originalHome);
 +  });
 +
-   it("appends --json and collects stdout", async () => {
++
+   it("preserves UTF-8 characters split across output buffers", async () => {
      const child = new FakeChild();
-     const seen: string[][] = [];
-@@ -416,7 +452,7 @@
+     const runner = createBskRunner("bsk", fakeSpawn([child]));
+@@ -597,7 +634,7 @@
        ["snapshot", "--json"],
        {
          windowsHide: true,
@@ -843,42 +1697,287 @@ diff --git a/packages/dsh-plugin-browserskill/tests/runner.test.ts b/packages/ds
        },
      ]);
      abort.abort();
-diff --git a/packages/dsh-plugin-browserskill/tests/skill.test.ts b/packages/dsh-plugin-browserskill/tests/skill.test.ts
 --- a/packages/dsh-plugin-browserskill/tests/skill.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/skill.test.ts
 @@ -35,6 +35,7 @@
-     const mentionedTools = [...new Set(content.match(/\bbrowser_[a-z][a-z_]*\b/g) ?? [])].sort();
+     const mentionedTools = [...new Set(content.match(/\bbsk_[a-z][a-z_]*\b/g) ?? [])].sort();
      expect(mentionedTools).toEqual([
-       "browser_assist",
-+      "browser_files",
-       "browser_inspect",
-       "browser_interact",
-       "browser_page",
-@@ -59,6 +60,7 @@
-     const references = [...content.matchAll(/\]\((references\/[^)]+)\)/g)].map((match) => match[1]);
+       "bsk_assist",
++      "bsk_files",
+       "bsk_inspect",
+       "bsk_interact",
+       "bsk_page",
+@@ -60,6 +61,7 @@
      expect([...new Set(references)].sort()).toEqual([
+       "references/cooperation.md",
        "references/debugging.md",
 +      "references/file-transfers.md",
        "references/help-and-recovery.md",
        "references/interaction-details.md",
-       "references/screenshots-and-canvas.md",
-diff --git a/packages/dsh-plugin-browserskill/tests/tools.test.ts b/packages/dsh-plugin-browserskill/tests/tools.test.ts
+       "references/native-dialogs.md",
+--- a/packages/dsh-plugin-browserskill/tests/step-receipt.integration.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/step-receipt.integration.test.ts
+@@ -33,8 +33,9 @@
+   });
+ }
+ 
+-type CodeRunRequest = Parameters<Context["codeRuntime"]["run"]>[0];
+-type CodeRunResult = Awaited<ReturnType<Context["codeRuntime"]["run"]>>;
++type CodeRunRequest = Parameters<Context["ptcRuntime"]["resolve"]>[0];
++type CodeRunSpec = ReturnType<Context["ptcRuntime"]["resolve"]>;
++type CodeRunResult = Awaited<ReturnType<Context["ptcRuntime"]["run"]>>;
+ type PtcFunctions = CodeRunRequest["bindings"][number]["functions"];
+ 
+ /** Only the code-execution substrate is a fixture: it runs a known test program
+@@ -44,10 +45,16 @@
+   root: Context,
+   program: (tools: PtcFunctions) => Promise<CodeRunResult["value"]>,
+ ) {
+-  root.provide("codeRuntime", {
++  root.provide("ptcRuntime", {
+     language: "typescript",
+     isolation: "test",
+-    async run(request: CodeRunRequest): Promise<CodeRunResult> {
++    programFormat: "function-body",
++    retainsState: false,
++    executionInstructions: "",
++    resolve(request: CodeRunRequest): CodeRunSpec {
++      return { ...request, cwd: process.cwd(), timeoutMs: null };
++    },
++    async run(request: CodeRunSpec): Promise<CodeRunResult> {
+       const body = (async (): Promise<CodeRunResult> => {
+         try {
+           return { logs: [], value: await program(request.bindings[0].functions) };
+@@ -71,16 +78,20 @@
+         request.signal?.removeEventListener("abort", onAbort);
+       }
+     },
+-  } as Context["codeRuntime"]);
+-}
+-
+-function runCode(root: Context, controller = new AbortController()) {
+-  return root.tools.execute({
+-    name: "run_code",
+-    callId: ToolCallId("ptc-step"),
+-    arguments: { code: "known test program", description: "Inspect one browser step" },
++  } as Context["ptcRuntime"]);
++}
++
++async function runCode(runtime: Awaited<ReturnType<typeof createStepRuntime>>, controller = new AbortController()) {
++  await runtime.ready;
++  return (await runtime.root.tools.execute({
++    calls: [{
++      type: "tool-call",
++      name: "run_code",
++      id: ToolCallId("ptc-step"),
++      arguments: JSON.stringify({ code: "known test program", description: "Inspect one browser step" }),
++    }],
+     signal: controller.signal,
+-  });
++  })).results[0].result;
+ }
+ 
+ const PTC_STEP_ARGS = {
+@@ -101,7 +112,7 @@
+         return { caught: (error as Error).message };
+       }
+     });
+-    const result = await runCode(runtime.root);
++    const result = await runCode(runtime);
+     expect(result.isError).toBe(false);
+     if (!result.isError)
+       expect((result.value as { result: { caught: string } }).result.caught).toContain(
+@@ -117,7 +128,7 @@
+   it("preserves the receipt when an uncaught step failure makes run_code fail", async () => {
+     const runtime = await host(async () => stepReply(STEP_PARTIAL, 1), "ptc");
+     installPtcSubstrate(runtime.root, (tools) => tools.bsk_interact(PTC_STEP_ARGS));
+-    const result = await runCode(runtime.root);
++    const result = await runCode(runtime);
+     expect(result.isError).toBe(true);
+     expect(result.error?.message).toContain(JSON.stringify(STEP_PARTIAL));
+     expect(contextReceipts(result)).toEqual([STEP_PARTIAL]);
+@@ -131,7 +142,7 @@
+     });
+     const runtime = await host(run, "ptc");
+     installPtcSubstrate(runtime.root, (tools) => tools.bsk_interact(PTC_STEP_ARGS));
+-    const result = await runCode(runtime.root, controller);
++    const result = await runCode(runtime, controller);
+     expect(result.isError).toBe(true);
+     expect(contextReceipts(result)).toEqual([STEP_CANCELLED]);
+     expect(run).toHaveBeenCalledOnce();
+@@ -145,7 +156,7 @@
+       if (exec.name === "bsk_interact") controller.abort();
+       return next();
+     });
+-    const result = await runCode(runtime.root, controller);
++    const result = await runCode(runtime, controller);
+     expect(result.isError).toBe(true);
+     expect(contextReceipts(result)).toEqual([STEP_SUCCESS]);
+   });
+@@ -161,7 +172,7 @@
+         ? { kind: "block", feedback: [{ type: "text", text: "policy withheld output" }] }
+         : next(),
+     );
+-    const result = await runCode(runtime.root);
++    const result = await runCode(runtime);
+     expect(result.isError).toBe(true);
+     expect(contextReceipts(result)).toEqual([]);
+     expect(JSON.stringify(result)).not.toContain("action_replayed");
+@@ -181,7 +192,7 @@
+       }
+       return "done";
+     });
+-    const result = await runCode(runtime.root);
++    const result = await runCode(runtime);
+     expect(result.isError).toBe(false);
+     expect(contextReceipts(result)).toEqual([
+       { ...STEP_PARTIAL, marker: 1 },
+--- a/packages/dsh-plugin-browserskill/tests/tool-registration.test.ts
++++ b/packages/dsh-plugin-browserskill/tests/tool-registration.test.ts
+@@ -6,7 +6,7 @@
+ import toolNames from "../src/tool-names.json";
+ import type { ToolDeps } from "../src/tools";
+ 
+-const names = Object.values(toolNames);
++const names = [toolNames.session, toolNames.page, toolNames.inspect, toolNames.interact, toolNames.files, toolNames.tabs, toolNames.assist];
+ 
+ function registry() {
+   const tools = new Map<string, ToolDefinition>();
+@@ -20,7 +20,10 @@
+     };
+   });
+   // Operation bodies capture their services; registering schemas never uses them.
+-  const deps = { ctx: { tools: { register } } } as unknown as ToolDeps;
++  const deps = {
++    ctx: { tools: { register } },
++    config: { bskPath: "bsk" },
++  } as unknown as ToolDeps;
+   return { tools, released, register, deps };
+ }
+ 
+@@ -61,7 +64,7 @@
+     if (order === "before") for (const tool of foreign) h.tools.set(tool.name, tool);
+     const dispose = registerBrowserTools(h.deps);
+     if (order === "after") for (const tool of foreign) h.tools.set(tool.name, tool);
+-    expect(h.tools.size).toBe(12);
++    expect(h.tools.size).toBe(names.length * 2);
+     dispose();
+     expect([...h.tools.values()]).toEqual(foreign);
+   });
+@@ -88,7 +91,7 @@
+       expect(dispose).not.toThrow();
+     }
+     expect(h.tools.size).toBe(0);
+-    expect(h.released).toEqual((rollback ? names.slice(0, -1) : [...names]).reverse());
++    expect(h.released).toEqual((rollback ? names.slice(0, names.indexOf(toolNames.assist)) : [...names]).reverse());
+   });
+ 
+   it("owns runner and journal cleanup before eager registration can fail", async () => {
 --- a/packages/dsh-plugin-browserskill/tests/tools.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/tools.test.ts
-@@ -241,10 +241,11 @@
+@@ -447,10 +447,9 @@
+     "select",
+     "press",
+     "evaluate",
+-    "upload",
+-    "download",
    ],
-   browser_tabs: ["list", "create", "select", "close", "borrow", "return"],
-   browser_assist: ["resize", "emulate", "request-help"],
-+  browser_files: ["download", "upload", "status"],
- } as const;
+   bsk_tabs: ["list", "create", "select", "close", "borrow", "return"],
++  bsk_files: ["download", "upload", "status"],
+   bsk_assist: [
+     "resize",
+     "emulate",
+@@ -886,7 +885,7 @@
+     expect(session.policy).toMatchObject({ enum: ["auto", "target", "strict"] });
+   });
  
- describe("tool registration", () => {
 -  it("registers exactly six public schemas with the complete action contract", () => {
-+  it("registers the public schemas with the complete action contract", () => {
++  it("registers public schemas with the complete action contract", () => {
      const { tools } = setup({});
      expect([...tools.keys()].sort()).toEqual(Object.keys(EXPECTED_ACTIONS).sort());
      for (const [name, actions] of Object.entries(EXPECTED_ACTIONS)) {
-diff --git a/packages/dsh-plugin-browserskill/tsdown.config.ts b/packages/dsh-plugin-browserskill/tsdown.config.ts
+@@ -3152,7 +3151,7 @@
+   });
+ });
+ 
+-describe("script and file actions share the existing runtime", () => {
++describe("script actions share the existing runtime", () => {
+   it.each([
+     {
+       action: "evaluate",
+@@ -3170,53 +3169,6 @@
+         "false",
+       ],
+     },
+-    {
+-      action: "upload",
+-      args: {
+-        target: "#drop",
+-        files: ["/tmp/one file.bin", "/tmp/$(literal).bin"],
+-        mode: "drop",
+-        timeoutMs: 6000,
+-      },
+-      expected: [
+-        "upload",
+-        "#drop",
+-        "--session",
+-        "s1",
+-        "--tab-id",
+-        "7",
+-        "--file",
+-        "/tmp/one file.bin",
+-        "--file",
+-        "/tmp/$(literal).bin",
+-        "--mode",
+-        "drop",
+-        "--timeout",
+-        "6000ms",
+-      ],
+-    },
+-    {
+-      action: "download",
+-      args: {
+-        target: "#download",
+-        output: "/tmp/local result.bin",
+-        overwrite: true,
+-        timeoutMs: 6000,
+-      },
+-      expected: [
+-        "download",
+-        "#download",
+-        "--session",
+-        "s1",
+-        "--out",
+-        "/tmp/local result.bin",
+-        "--tab-id",
+-        "7",
+-        "--overwrite",
+-        "--timeout",
+-        "6000ms",
+-      ],
+-    },
+   ])("forwards literal arguments and the observed context for $action", async ({
+     action,
+     args,
+@@ -3240,8 +3192,6 @@
+   });
+   it.each([
+     { action: "evaluate", expression: "1+1" },
+-    { action: "upload", target: "#file", files: ["/tmp/input.bin"] },
+-    { action: "download", target: "#file", output: "/tmp/result.bin" },
+   ])("rejects an unowned session before invoking $action", async (args) => {
+     const { tools, calls } = setup({});
+     await expect(
+@@ -3251,9 +3201,6 @@
+   });
+   it.each([
+     { action: "evaluate", expression: " " },
+-    { action: "upload", target: "#file", files: [] },
+-    { action: "upload", target: "#file", files: [""] },
+-    { action: "download", target: "#file", output: " " },
+   ])("rejects incomplete $action arguments without launching a command", async (args) => {
+     const { tools, calls } = setup({ "session start": START_REPLY("s1") });
+     await startSession(tools);
 --- a/packages/dsh-plugin-browserskill/tsdown.config.ts
 +++ b/packages/dsh-plugin-browserskill/tsdown.config.ts
 @@ -93,7 +93,7 @@
@@ -890,29 +1989,30 @@ diff --git a/packages/dsh-plugin-browserskill/tsdown.config.ts b/packages/dsh-pl
          return [
            `const css = ${JSON.stringify(code.toString())};`,
            `const tagId = ${JSON.stringify(`${CLIENT_ID}/${basename(fileId)}`)};`,
-diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
 --- a/pnpm-workspace.yaml
 +++ b/pnpm-workspace.yaml
-@@ -7,8 +7,13 @@
+@@ -7,9 +7,14 @@
  
  # The published primitives entry imports packages listed only as devDependencies upstream.
  packageExtensions:
 -  "@deepseek-ai/dsh-client-ui-primitives@0.1.5-rc.3":
-+  "@deepseek-ai/dsh-client-ui-primitives@0.2.0-rc.2":
++  "@deepseek-ai/dsh-client-ui-primitives@0.2.2-rc.1":
      dependencies:
+-      "@shikijs/langs": "^4.3.1"
 +      "diff": "9.0.0"
 +      "simple-icons": "16.31.0"
-+      "@deepseek-ai/dsh-util-code-language": "0.2.0-rc.2"
-+      "@deepseek-ai/dsh-util-workspace-path": "0.2.0-rc.2"
-+      "@deepseek-ai/dsh-client-store": "0.2.0-rc.2"
-       "@shikijs/langs": "^4.3.1"
++      "@deepseek-ai/dsh-util-code-language": "0.2.2-rc.1"
++      "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1"
++      "@deepseek-ai/dsh-client-store": "0.2.2-rc.1"
++      "@shikijs/langs": "^4.4.3"
        "anser": "^2.3.5"
        "clsx": "^2.0.0"
+       "katex": "^0.16.47"
 @@ -28,3 +33,9 @@
      peerDependencies:
        react: "^18.2.0"
        react-dom: "^18.2.0"
-+  "@deepseek-ai/dsh-client-store@0.2.0-rc.2":
++  "@deepseek-ai/dsh-client-store@0.2.2-rc.1":
 +    dependencies:
 +      zustand: "4.4.7"
 +      immer: "10.1.1"

@@ -184,7 +184,7 @@ export class ProjectIndex {
   /** Patch mutable metadata fields; bumps updatedAt. */
   update(
     projectId: string,
-    patch: Partial<Pick<LinguistProject, 'name' | 'sourceLocale' | 'targetLocale' | 'workbookMappings'>>,
+    patch: Partial<Pick<LinguistProject, 'name' | 'sourceLocale' | 'targetLocale' | 'workbookMappings' | 'spellingDictionary'>>,
   ): LinguistProject {
     const index = this.readIndex()
     const i = index.projects.findIndex((p) => p.id === projectId)
@@ -464,6 +464,11 @@ function assertValidProject(value: unknown, filePath: string): asserts value is 
     typeof p.updatedAt !== 'string'
   ) {
     throw new StoreIndexCorruptError(filePath, `invalid project entry: ${JSON.stringify(value)}`)
+  }
+  const dictionary = p.spellingDictionary
+  if (dictionary !== undefined && (typeof dictionary !== 'object' || dictionary === null || Array.isArray(dictionary)
+    || Object.values(dictionary).some(words => !Array.isArray(words) || words.length > 10_000 || words.some(word => typeof word !== 'string' || word.length > 100)))) {
+    throw new StoreIndexCorruptError(filePath, 'invalid project spelling dictionary')
   }
 }
 

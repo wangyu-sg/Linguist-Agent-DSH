@@ -18,7 +18,6 @@ const WorkingDecisionSchema = z.object({
   }).strict()),
   edits: z.array(z.object({
     segmentId: z.string(),
-    baseRevision: z.number().int().nonnegative(),
     target: z.string(),
   }).strict()),
   unresolved: z.array(z.string()),
@@ -32,6 +31,8 @@ const PreviousWorkingCopySchema = z.object({
   sourceLocale: z.string(),
   targetLocale: z.string(),
   formatId: z.string(),
+  projectId: z.string().optional(),
+  assetId: z.string().optional(),
   segments: z.array(z.object({
     id: z.string(), source: z.string(), target: z.string(), revision: z.number().int(),
     sourceLocale: z.string(), targetLocale: z.string(), locked: z.boolean(), key: z.string().optional(),
@@ -46,6 +47,8 @@ export interface LinguistWorkingCopy {
   sourceLocale: string
   targetLocale: string
   formatId: string
+  projectId?: string
+  assetId?: string
   segments: Segment[]
   warnings: { code: string; message: string; segmentKey?: string }[]
 }
@@ -70,6 +73,7 @@ export async function prepareWorkingCopy(input: {
   sourcePath: string
   sourceLocale: string
   targetLocale: string
+  formatConfigJson?: string
 }): Promise<LinguistWorkingCopy> {
   const path = workingCopyPath(input.workspaceRoot, input.sourcePath)
   const { bytes, filename } = await readPickedFileWithinLimit(path, LINGUIST_FILE_MAX_BYTES)
@@ -79,7 +83,8 @@ export async function prepareWorkingCopy(input: {
     if (typeof value === 'object' && value !== null && 'artifactKind' in value
       && value.artifactKind === 'linguist-working-copy') throw new Error('这是工作稿；sourcePath 使用原文件，并通过 previousResultPath 接续当前译文')
   }
-  const imported = await adapter.import({ bytes, filename, sourceLocale: input.sourceLocale, targetLocale: input.targetLocale })
+  const imported = await adapter.import({ bytes, filename, sourceLocale: input.sourceLocale, targetLocale: input.targetLocale,
+    ...(input.formatConfigJson === undefined ? {} : { formatConfigJson: input.formatConfigJson }) })
   return {
     schemaVersion: 1,
     artifactKind: 'linguist-working-copy',
@@ -117,7 +122,6 @@ export function assembleWorkingCopy(
     const segment = byId.get(edit.segmentId)
     if (!segment || edits.has(edit.segmentId)) throw new Error(`修订包含未知或重复句段：${edit.segmentId}`)
     if (edit.target === segment.target) throw new Error(`译文未变化，应记录 unchanged：${edit.segmentId}`)
-    if (edit.baseRevision !== segment.revision) throw new Error(`修订版本不一致：${edit.segmentId}`)
     if (decisionsById.get(edit.segmentId) !== 'corrected') throw new Error(`修订缺少 corrected 裁定：${edit.segmentId}`)
     const validation = runDeterministicHardRules({ segment, proposedTarget: edit.target, ...(tagProfile ? { tagProfile } : {}) })
     if (!validation.ok) throw new Error(`结构/锁保护拒绝 ${edit.segmentId}：${validation.violations.map(v => v.code).join(', ')}`)
@@ -133,7 +137,7 @@ export function assembleWorkingCopy(
     segments,
     ...(previousResult === undefined ? {} : { previousResultSha256: previousResult.sha256 }),
     groups: input.groups,
-    changes: input.edits.map(edit => ({ ...edit, source: byId.get(edit.segmentId)!.source, previousTarget: byId.get(edit.segmentId)!.target })),
+    changes: input.edits.map(edit => ({ ...edit, baseRevision: byId.get(edit.segmentId)!.revision, source: byId.get(edit.segmentId)!.source, previousTarget: byId.get(edit.segmentId)!.target })),
     finalChanges: segments.flatMap((segment, index) => {
       const original = baseline.segments[index]!
       return segment.target === original.target ? [] : [{ segmentId: segment.id, baseRevision: original.revision, source: original.source, previousTarget: original.target, target: segment.target }]
@@ -149,7 +153,7 @@ export function assembleWorkingCopy(
     submitted: false,
     nextAction: input.unresolved.length > 0 || [...decisionsById.values()].includes('blocked') || decisionsById.size < baseline.segments.length
       ? '继续未裁定内容或必要查验；本文件不证明专业阶段完成。'
-      : '核对约定的查验责任后，用正式写回工具及其真实回执继续；本文件未提交译文。',
+      : '核对约定的查验责任后，绑定项目并使用 deliver 写入 CAT 和生成原格式交付物；当前工作稿尚未提交译文。',
   }
 }
 
@@ -158,7 +162,8 @@ function resumeWorkingCopy(baseline: LinguistWorkingCopy, value: unknown, tagPro
   const previous = PreviousWorkingCopySchema.parse(value)
   if (previous.sourceSha256 !== baseline.sourceSha256 || previous.sourcePath !== baseline.sourcePath
     || previous.sourceLocale !== baseline.sourceLocale || previous.targetLocale !== baseline.targetLocale
-    || previous.formatId !== baseline.formatId) throw new Error('上阶段工作稿不属于当前原文件与语言对')
+    || previous.formatId !== baseline.formatId || previous.projectId !== baseline.projectId
+    || previous.assetId !== baseline.assetId) throw new Error('上阶段工作稿不属于当前原文件与语言对')
   const byId = new Map(previous.segments.map(segment => [segment.id, segment]))
   if (byId.size !== previous.segments.length || byId.size !== baseline.segments.length) throw new Error('上阶段工作稿句段身份缺失或重复')
   const segments = baseline.segments.map(original => {

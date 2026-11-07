@@ -14,6 +14,7 @@ export interface CreateCatDepsInput {
   service: LinguistProjectService
   projectId: string
   sessionId: string
+  readSnapshots: NonNullable<LinguistCatToolsDeps['readSnapshots']>
   role: NonNullable<LinguistCatToolsDeps['linguistRole']>
   sessionCwd: string
   attachments: AttachmentStore
@@ -51,6 +52,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
     resultProjectId: projectId,
     professionalJudgment: input.professional,
     sessionId: input.sessionId,
+    readSnapshots: input.readSnapshots,
     linguistRole: input.role,
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     onMutation: input.onMutation,
@@ -106,6 +108,10 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
       input.assertBound()
       const saved = service.saveTagProfileCandidate(projectId, candidate, undefined, activate)
       return { candidateId: saved.candidate!.id, status: activate ? 'active' : 'candidate', validation: saved.validation! }
+    },
+    setPlaceholderException(request) {
+      input.assertBound()
+      return service.setPlaceholderException(projectId, request)
     },
     async readContextImage(docId) {
       input.assertBound()

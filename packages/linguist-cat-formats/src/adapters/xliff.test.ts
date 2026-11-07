@@ -13,6 +13,9 @@ import { createAsset, createProject, createSeededEntropy, type Segment } from '@
 import { bindImportedSegments, FormatExportError, FormatParseError } from '../index'
 import { assertRoundTrip } from '../testing/index'
 import { XliffAdapter } from './xliff'
+import { MqXliffAdapter } from './mqxliff'
+import { PhraseMxliffAdapter } from './phrasemxliff'
+import { SdlXliffAdapter } from './sdlxliff'
 
 const FIXTURES = join(import.meta.dir, '../../../../tests/linguist-fixtures')
 
@@ -59,6 +62,44 @@ describe('XliffAdapter detect', () => {
 })
 
 describe('XliffAdapter import（结构/标签/锁定/状态）', () => {
+  test('各 XLIFF 路径保留全部直接备注、上下文及来源；不混入 alt-trans 备注', async () => {
+    const xml = `<xliff version="1.2" xmlns:x="urn:oasis:names:tc:xliff:document:1.2" xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0" xmlns:m="http://www.memsource.com/mxlf/2.0" xmlns:mq="MQXliff"><file><body>
+      <group m:para-id="p1"><context context-type="x-key-note">Group note</context>
+      <trans-unit id="one" m:para-id="p1"><source>Open</source><target>打开</target>
+        <seg-source><mrk mtype="seg" mid="1">Open</mrk><mrk mtype="seg" mid="2">Close</mrk></seg-source>
+        <note>Direct note</note>
+        <x:note from="PM &amp; Team" annotates="target"><![CDATA[Keep]]> <g id="n1">Alias</g>.</x:note>
+        <x:context-group name="sheet" purpose="information">
+          <x:context context-type="x-record">Sheet A &gt; record 42</x:context>
+          <x:context context-type="x-usage">A <ph id="c1"/> button</x:context>
+        </x:context-group>
+        <context-group><context context-type="x-description">Second group</context></context-group>
+        <alt-trans><target>Alternate</target><note>Wrong note</note><context-group><context>Wrong context</context></context-group></alt-trans>
+      </trans-unit>
+      </group>
+    </body></file></xliff>`
+    const expected = [
+      'Direct note',
+      '[note from="PM & Team" annotates="target"] Keep <g id="n1">Alias</g>.',
+      '[context-group name="sheet" purpose="information"; context context-type="x-record"] Sheet A > record 42',
+      '[context-group name="sheet" purpose="information"; context context-type="x-usage"] A <ph id="c1"/> button',
+      '[context context-type="x-description"] Second group',
+    ].join('\n')
+    for (const adapter of [new XliffAdapter(), new MqXliffAdapter(), new PhraseMxliffAdapter(), new SdlXliffAdapter()]) {
+      const expectedNote = adapter instanceof PhraseMxliffAdapter
+        ? `${expected}\n[group m:para-id="p1"; context context-type="x-key-note"] Group note`
+        : expected
+      const report = await assertRoundTrip(adapter, new TextEncoder().encode(xml), {
+        filename: 'context.xliff', sourceLocale: 'en', targetLocale: 'zh',
+        invariants: [{ name: 'all direct context survives', assert: (before, after) => {
+          expect(before.context?.note).toBe(expectedNote)
+          expect(after.context?.note).toBe(expectedNote)
+        } }],
+      })
+      expect(report.segmentCount).toBe(adapter instanceof SdlXliffAdapter ? 2 : 1)
+    }
+  })
+
   test('mini_game_ui：id→key、note→context.note、状态映射、translate="no"→locked', async () => {
     const { imported } = await importFixture('mini_game_ui.xliff')
     expect(imported.asset.formatId).toBe('xliff_1_2')

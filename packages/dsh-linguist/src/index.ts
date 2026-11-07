@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -34,6 +35,7 @@ import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
 import { loadProfessionalResources } from './host/professional-context'
+import { SessionReadSnapshots } from './host/read-snapshots'
 import { ScheduleContextManager } from './host/schedule-context'
 import { ScheduleNotifications, type FeishuDestination } from './host/schedule-notifications'
 import { ScheduleSessionRuntime } from './host/schedule-session'
@@ -43,7 +45,7 @@ import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts 
 import { createWorkingCopyTool } from './host/working-copy-tool'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_DATA_ROOT), installationId: Schema.string().default(''),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
@@ -143,7 +145,9 @@ export function apply(ctx: Context, config: Config): void {
           return decision
         }))
       }
-      disposers.push(agent.ctx.tools.register(createWorkingCopyTool(() => {
+      disposers.push(agent.ctx.tools.register(createWorkingCopyTool((toolCallId, rootCallId) => {
+        turnContextProvenance?.associateNestedCall(toolCallId, rootCallId)
+        modelProvenance.associateNestedCall(toolCallId, rootCallId)
         const current = bindings.session(agent.id)
         const owned = current && ctx.workspaceRegistry.get(WorkspaceId(current.workspaceId))
         if (!current || current.workspaceId !== binding.workspaceId || !owned || !agent.session.header.cwd || realpathSync(agent.session.header.cwd) !== owned.path) {
@@ -153,6 +157,11 @@ export function apply(ctx: Context, config: Config): void {
           workspaceRoot: owned.path,
           sessionId: agent.id,
           ...(current.projectId ? { tagProfile: service.getProject(current.projectId).tagProfile } : {}),
+          ...(current.projectId ? {
+            project: { service, projectId: current.projectId },
+            onMutation: event => mutations.publish(current.projectId!, event),
+          } : {}),
+          get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
       }, async () => { await resolveSessionWorkspace(agent.id) })))
       if (binding.projectId && binding.workMode === 'cat' && binding.role === 'general') {
@@ -170,6 +179,7 @@ export function apply(ctx: Context, config: Config): void {
       if (binding.projectId) {
         const projectId = binding.projectId
         const sessionId = agent.id
+        disposers.push(evidence.bind(sessionId, projectId, ctx.sessionQuery))
         let stage: StageEvidenceState | undefined
         const parentSession = agent.session.header.origin === 'subagent' ? agent.session.header.parentSession : undefined
         let delegatedScope = binding.delegatedScope?.segmentIds
@@ -220,7 +230,7 @@ export function apply(ctx: Context, config: Config): void {
           if (segments.length !== new Set(segmentIds).size) throw new Error('Stage task contains missing segments')
           if (delegatedScope && segmentIds.some(id => !delegatedScope.includes(id))) throw new Error('Delegated work is outside the parent Stage scope')
           if (!task && stage && segmentIds.some(id => !stage!.plan.segmentIds.includes(id))) throw new Error('Write is outside frozen Stage scope')
-          const selected = task?.scope === 'project' || (binding.role === 'reviewer' && task?.scope === undefined)
+          const selected = task?.scope === 'project'
             ? delegatedScope ?? db.segments.queryIds()
             : task?.scope === 'assets'
               ? [...new Set(segments.flatMap(segment => db.segments.queryIds({ assetId: segment.assetId })))]
@@ -232,9 +242,10 @@ export function apply(ctx: Context, config: Config): void {
             restart: task?.restart, toolCallId: task?.toolCallId,
           })
         }
+        const readSnapshots = new SessionReadSnapshots(ctx.sessionQuery, sessionId, projectId)
         const deps = createCatDeps({
           professional,
-          service, projectId, sessionId, role: binding.role, sessionCwd: workspace.path,
+          service, projectId, sessionId, readSnapshots, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
           authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles().paths),
@@ -271,7 +282,7 @@ export function apply(ctx: Context, config: Config): void {
                 const { jobId, ...job } = progress
                 mutations.publish(projectId, { kind: 'job-updated', sessionId, toolCallId, jobId, job })
               }
-            },
+            }, readSnapshots,
           )))
         }
       }
@@ -382,7 +393,7 @@ export function apply(ctx: Context, config: Config): void {
       : DIAGNOSTICS_OPERATIONS.includes(operation as typeof DIAGNOSTICS_OPERATIONS[number])
         ? diagnostics.dispatch(operation, payload)
         : dispatchOperation({ operation, payload, service, bindings, workspaceRegistry: ctx.workspaceRegistry, files, mutations, assertProjectSession, resolveSessionWorkspace, turnContextReceipts, scheduleContext, delegationControl, detachSessionBinding,
-            sessionCopyHost: { bindings, service, sessionController: ctx.sessionController, sessionPersistence: ctx.sessionPersistence, workspaceRegistry: ctx.workspaceRegistry,
+            sessionCopyHost: { bindings, service, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, sessionPersistence: ctx.sessionPersistence, workspaceRegistry: ctx.workspaceRegistry,
               sessionExists: async id => Boolean(await ctx.sessionPersistence.stat(id as SessionId)),
               agentStatus: id => ctx.agents.get(id as SessionId)?.status,
               rebindAgent: id => { const agent = ctx.agents.get(id as SessionId); if (agent) bindAgent(agent) },

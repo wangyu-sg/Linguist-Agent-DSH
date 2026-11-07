@@ -29,7 +29,9 @@ const bsk = async args => {
 }
 const bytes = Buffer.from('LA-DSH synthetic edge download\n')
 const sessions = []
+const startRequests = []
 const starts = new Map()
+const contexts = new Map()
 const stop = async session => {
   if (!managed) return bsk(['session', 'stop', session])
   const requestId = starts.get(session)
@@ -47,7 +49,7 @@ const timers = new Set()
 const server = createServer((req, res) => {
   if (req.url === '/') {
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end('<title>LA-DSH synthetic download edges</title><a id="fast" href="/fast">Fast</a><a id="delayed" href="/delayed">Delayed</a><a id="timeout" href="/timeout">Timeout</a>')
+    res.end('<title>LA-DSH synthetic download edges</title><a id="fast" href="/fast" download>Fast</a><a id="delayed" href="/delayed" download>Delayed</a><a id="timeout" href="/timeout" download>Timeout</a>')
     return
   }
   if (!['/fast', '/delayed', '/timeout'].includes(req.url)) { res.writeHead(404); res.end(); return }
@@ -61,6 +63,8 @@ const server = createServer((req, res) => {
 })
 try {
   const status = await bsk(['status'])
+  assert.equal(status.daemon_version, baseline.cliRelease.version)
+  assert.equal(status.protocol_version, '1.8')
   if (status.browsers.length !== 1) throw new Error('Expected one authorized BrowserSkill browser instance')
   evidence.browser = status.browsers[0].instance_id
   assert.equal(status.browsers[0].extension_version, baseline.extensionRelease.manifestVersion)
@@ -69,39 +73,59 @@ try {
   evidence.fixtureUrl = url
   for (let i = 0; i < 2; i++) {
     const requestId = `${Date.now() + 300000}:${randomUUID()}`
-    if (managed) assert.equal((await bsk(['session', 'request', requestId, '--prepare'])).state, 'prepared')
-    const started = await bsk(['session', 'start', '--no-focus', '--browser', evidence.browser, ...(managed ? ['--request-id', requestId] : [])])
+    startRequests.push(requestId)
+    assert.equal((await bsk(['session', 'request', requestId, '--prepare'])).state, 'prepared')
+    const started = await bsk(['session', 'start', '--no-focus', '--browser', evidence.browser, '--request-id', requestId])
     sessions.push(started.session_id)
     starts.set(started.session_id, requestId)
     assert.equal(started.browser_instance_id, evidence.browser)
-    if (managed) assert.equal((await bsk(['session', 'request', requestId, '--claim'])).state, 'active')
+    assert.equal((await bsk(['session', 'request', requestId, '--claim'])).state, 'active')
     await bsk(['navigate', url, '--session', started.session_id])
+    const control = await bsk(['cooperate', 'sync', '--policy', 'target', '--session', started.session_id])
+    assert.equal(control.state.mode, 'ready')
+    assert.equal(control.control_policy, 'target')
+    assert(control.context_id)
+    contexts.set(started.session_id, control.context_id)
   }
   assert.notEqual(sessions[0], sessions[1])
   evidence.ownedSessions = [...sessions]
   evidence.checks.distinctOwnedSessions = 'PASS'
   for (const target of ['fast', 'delayed']) {
     const out = new URL(`${target}.txt`, directory)
-    const result = await bsk(['download', `#${target}`, '--session', sessions[0], '--out', out.pathname, '--timeout', '10s'])
+    const result = await bsk(['download', `#${target}`, '--session', sessions[0], '--context', contexts.get(sessions[0]), '--out', out.pathname, '--timeout', '10s'])
     assert.deepEqual(await readFile(out), bytes)
     evidence.trace.push({ action: target, result, sha256: hash(await readFile(out)) })
     evidence.checks[target] = 'PASS'
+    const control = await bsk(['cooperate', 'sync', '--session', sessions[0]])
+    assert.equal(control.state.mode, 'ready')
+    assert(control.context_id)
+    assert.match(JSON.stringify(control), /synthetic download edges/)
+    contexts.set(sessions[0], control.context_id)
   }
   evidence.checks.sameSuggestedNameDistinctOutputs = 'PASS'
   const existing = new URL('source-preserved.txt', directory)
   const source = Buffer.from('synthetic original: do not overwrite\n')
   await writeFile(existing, source, { flag: 'wx' })
   const before = requests.length
-  await assert.rejects(bsk(['download', '#fast', '--session', sessions[0], '--out', existing.pathname]), error => /exist/i.test(error.stdout + error.stderr))
+  await assert.rejects(bsk(['download', '#fast', '--session', sessions[0], '--context', contexts.get(sessions[0]), '--out', existing.pathname]), error => /exist/i.test(error.stdout + error.stderr))
   assert.deepEqual(await readFile(existing), source)
   assert.equal(requests.length, before, 'overwrite rejection must precede browser trigger')
   evidence.checks.existingOutputNotOverwrittenOrTriggered = 'PASS'
   await stop(sessions[1])
   sessions.pop()
-  assert.match(JSON.stringify(await bsk(['observe', '--session', sessions[0]])), /synthetic download edges/)
+  assert.match(JSON.stringify(await bsk(['observe', '--session', sessions[0], '--context', contexts.get(sessions[0])])), /synthetic download edges/)
   evidence.checks.stoppingOwnedSessionPreservesPeer = 'PASS'
+  const control = await bsk(['cooperate', 'sync', '--session', sessions[0]])
+  assert.equal(control.state.mode, 'ready')
+  assert(control.context_id)
+  assert.match(JSON.stringify(control), /synthetic download edges/)
+  contexts.set(sessions[0], control.context_id)
   const timedOut = new URL('timeout.txt', directory)
-  await assert.rejects(bsk(['download', '#timeout', '--session', sessions[0], '--out', timedOut.pathname, '--timeout', '200ms']), error => /tim(?:e|ed).*out|timeout/i.test(error.stdout + error.stderr))
+  await assert.rejects(bsk(['download', '#timeout', '--session', sessions[0], '--context', contexts.get(sessions[0]), '--out', timedOut.pathname, '--timeout', '200ms']), error => {
+    assert.match(error.stdout + error.stderr, /tim(?:e|ed).*out|timeout/i)
+    return true
+  })
+  assert(requests.includes('/timeout'), 'download must start before the timeout being tested')
   await assert.rejects(access(timedOut), { code: 'ENOENT' })
   evidence.checks.timeoutNoImmediateOutput = 'PASS'
   await stop(sessions[0])
@@ -119,8 +143,12 @@ try {
   evidence.commandError = error.stdout || error.stderr
   process.exitCode = 1
 } finally {
-  for (const session of sessions) {
-    try { evidence.trace.push({ action: 'cleanup', session, result: await stop(session) }) }
+  for (const requestId of startRequests) {
+    try {
+      const result = await bsk(['session', 'request', requestId, '--cancel'])
+      evidence.trace.push({ action: 'cleanup', requestId, result })
+      assert.equal(result.state, 'closed')
+    }
     catch (error) { evidence.status = 'FAILED'; evidence.cleanupError = String(error); process.exitCode = 1 }
   }
   for (const timer of timers) clearTimeout(timer)

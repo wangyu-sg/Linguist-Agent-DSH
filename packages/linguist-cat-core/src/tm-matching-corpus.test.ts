@@ -9,7 +9,7 @@ interface CorpusCase {
   name: string
   query: string
   source: string
-  expected: 'none' | 'fuzzy' | 'near-exact'
+  expected: 'fuzzy' | 'near-exact'
 }
 
 const candidate = (id: string, source: string, target = source) => ({
@@ -19,14 +19,14 @@ const candidate = (id: string, source: string, target = source) => ({
 })
 
 const lexicalCases: CorpusCase[] = [
-  { name: 'Save is not Save game', query: 'Save', source: 'Save game', expected: 'none' },
-  { name: 'Play is not Replay', query: 'Play', source: 'Replay', expected: 'none' },
-  { name: 'OK is not OK continue', query: 'OK', source: 'OK, continue', expected: 'none' },
-  { name: 'Home is not Home screen', query: 'Home', source: 'Home screen', expected: 'none' },
-  { name: 'Back is not Back to menu', query: 'Back', source: 'Back to menu', expected: 'none' },
-  { name: 'Open is not Reopen', query: 'Open', source: 'Reopen', expected: 'none' },
-  { name: 'Run is not Runner', query: 'Run', source: 'Runner', expected: 'none' },
-  { name: 'Close is not Close window', query: 'Close', source: 'Close window', expected: 'none' },
+  { name: 'Save is not Save game', query: 'Save', source: 'Save game', expected: 'fuzzy' },
+  { name: 'Play is not Replay', query: 'Play', source: 'Replay', expected: 'fuzzy' },
+  { name: 'OK is not OK continue', query: 'OK', source: 'OK, continue', expected: 'fuzzy' },
+  { name: 'Home is not Home screen', query: 'Home', source: 'Home screen', expected: 'fuzzy' },
+  { name: 'Back is not Back to menu', query: 'Back', source: 'Back to menu', expected: 'fuzzy' },
+  { name: 'Open is not Reopen', query: 'Open', source: 'Reopen', expected: 'fuzzy' },
+  { name: 'Run is not Runner', query: 'Run', source: 'Runner', expected: 'fuzzy' },
+  { name: 'Close is not Close window', query: 'Close', source: 'Close window', expected: 'fuzzy' },
   { name: 'word order lowers score one', query: 'Player attacks the enemy', source: 'The enemy attacks player', expected: 'fuzzy' },
   { name: 'word order lowers score two', query: 'The wizard opens the gate', source: 'The gate opens the wizard', expected: 'fuzzy' },
   { name: 'word order lowers score three', query: 'Return to the main menu', source: 'Return the menu to main', expected: 'fuzzy' },
@@ -63,15 +63,9 @@ describe('TM high-risk synthetic corpus', () => {
   test('covers every high-risk lexical and structural case without a contains floor', () => {
     for (const item of lexicalCases) {
       const matches = matchTmCandidates(item.query, [candidate(item.name, item.source)], { minimumScore: 0 })
-      if (item.expected === 'none') {
-        expect(matches, item.name).toHaveLength(0)
-        continue
-      }
       expect(matches[0]?.matchClass, item.name).toBe(item.expected)
       expect(matches[0]?.displayScore, item.name).toBeGreaterThan(0)
-      if (item.expected === 'near-exact') {
-        expect(matches[0]?.structure.safety, item.name).toBe('review')
-      }
+      expect(matches[0]?.structure.safety, item.name).toBe('review')
     }
   })
 
@@ -97,18 +91,58 @@ describe('TM high-risk synthetic corpus', () => {
     expect(evidence.every((item) => item.ambiguous)).toBe(true)
   })
 
-  test('does not expose incompatible placeable counts to Agent', () => {
+  test('retains changed placeable counts for review without lowering Agent score thresholds', () => {
     const matches = matchTmCandidates('You gained {x} XP', [
       candidate('missing', 'You gained XP'),
       candidate('changed', 'You gained {y} XP'),
     ])
-    expect(matches).toHaveLength(1)
-    expect(matches[0]?.structure.safety).toBe('review')
+    expect(matches).toHaveLength(2)
+    expect(matches.every(match => match.structure.safety === 'review')).toBe(true)
+    expect(matches.find(match => match.unitId === 'missing')?.structure.reasons).toContain('Placeable 数量不一致')
     expect(selectTmAgentEvidence(matches)).toHaveLength(1)
+  })
+
+  test('short fuzzy references remain inspectable without inventing scores or exact reuse', () => {
+    for (const [query, source] of [['领取奖励', '领取奖品'], ['免費送', '免费送']]) {
+      const [match] = matchTmCandidates(query!, [candidate('short', source!)], { minimumScore: 0 })
+      expect(match?.matchClass).toBe('fuzzy')
+      expect(match?.structure.safety).toBe('review')
+      expect(match?.structure.reasons.join(' ')).toContain('短句')
+      expect(match?.displayScore).toBeLessThan(75)
+      expect(matchTmCandidates(query!, [candidate('short', source!)], { minimumScore: 75 })).toHaveLength(0)
+    }
+  })
+
+  test('exact evidence does not hide a useful fuzzy alternative or its original provenance', () => {
+    const source = 'Please carefully review every translated sentence and preserve all original placeholders before delivery.'
+    const fuzzy = source.replace('carefully', 'thoroughly')
+    const metadata = { creation_date: '2024-05-01', creation_user: 'original-author' }
+    const matches = matchTmCandidates(source, [candidate('exact', source, 'Exact target'), {
+      ...candidate('fuzzy', fuzzy, 'Alternative target'), originalTuid: '42', metadata,
+      contextKey: 'native-key', sourceInline: '<seg>Original structure</seg>',
+    }])
+    expect(matches[1]?.displayScore).toBeGreaterThanOrEqual(85)
+    const evidence = selectTmAgentEvidence(matches)
+    expect(evidence).toHaveLength(2)
+    expect(evidence[1]?.originalTuid).toBe('42')
+    expect(evidence[1]?.metadata).toEqual(metadata)
+    expect(evidence[1]?.contextKey).toBe('native-key')
+    expect(evidence[1]?.sourceInline).toBe('<seg>Original structure</seg>')
+    expect(evidence[1]?.safety).toBe('review')
   })
 
   test('exact hashes include the language pair', () => {
     expect(tmSourceHash('Save', 'en', 'zh-CN')).not.toBe(tmSourceHash('Save', 'en', 'fr-FR'))
     expect(tmSourceHash(' Save ', 'en', 'zh-CN')).toBe(tmSourceHash('Save', 'en', 'zh-CN'))
+  })
+
+  test('identical targets keep distinct TU provenance within the same evidence cap', () => {
+    const matches = matchTmCandidates('Claim rewards', [
+      { ...candidate('first', 'Claim rewards', '领取奖励'), originalTuid: 'historical-tu', metadata: { creation_date: '2024-05-01' } },
+      { ...candidate('second', 'Claim rewards', '领取奖励'), originalTuid: 'current-tu', metadata: { creation_date: '2026-11-07' } },
+    ])
+    const evidence = selectTmAgentEvidence(matches)
+    expect(evidence.map(item => item.originalTuid)).toEqual(['historical-tu', 'current-tu'])
+    expect(selectTmAgentEvidence(matches, 1)).toHaveLength(1)
   })
 })

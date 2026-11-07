@@ -39,9 +39,9 @@
  *   verified master mapping exists, Phrase `{n}` placeholders are rehydrated
  *   to their real tags for editing and dehydrated back on export; without a
  *   mapping the original placeholders remain verbatim;
- * - `<note>` -> context.note; when the trans-unit has no `<note>`, the
- *   enclosing group's `<context context-type="x-key-note">` (found via
- *   `m:para-id`) is used instead (legacy contextNote); `resname` ->
+ * - Direct notes, context groups and the enclosing group's
+ *   `<context context-type="x-key-note">` (found via `m:para-id`) ->
+ *   context.note with source labels; `resname` ->
  *   context.origin. The group `x-key` master reference is NOT surfaced
  *   (it is consumed by the separate content-based master pairing probe).
  *
@@ -124,6 +124,7 @@ import {
   encodeXmlInline,
   findDirectChild,
   parseAttrs,
+  readUnitContext,
   setAttr,
 } from './xliff-xml'
 
@@ -827,7 +828,6 @@ export class PhraseMxliffAdapter implements CatFormatAdapter {
           throw new FormatParseError(this.id, filename, `trans-unit ${JSON.stringify(key)} has no <source> element`)
         }
         const target = findDirectChild(inner, 'target')
-        const note = findDirectChild(inner, 'note')
         const paraId = attrs['m:para-id']
         const groupNote = paraId ? groupContexts.get(paraId)?.note : undefined
         const sourceText = decodeXmlInline(source.inner)
@@ -840,7 +840,9 @@ export class PhraseMxliffAdapter implements CatFormatAdapter {
           targetText,
           locked: fileLocked || translateNo(attrs) || phraseLocked(attrs),
           status: statusFromPhrase(targetText, attrs, target?.attrs ?? {}),
-          note: note ? decodeXmlEntities(note.inner).trim() : groupNote,
+          note: [readUnitContext(inner), groupNote === undefined ? undefined
+            : `[group m:para-id=${JSON.stringify(paraId)}; context context-type="x-key-note"] ${groupNote}`]
+            .filter((value) => value !== undefined).join('\n') || undefined,
           origin: resname,
         })
       }

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { atom, Provider, useAtom, type PrimitiveAtom } from 'jotai'
+import { atom, Provider, useAtom, useAtomValue, type PrimitiveAtom } from 'jotai'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button, Checkbox, Input, Menu, Tooltip, IconPanelLeftOutlineRegular, IconEllipsisOutlineRegular, IconChevronDownOutlineRegular, IconCheckOutlineRegular, IconCheckCircleFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -9,6 +9,7 @@ import type {
   LinguistCatEditResult,
   LinguistCatListQaFindingsResult,
   LinguistCatQueryResult,
+  LinguistCatRowSignalsResult,
   LinguistAssetsQueryResult,
   LinguistContextDocInfo,
   LinguistProjectInfo,
@@ -25,7 +26,8 @@ import type {
   LinguistWorkflowStage,
 } from '@linguist/domain-service/contracts'
 import { invoke, required, subscribeProject } from './api'
-import { TargetEditor, createTargetDraftState, splitProtectedText, type TargetEditorDraft, type TargetEditorHandle } from './TargetEditor'
+import { createTargetDraftState, type TargetEditorDraft, type TargetEditorHandle } from './TargetEditor'
+import { EditorViewControls, SegmentTextCells, useEditorTerms, useEditorViewOptions, type EditorViewOptions } from './EditorAssistance'
 import { findNextEditableRow, mergeIndexedPage, pageOffsetsForRange, virtualRowKey, gridRowKeyAction } from './cat-virtual-utils'
 import type { TargetSaveResult } from './cat-edit-utils'
 import { QaPanel, ProposalPanel, ReferencePanel, AssetsPanel, DeliveryPanel, ProjectSettingsPanel, BatchExportButton, ProposalReviewConfirmation, loadProposalReviewPlan, groupStyleGuideRules, type ProposalReviewPlan } from './Panels'
@@ -34,24 +36,28 @@ import { RunPanel } from './RunPanel'
 import { PreviewView, type PreviewRequest } from './PreviewView'
 import { UnknownTagNotice } from './UnknownTagNotice'
 import { requestCatNavigation, useCatNavigation, type CatDock } from './cat-navigation'
-import { TERM_STATUS_LABELS, nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
-import { readWorkbenchLocation, writeWorkbenchLocation, type WorkbenchLocation } from './workbench-location'
+import { nextStageItemLabel, segmentStatusBadgeTitle, stageActionLabel, stageCompletionLabel, stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
+import { readWorkbenchLocation, writeWorkbenchLocation, workbenchDefaults, type WorkbenchLocation } from './workbench-location'
 import { publishWorkbenchComposerContext } from './composer-context'
-import { getCatEditorState, protectedCatDraftSegmentIds, type CatEditorState } from './cat-editor-state'
+import { getCatEditorState, isProtectedCatDraft, protectedCatDraftSegmentIds, type CatEditorState } from './cat-editor-state'
 import { Splitter } from './Splitter'
 import { CatStatusBar } from './CatStatusBar'
+import { ReferenceMatches } from './ReferenceMatches'
 import { qaSeverityLabel, qaSeverityTier, qaTierLabel } from './qa-severity'
 import { useT } from './ui-locale'
 import styles from './Workbench.module.css'
 
 const PAGE_SIZE = 200
+const emptyDraftAtom = atom<TargetEditorDraft | undefined>(undefined)
 type Dock = CatDock
-const dockItems: readonly { id: Dock; label: string }[] = [
-  { id: 'qa', label: 'QA' },
-  { id: 'proposals', label: '建议' }, { id: 'references', label: 'TM / TB' },
-  { id: 'assets', label: '资料' }, { id: 'delivery', label: '交付' },
-  { id: 'run', label: '运行' },
-  { id: 'settings', label: '项目设置' },
+const dockItems: readonly { id: Dock; label: string; group: 'work' | 'project' }[] = [
+  { id: 'references', label: 'TM / TB', group: 'work' },
+  { id: 'proposals', label: '建议', group: 'work' },
+  { id: 'qa', label: 'QA', group: 'work' },
+  { id: 'assets', label: '资料', group: 'project' },
+  { id: 'run', label: '运行', group: 'project' },
+  { id: 'delivery', label: '交付', group: 'project' },
+  { id: 'settings', label: '项目设置', group: 'project' },
 ]
 
 interface Dataset { signature: string; total: number; ids: string[]; rows: ReadonlyMap<number, LinguistSegmentInfo> }
@@ -76,6 +82,8 @@ export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatc
 function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
+  const editingId = useAtomValue(editorState.editingId)
+  const [editorViews, setEditorViews, editorViewsError] = useEditorViewOptions()
   const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
   const [project, setProject] = React.useState<LinguistProjectInfo>()
   const [summary, setSummary] = React.useState<LinguistProjectSummary>()
@@ -111,7 +119,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const compactLayout = React.useRef<boolean>()
   const [displayOpen, setDisplayOpen] = React.useState(false)
   const navigationTrigger = React.useRef<HTMLButtonElement>(null)
-  const displayTrigger = React.useRef<HTMLButtonElement>(null)
+  const inspectorTrigger = React.useRef<HTMLButtonElement>(null)
   const [dataset, setDataset] = React.useState<Dataset>()
   const currentDataset = React.useRef(dataset)
   currentDataset.current = dataset
@@ -125,6 +133,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const rowSignalLoaded = React.useRef(new Set<string>())
   const rowSignalLoading = React.useRef(new Set<string>())
   const [rowSignalRefresh, setRowSignalRefresh] = React.useState(0)
+  const rowSignalEpoch = React.useRef(0)
+  const [rowSignalArrival, setRowSignalArrival] = React.useState(0)
   const [qaNavigation, setQaNavigation] = React.useState<{ findingId?: string; segmentId: string }>()
   const [proposalNavigation, setProposalNavigation] = React.useState<string>()
   const [jumpBusy, setJumpBusy] = React.useState(false)
@@ -150,9 +160,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [signature])
   const active = selectedId === undefined ? undefined : [...(dataset?.rows.values() ?? [])].find((row) => row.id === selectedId)
   const workflowStage = project?.workflowStage ?? 'translation'
-  const assetMaximum = workbenchSize.width ? Math.max(180, Math.min(420, Math.floor(workbenchSize.width * .86))) : 420
-  const inspectorMaximum = workbenchSize.width ? Math.max(240, Math.min(480, Math.floor(workbenchSize.width < 980 ? workbenchSize.width * .9 : workbenchSize.width - (assetNavigatorOpen ? assetNavigatorWidth : 0) - 320))) : 480
-  const dockMaximum = workbenchSize.height ? Math.max(80, Math.floor(Math.min(480, workbenchSize.height * .6, workbenchSize.availableHeight - 120))) : 480
+  const assetMaximum = workbenchSize.width ? Math.max(180, Math.min(420, Math.floor(workbenchSize.width <= 980 ? workbenchSize.width * .86 : workbenchSize.width - 560 - (inspectorOpen ? 240 : 0)))) : 420
+  const inspectorMaximum = workbenchSize.width ? Math.max(240, Math.min(480, Math.floor(workbenchSize.width <= 980 ? workbenchSize.width * .9 : workbenchSize.width - (assetNavigatorOpen ? Math.min(assetNavigatorWidth, assetMaximum) : 0) - 560))) : 480
+  const dockMaximum = workbenchSize.height ? Math.max(80, Math.floor(Math.min(480, workbenchSize.height * .6, workbenchSize.availableHeight - 200))) : 480
 
   React.useEffect(() => { if (storedLocation.error) setNotice(t('工作台位置读取失败，已使用默认布局：{error}', { error: storedLocation.error })) }, [storedLocation])
   React.useEffect(() => {
@@ -165,34 +175,41 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [projectId, assetId, selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight])
 
   React.useEffect(() => {
-    rowSignalLoaded.current.clear()
-    rowSignalLoading.current.clear()
+    rowSignalLoaded.current = new Set()
+    rowSignalLoading.current = new Set()
     setRowSignals(new Map())
+    rowSignalEpoch.current += 1
+    return () => { rowSignalEpoch.current += 1 }
   }, [signature, mutation, reload, rowSignalRefresh])
 
   React.useEffect(() => {
-    const ids = dataset?.ids.slice(visibleRange.start, visibleRange.end + 1).filter((id) => !rowSignalLoaded.current.has(id) && !rowSignalLoading.current.has(id)) ?? []
+    const loading = rowSignalLoading.current
+    if (loading.size > 0) return
+    const ids = dataset?.ids.slice(visibleRange.start, visibleRange.end + 1).filter(id => !rowSignalLoaded.current.has(id)).slice(0, 200) ?? []
     if (ids.length === 0) return
-    ids.forEach((id) => rowSignalLoading.current.add(id))
-    let live = true
-    Promise.all(ids.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
-      .then((contexts) => {
-        if (!live) return
-        setRowSignals((current) => {
-          const next = new Map(current)
-          contexts.forEach((context) => {
-            const open = context.qaFindings.filter((finding) => finding.status === 'open')
-            const highestSeverity = open.map((finding) => finding.severity).sort()[0]
-            next.set(context.segment.id, { proposal: context.pendingProposal, qaCount: open.length, highestSeverity })
-            rowSignalLoaded.current.add(context.segment.id)
+    const epoch = rowSignalEpoch.current
+    const timer = window.setTimeout(() => {
+      ids.forEach(id => loading.add(id))
+      let succeeded = false
+      required<LinguistCatRowSignalsResult>('linguistCatRowSignals', { projectId, segmentIds: ids })
+        .then(page => {
+          if (epoch !== rowSignalEpoch.current) return
+          succeeded = true
+          setRowSignals(current => {
+            if (epoch !== rowSignalEpoch.current) return current
+            const next = new Map(current)
+            page.items.forEach(({ segmentId, ...signal }) => { next.set(segmentId, signal); rowSignalLoaded.current.add(segmentId) })
+            return next
           })
-          return next
         })
-      })
-      .catch((cause: unknown) => { if (live) setNotice(String(cause)) })
-      .finally(() => ids.forEach((id) => rowSignalLoading.current.delete(id)))
-    return () => { live = false }
-  }, [projectId, dataset?.ids, visibleRange.start, visibleRange.end, mutation, reload, rowSignalRefresh])
+        .catch((cause: unknown) => { if (epoch === rowSignalEpoch.current) setNotice(String(cause)) })
+        .finally(() => {
+          ids.forEach(id => loading.delete(id))
+          if (succeeded && epoch === rowSignalEpoch.current) setRowSignalArrival(value => value + 1)
+        })
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [projectId, dataset?.ids, visibleRange.start, visibleRange.end, mutation, reload, rowSignalRefresh, rowSignalArrival])
 
   React.useEffect(() => { setSelectedIds(new Set()); setProposalReview(undefined) }, [assetId])
   React.useLayoutEffect(() => { uiRevision.current += 1 }, [assetId, selectedId, selectedIds, agentReference, dock, search, stageFilter])
@@ -238,9 +255,9 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       const { width, height } = element.getBoundingClientRect()
       const availableHeight = bodyRef.current!.getBoundingClientRect().height + dockRef.current!.getBoundingClientRect().height
       setWorkbenchSize((current) => current.width === width && current.height === height && current.availableHeight === availableHeight ? current : { width, height, availableHeight })
-      const compact = width < 980
-      if (compactLayout.current === undefined) { compactLayout.current = compact; if (compact) setAssetNavigatorOpen(false); setInspectorOpen(width > 1080) }
-      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact); setInspectorOpen(!compact && width > 1080) }
+      const compact = width <= 980
+      if (compactLayout.current === undefined) { compactLayout.current = compact; if (compact) setAssetNavigatorOpen(false); setInspectorOpen(width >= 1280) }
+      else if (compactLayout.current !== compact) { compactLayout.current = compact; setAssetNavigatorOpen(!compact); setInspectorOpen(!compact && width >= 1280) }
     })
     observer.observe(element)
     observer.observe(bodyRef.current!)
@@ -597,7 +614,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
   return <section ref={workbenchRef} className={styles.workbench} aria-label={`${project.name} ${t('CAT 工作台')}`} onKeyDown={(event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || !compactLayout.current) return
-    if (inspectorOpen) { setInspectorOpen(false); displayTrigger.current?.focus(); event.preventDefault() }
+    if (inspectorOpen) { setInspectorOpen(false); inspectorTrigger.current?.focus(); event.preventDefault() }
     else if (assetNavigatorOpen) { setAssetNavigatorOpen(false); navigationTrigger.current?.focus(); event.preventDefault() }
   }}>
     <header className={styles.header}>
@@ -607,30 +624,37 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         <select className={styles.stageBadge} aria-label={t('当前工作阶段')} disabled={project.archivedAt !== undefined || workflowBusy || bulkBusy} value={workflowStage} onChange={(event) => void changeWorkflowStage(event.target.value as LinguistWorkflowStage)}>{(['translation', 'editing', 'proofreading'] as const).map((stage) => <option key={stage} value={stage}>{t(stageName(stage))}</option>)}</select>
       </div>
       <div className={styles.controls}>
-        <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
-        <select className={styles.batchSelect} aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
-          <option value="">{t("全部批次")}</option>
-          {summary?.assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
-        </select>
-        <Input className={styles.search} aria-label={t("搜索源文或译文")} placeholder={t("搜索句段")} value={search} onChange={(event) => setSearch(event.target.value)} />
-        <select className={styles.statusSelect} aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
-          <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
-        </select>
-        <Checkbox className={styles.repeatToggle} label={t('重复句联动')} checked={propagateRepeated} onChange={setPropagateRepeated} disabled={project.archivedAt !== undefined || repeatUndoBusy} title={t('保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。')} />
-        <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t(nextStageItemLabel(workflowStage))} disabled={jumpBusy} onClick={() => void nextUntouched()}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip>
-        <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} ref={displayTrigger} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={[...(inspectorOpen ? ['inspector'] : []), ...(dockOpen ? ['dock'] : [])]} items={[
-          { id: 'refresh', label: t('刷新') },
-          { id: 'next-qa', label: t('下一个 QA 问题'), disabled: jumpBusy },
-          { id: 'inspector', label: t('参考检查器') },
-          { id: 'dock', label: t('辅助区') },
-        ]} onSelect={(id) => {
-          if (id === 'refresh') setReload((value) => value + 1)
-          else if (id === 'next-qa') void nextQa()
-          else if (id === 'inspector') { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }
-          else if (id === 'dock') setDockOpen((value) => !value)
-          setDisplayOpen(false)
-        }} />
+        <div className={styles.scopeControls} role="group" aria-label={t('工作范围')}>
+          <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
+          <select className={styles.batchSelect} aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
+            <option value="">{t("全部批次")}</option>
+            {summary?.assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
+          </select>
+        </div>
+        <div className={styles.searchControls} role="group" aria-label={t('查找与筛选')}>
+          <Input className={styles.search} aria-label={t("搜索源文或译文")} placeholder={t("搜索句段")} value={search} onChange={(event) => setSearch(event.target.value)} />
+          <select className={styles.statusSelect} aria-label={t("阶段筛选")} value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
+            <option value="">{t("全部状态")}</option>{stageFilterOptions(workflowStage).map((option) => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
+          </select>
+        </div>
+        <div className={styles.workbenchActions} role="group" aria-label={t('编辑与视图')}>
+          <Checkbox className={styles.repeatToggle} label={t('重复句联动')} checked={propagateRepeated} onChange={setPropagateRepeated} disabled={project.archivedAt !== undefined || repeatUndoBusy} title={t('保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。')} />
+          <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.nextButton} variant="outline" size="sm" aria-label={t('下一待处理')} disabled={jumpBusy} onClick={() => void nextUntouched()}>{t('下一待处理')}<IconChevronDownOutlineRegular size={14} /></Button></Tooltip>
+          <EditorViewControls options={editorViews} onChange={setEditorViews} />
+          <Button className={styles.referenceToggle} ref={inspectorTrigger} variant="ghost" size="sm" aria-label={t('句段参考')} aria-expanded={inspectorOpen} aria-controls={`linguist-inspector-${sessionId}`} onClick={() => { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }}>{t('句段参考')}</Button>
+          <Menu portal open={displayOpen} onClose={() => setDisplayOpen(false)} anchor={<Tooltip portal label={t('更多工作台操作')}><Button className={styles.iconButton} variant="ghost" size="sm" aria-label={t('更多工作台操作')} aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen((value) => !value)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} selectedIds={dockOpen ? ['dock'] : []} items={[
+            { id: 'refresh', label: t('刷新') },
+            { id: 'next-qa', label: t('下一个 QA 问题'), disabled: jumpBusy },
+            { id: 'dock', label: t('辅助区') },
+          ]} onSelect={(id) => {
+            if (id === 'refresh') setReload((value) => value + 1)
+            else if (id === 'next-qa') void nextQa()
+            else if (id === 'dock') setDockOpen((value) => !value)
+            setDisplayOpen(false)
+          }} />
+        </div>
       </div>
+      {editorViewsError && <p role="alert">{t('编辑辅助显示设置未能保存')}：{editorViewsError}</p>}
       {(selectedIds.size > 0 || agentReference) && <div className={styles.selectionActions}>
         {selectedIds.size > 0 && <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>}
         {selectedIds.size > 0 && <><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('accept')}>{t('接受所选建议')}</Button><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('reject')}>{t('拒绝所选建议')}</Button></>}
@@ -664,7 +688,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         {summary?.assets.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
         {summary && summary.assets.length > 0 && !summary.assets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
         </div>
-        <Splitter orientation="vertical" label={t('调整批次导航宽度')} controls={`linguist-batches-${sessionId}`} value={Math.min(assetNavigatorWidth, assetMaximum)} minimum={180} maximum={assetMaximum} defaultValue={240} onChange={setAssetNavigatorWidth} />
+        <Splitter orientation="vertical" label={t('调整批次导航宽度')} controls={`linguist-batches-${sessionId}`} value={Math.min(assetNavigatorWidth, assetMaximum)} minimum={180} maximum={assetMaximum} defaultValue={workbenchDefaults.assetNavigatorWidth} onChange={setAssetNavigatorWidth} />
       </nav>}
       <div className={styles.gridColumn}>
         {queryError ? <div role="alert" className={styles.center}>{queryError}<Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t('重试')}</Button></div> : loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
@@ -672,7 +696,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
             <p>{t('尚无批次。请在“资料”中导入文件。')}</p>
             {!project.archivedAt && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
           </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
-            : dataset && <SegmentRows data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} proposalReviewBusy={bulkBusy} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
+            : dataset && <SegmentRows projectId={projectId} mutation={mutation} editorViews={editorViews} onNavigate={navigateToSegment} data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} proposalReviewBusy={bulkBusy} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
               for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset, dataset).catch((error: unknown) => {
                 if (currentSignature.current === dataset.signature && currentDataset.current?.ids === dataset.ids) setQueryError(String(error))
@@ -687,19 +711,22 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
               setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
             }} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId, ordinal: segment.ordinal })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
-      {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={320} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); displayTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
+      {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={workbenchDefaults.inspectorWidth} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); inspectorTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} tagProfile={project.tagProfile} draftAtom={active && active.id === editingId ? editorState.drafts.get(active.id) : undefined} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
     <div ref={dockRef} id={`linguist-dock-${sessionId}`} className={dockOpen ? styles.dock : styles.dockCollapsed} style={dockOpen ? { height: Math.min(dockHeight, dockMaximum) } : undefined}>
-      {dockOpen && <Splitter orientation="horizontal" direction={-1} label={t('调整辅助区高度')} controls={`linguist-dock-${sessionId}`} value={Math.min(dockHeight, dockMaximum)} minimum={80} maximum={dockMaximum} defaultValue={240} onChange={setDockHeight} />}
-      <div className={styles.dockToolbar}><div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <Button key={item.id} variant="ghost" size="sm" role="tab" aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
-        const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? dockItems.length - 1 : event.key === 'ArrowRight' ? (index + 1) % dockItems.length : event.key === 'ArrowLeft' ? (index + dockItems.length - 1) % dockItems.length : -1
-        if (nextIndex < 0) return
-        event.preventDefault()
-        setDock(dockItems[nextIndex]!.id)
-        setDockOpen(true)
-        event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
-      }}>{t(item.label)}</Button>)}</div><Tooltip portal label={t(dockOpen ? '收起辅助区' : '展开辅助区')}><Button className={styles.dockToggle} variant="ghost" size="sm" aria-label={t(dockOpen ? '收起辅助区' : '展开辅助区')} aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip></div>
-      {dockOpen && <div role="tabpanel" className={styles.dockBody}>
+      {dockOpen && <Splitter orientation="horizontal" direction={-1} label={t('调整辅助区高度')} controls={`linguist-dock-${sessionId}`} value={Math.min(dockHeight, dockMaximum)} minimum={80} maximum={dockMaximum} defaultValue={workbenchDefaults.dockHeight} onChange={setDockHeight} />}
+      <div className={styles.dockToolbar}><div role="tablist" aria-label={t("工作台面板")} className={styles.dockTabs}>{dockItems.map((item, index) => <React.Fragment key={item.id}>
+        {index > 0 && item.group !== dockItems[index - 1]!.group && <span className={styles.dockDivider} aria-hidden="true" />}
+        <Button id={`linguist-tab-${sessionId}-${item.id}`} variant="ghost" size="sm" role="tab" aria-controls={dock === item.id && dockOpen ? `linguist-panel-${sessionId}` : undefined} aria-selected={dock === item.id && dockOpen} tabIndex={dock === item.id ? 0 : -1} className={dock === item.id && dockOpen ? styles.dockActive : styles.dockTab} onClick={() => { setDock(item.id); setDockOpen(true) }} onKeyDown={(event) => {
+          const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? dockItems.length - 1 : event.key === 'ArrowRight' ? (index + 1) % dockItems.length : event.key === 'ArrowLeft' ? (index + dockItems.length - 1) % dockItems.length : -1
+          if (nextIndex < 0) return
+          event.preventDefault()
+          setDock(dockItems[nextIndex]!.id)
+          setDockOpen(true)
+          event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
+        }}>{t(item.label)}</Button>
+      </React.Fragment>)}</div><Tooltip portal label={t(dockOpen ? '收起辅助区' : '展开辅助区')}><Button className={styles.dockToggle} variant="ghost" size="sm" aria-label={t(dockOpen ? '收起辅助区' : '展开辅助区')} aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip></div>
+      {dockOpen && <div id={`linguist-panel-${sessionId}`} role="tabpanel" aria-labelledby={`linguist-tab-${sessionId}-${dock}`} className={styles.dockBody}>
         {dock === 'qa' && <QaPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'proposals' && <ProposalPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'references' && <ReferencePanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
@@ -715,6 +742,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 }
 
 interface RowsProps {
+  projectId: string; mutation: number; editorViews: EditorViewOptions; onNavigate: (id: string) => void;
   data: Dataset; workflowStage: NonNullable<LinguistProjectInfo['workflowStage']>; archived: boolean; tagProfile: LinguistProjectInfo['tagProfile'];
   selectedId?: string; selectedIds: ReadonlySet<string>; signals: ReadonlyMap<string, RowSignal>; reviewingIds: ReadonlySet<string>; proposalReviewBusy: boolean; focusIndex?: number;
   drafts: Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>;
@@ -744,6 +772,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
   const handleCallbacks = React.useRef(new Map<string, (handle: TargetEditorHandle | undefined) => void>())
   const virtualizer = useVirtualizer({ count: props.data.total, getScrollElement: () => scroller.current, estimateSize: () => 64, overscan: 8, getItemKey: (index) => virtualRowKey(props.data.ids, index) })
   const items = virtualizer.getVirtualItems()
+  const terms = useEditorTerms(props.projectId, items.flatMap(item => { const segment = props.data.rows.get(item.index); return segment ? [segment] : [] }), props.mutation)
   React.useEffect(() => {
     if (items.length > 0) props.onVisibleRange(items[0]!.index, items.at(-1)!.index)
   }, [items[0]?.index, items.at(-1)?.index, props.onVisibleRange])
@@ -761,6 +790,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
     props.onFocusSettled(index)
   }, [props.focusIndex, props.selectedId, props.data.ids, props.data.rows, items[0]?.index, items.at(-1)?.index, props.onFocusSettled])
   return <div className={styles.grid} role="grid" aria-label={t("句段编辑器")} aria-rowcount={props.data.total + 1} ref={scroller} onScroll={() => setMenuId(undefined)}>
+    {terms.error && <div role="alert">{t('术语辅助读取失败')}：{terms.error}</div>}
     <div className={styles.gridHeading} role="row" aria-rowindex={1}><span role="columnheader">#</span><span role="columnheader">{t('源文')}</span><span role="columnheader">{t('译文')}</span><span role="columnheader">{t('操作')}</span></div>
     <div className={styles.gridInner} style={{ height: virtualizer.getTotalSize() }}>
       {items.map((item) => {
@@ -784,7 +814,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
             pendingRowFocus.current = undefined
             node.focus({ preventScroll: true })
           }
-        }} data-index={item.index} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} aria-selected={id === props.selectedId} tabIndex={id === props.selectedId || (props.selectedId === undefined && item.index === 0) ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
+        }} data-index={item.index} data-picked={props.selectedIds.has(id)} className={id === props.selectedId ? styles.segmentSelected : styles.segment} style={{ transform: `translateY(${item.start}px)` }} role="row" aria-rowindex={item.index + 2} aria-selected={id === props.selectedId} tabIndex={id === props.selectedId || (props.selectedId === undefined && item.index === 0) ? 0 : -1} onFocus={() => props.onSelect(id)} onKeyDown={(event) => {
           if ((event.target as HTMLElement).closest('[data-target-editor]')) return
           const action = gridRowKeyAction({ key: event.key, currentIndex: item.index, total: props.data.total, pageSize: 8, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey })
           if (action === null) return
@@ -800,15 +830,11 @@ function SegmentRows(props: RowsProps): React.ReactElement {
           else if (segment && !segment.locked && !props.archived) setEditingId(id)
         }}>
           {segment === undefined ? <span role="status">{t("正在读取 #")}{item.index + 1}…</span> : <>
-            <div className={styles.rowMeta} role="gridcell"><Checkbox label={`#${segment.ordinal + 1}`} title={t('选择句段 {number}', { number: segment.ordinal + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} />{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span className={styles.stageStatus} data-confirmed={segment.currentStageState === 'confirmed'} title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{segment.currentStageState === 'confirmed' && <IconCheckCircleFillRegular size={14} aria-hidden="true" />}<span>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span></span>{signal?.qaCount && signal.highestSeverity ? <Button variant="ghost" size="sm" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</Button> : null}{signal?.proposal && <Button variant="ghost" size="sm" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</Button>}</div>
-            <div className={styles.source} role="gridcell" data-label={t("源文")} lang={segment.sourceLocale} dir="auto">{splitProtectedText(segment.source, props.tagProfile).map((part, index) => <span key={index} className={part.kind === 'text' ? undefined : styles.inlineTag}>{part.value}</span>)}</div>
-            <div className={styles.target} role="gridcell" data-label={t("译文")} lang={segment.targetLocale} dir="auto">
-              {editingId === id ? <TargetEditor draftAtom={draft!} index={segment.ordinal} segment={segment} archived={props.archived} confirmLabel={t(stageActionLabel(props.workflowStage))} tagProfile={props.tagProfile} onCancel={() => { pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(undefined) }} onSave={(target) => props.onSave(segment, target)} onReload={() => props.onReload(id)} onSaved={(advance) => { if (props.drafts.get(id) === draft) { if (currentEditingId.current === id && !advance) pendingRowFocus.current = id; props.drafts.delete(id); setEditingId((current) => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }} onHandleChange={onHandleChange} />
-                : <button type="button" className={styles.targetButton} disabled={segment.locked || props.archived} onClick={() => {
-                  props.onSelect(id)
-                  setEditingId(id)
-                }} onFocus={() => props.onSelect(id)}>{segment.target || t("编辑译文…")}</button>}
-            </div>
+            <div className={styles.rowMeta} role="gridcell"><Checkbox label={`#${segment.ordinal + 1}`} title={t('选择句段 {number}', { number: segment.ordinal + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} />{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span className={styles.stageStatus} data-confirmed={segment.currentStageState === 'confirmed'} title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{segment.currentStageState === 'confirmed' && <IconCheckCircleFillRegular size={14} aria-hidden="true" />}<span>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span></span></div>
+            <SegmentTextCells projectId={props.projectId} mutation={props.mutation} segment={segment} selected={id === props.selectedId} editing={editingId === id} draftAtom={draft!} options={props.editorViews} termMatches={terms.items.get(id)?.termMatches ?? []} termsTruncated={terms.items.get(id)?.truncated} archived={props.archived} tagProfile={props.tagProfile} sourceClassName={styles.source} targetClassName={styles.target} targetButtonClassName={styles.targetButton} proposal={signal?.proposal} onNavigate={props.onNavigate} onStartEdit={() => { props.onSelect(id); setEditingId(id) }} editorProps={{ index: segment.ordinal, confirmLabel: t(stageActionLabel(props.workflowStage)), onCancel: () => { pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(undefined) }, onSave: target => props.onSave(segment, target), onReload: () => props.onReload(id), onSaved: advance => { if (props.drafts.get(id) === draft) { if (currentEditingId.current === id && !advance) pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(current => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }, onHandleChange }} signals={Boolean(signal?.qaCount || signal?.proposal) && <div className={styles.rowSignals} dir="auto">
+              {signal?.qaCount && signal.highestSeverity ? <Button variant="ghost" size="sm" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</Button> : null}
+              {signal?.proposal && <Button variant="ghost" size="sm" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</Button>}
+            </div>} />
             <div className={styles.rowActions} role="gridcell">
               {segment.currentStageState !== 'confirmed' && <Tooltip portal label={t(stageActionLabel(props.workflowStage))}><Button className={styles.iconButton} variant="outline" size="sm" aria-label={t('{action}句段 {number}', { action: t(stageActionLabel(props.workflowStage)), number: segment.ordinal + 1 })} onClick={() => void props.onConfirm(segment)} disabled={props.archived || segment.locked}><IconCheckOutlineRegular size={16} /></Button></Tooltip>}
               <Menu portal open={menuId === id} onClose={() => setMenuId(undefined)} anchor={<Tooltip portal label={t('句段 {number} 的更多操作', { number: segment.ordinal + 1 })}><Button className={styles.iconButton} variant="ghost" size="sm" aria-label={t('句段 {number} 的更多操作', { number: segment.ordinal + 1 })} aria-haspopup="menu" aria-expanded={menuId === id} onClick={() => setMenuId((current) => current === id ? undefined : id)}><IconEllipsisOutlineRegular size={16} /></Button></Tooltip>} items={[
@@ -855,9 +881,12 @@ function evidenceCategory(reference: string): 'tm' | 'term' | 'style' | 'voice' 
   return 'other'
 }
 
-function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, onOpenTerms }: { projectId: string; segmentId?: string; editorHandle?: TargetEditorHandle; archived: boolean; mutation: number; onOpenTerms: () => void }): React.ReactElement {
+function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived, mutation, onOpenTerms, tagProfile }: { projectId: string; segmentId?: string; editorHandle?: TargetEditorHandle; draftAtom?: PrimitiveAtom<TargetEditorDraft | undefined>; archived: boolean; mutation: number; onOpenTerms: () => void; tagProfile: LinguistProjectInfo['tagProfile'] }): React.ReactElement {
   const t = useT()
-  const [data, setData] = React.useState<LinguistCatContextResult>()
+  const draft = useAtomValue(draftAtom ?? emptyDraftAtom)
+  const scope = `${projectId}\0${segmentId}`
+  const [result, setResult] = React.useState<{ scope: string; data: LinguistCatContextResult }>()
+  const data = result?.scope === scope ? result.data : undefined
   const [docs, setDocs] = React.useState<LinguistContextDocInfo[]>([])
   const [allDocs, setAllDocs] = React.useState<LinguistContextDocInfo[]>([])
   const [styleRules, setStyleRules] = React.useState<LinguistStyleGuideRuleInfo[]>([])
@@ -874,9 +903,8 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
   const exemplarSegment = React.useRef<string>()
   const evidenceSections = React.useRef(new Map<string, HTMLElement>())
   React.useEffect(() => {
-    if (segmentId === undefined) { setData(undefined); return }
+    if (segmentId === undefined) return
     let live = true
-    setData((current) => current?.segment.id === segmentId ? current : undefined)
     Promise.all([
       required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId }),
       required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'contextDocs', segmentId, limit: 200, offset: 0 }),
@@ -890,7 +918,7 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
         exemplarSegment.current = key
         setSpeaker(meta?.speaker ?? ''); setTextType(meta?.textType ?? meta?.text_type ?? meta?.stringType ?? meta?.string_type ?? ''); setNote('')
       }
-      setData(next); setDocs(linked.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setAllDocs(contextDocs.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setStyleRules(style.items.filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)); setVoiceProfiles(voice.items.filter((item): item is LinguistVoiceProfileInfo => 'speaker' in item)); setError('')
+      setResult({ scope, data: next }); setDocs(linked.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setAllDocs(contextDocs.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setStyleRules(style.items.filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)); setVoiceProfiles(voice.items.filter((item): item is LinguistVoiceProfileInfo => 'speaker' in item)); setError('')
     } }).catch((cause: unknown) => { if (live) setError(String(cause)) })
     return () => { live = false }
   }, [projectId, segmentId, mutation, refresh])
@@ -929,15 +957,12 @@ function ContextPanel({ projectId, segmentId, editorHandle, archived, mutation, 
   if (!data) return <p role="status">{t("正在读取句段参考…")}</p>
   return <div className={styles.contextGrid}>
     {actionError && <p role="alert">{actionError}<Button variant="ghost" size="sm" onClick={() => setActionError('')}>{t('关闭提示')}</Button></p>}
-    {!editorHandle && !archived && !data.segment.locked && <p className={styles.contextNotice}>{t('先打开当前句段的译文编辑器，再插入参考内容。')}</p>}
-    {(archived || data.segment.locked) && <p className={styles.contextNotice}>{t(archived ? '项目已归档，仅可查看参考内容。' : '当前句段已锁定，仅可查看参考内容。')}</p>}
-    <section tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('tm', node) }}><h3>{t("TM 匹配")}</h3>{data.tm.length === 0 ? <p>{t("没有匹配")}</p> : data.tm.map((item) => <article key={item.id}><strong>{item.matchedSource}</strong><p>{item.target}</p><small>{item.matchClass} · {Math.round(item.score)}% · {item.sourceLabel} · {item.safety === 'compatible' ? t('可复用') : t('需检查')}</small>{item.provenanceCount > 1 && <small>{t('{count} 个来源', { count: item.provenanceCount })}</small>}{item.variantCount > 1 && <small>{t('{count} 个译文变体', { count: item.variantCount })}</small>}{item.badges.length > 0 && <small>{item.badges.join(' · ')}</small>}{item.warnings.map((warning, index) => <small key={index} className={styles.contextWarning}>{warning}</small>)}{item.differences.length > 0 && <details><summary>{t('差异 {count} 项', { count: item.differences.length })}</summary>{item.differences.map((difference, index) => <p key={index}>{difference}</p>)}</details>}<div><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'replace')}>{t('替换草稿')}</Button><Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.target, 'insert')}>{t('插入草稿')}</Button></div></article>)}</section>
-    <section><h3>{t("术语")}</h3>{data.termMatches.length === 0 ? <p>{t("没有匹配")}</p> : data.termMatches.map((item) => <article key={item.id}>
-      <strong>{item.term} → {item.translation}</strong>
-      <small>{t(TERM_STATUS_LABELS[item.status])} · {t(item.matchType === 'exact' ? '精确匹配' : '包含匹配')} · {t(item.caseSensitive ? '区分大小写' : '不区分大小写')}{item.conflict ? ` · ${t('译文冲突')}` : ''}</small>
-      {(item.module || item.category) && <small>{[item.module, item.category].filter(Boolean).join(' · ')}</small>}{item.note && <p>{item.note}</p>}
-      <Button variant="outline" size="sm" disabled={!editorHandle || archived || data.segment.locked} onClick={() => applyReference(item.translation, 'insert')}>{t('插入草稿')}</Button>
-    </article>)}</section>
+    <section tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('tm', node) }}>
+      <ReferenceMatches segment={data.segment} tagProfile={tagProfile} tm={data.tm} terms={data.termMatches} editorAvailable={!!editorHandle}
+        currentTarget={isProtectedCatDraft(draft) ? draft!.state.value : data.segment.target} targetIsDraft={draft !== undefined}
+        readOnlyReason={archived ? 'archived' : data.segment.locked ? 'locked' : !editorHandle ? 'editor-closed' : undefined}
+        onApply={applyReference} onOpenTerms={onOpenTerms} />
+    </section>
     <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('style', node) }}><summary>Style Guide · {styleRules.length}</summary>{styleRules.length === 0 && <p>{t("尚无风格规则")}</p>}{groupStyleGuideRules(styleRules).map((group) => <section key={group.groupKey}><h3>{group.groupKey || t('未分组')}</h3>{group.rules.map((item) => <article key={item.id}><p>{item.ruleText}</p>{item.goodExample && <small>{t('正例')}：{item.goodExample}</small>}{item.badExample && <small>{t('反例')}：{item.badExample}</small>}</article>)}</section>)}</details>
     <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('voice', node) }}><summary>Voice · {voiceProfiles.length + data.approvedExemplars.length}</summary>{voiceProfiles.length + data.approvedExemplars.length === 0 && <p>{t("尚无角色声线或批准样例")}</p>}{voiceProfiles.map((item) => <article key={item.id}><strong>{item.speaker}</strong><p>{[item.register, item.textType, ...(item.toneMarkers ?? [])].filter(Boolean).join(' · ')}</p>{item.notes && <small>{item.notes}</small>}</article>)}{data.approvedExemplars.map((item) => <article key={item.id}><strong>{item.speaker} · {item.textType} · {t('批准样例')}</strong><p>{item.source} → {item.target}</p>{item.note && <small>{item.note}</small>}</article>)}</details>
     <details className={styles.contextSection} tabIndex={-1} ref={(node) => { if (node) evidenceSections.current.set('context', node) }}><summary>{t("上下文与历史")}</summary>{data.segment.context?.origin && <p>{t('来源')}：{data.segment.context.origin}</p>}{data.segment.context?.note && <p>{data.segment.context.note}</p>}{Object.entries(data.segment.context?.meta ?? {}).map(([key, value]) => <p key={key}>{key}：{value}</p>)}{allDocs.map((doc) => <p key={doc.id}>{doc.originalFilename} · {doc.note ?? (doc.hasTextExtract ? t('可阅读') : t('无文本抽取'))}</p>)}{data.stageEvents?.map((event, index) => <p key={index}>{event.stage} · {event.action} · {event.actor ?? t("未知操作人")} · {event.createdAt}</p>)}</details>

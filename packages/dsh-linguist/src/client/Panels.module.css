@@ -69,3 +69,17 @@
 
 .confirmModal { composes: modal from './Controls.module.css'; max-width: 480px; }
 .confirmModalContent { composes: modalContent from './Controls.module.css'; display: grid; gap: 12px; }
+
+.referenceSearch { flex: 1 1 220px; min-width: 0; }
+.referenceSearch > * { width: 100%; }
+.referenceEditor { padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); }
+.referenceEditor[hidden] { display: none; }
+.referenceActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.referenceManagement { min-width: 0; max-width: 100%; }
+.referenceManagement > summary { width: fit-content; padding: 4px 0; color: var(--dsw-alias-label-secondary); }
+.referenceManagement > summary small { margin-inline-start: 8px; }
+.referenceManagement[open] { flex: 1 0 100%; }
+.referenceManagement[open] > summary { color: var(--dsw-alias-label-primary); }
+.referenceManagementBody { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
+.referenceManagement > .referenceManagementBody { padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); }
+.referenceSelection { padding: 8px 12px; border-inline-start: 3px solid var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-1); }

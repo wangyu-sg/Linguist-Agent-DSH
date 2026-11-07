@@ -200,6 +200,25 @@ export function findDirectChild(block: string, name: string): FoundElement | und
   return index.find(name).find((element) => element.parent === parent)
 }
 
+/** Collect trans-unit notes and context groups, excluding alternative translations. */
+export function readUnitContext(inner: string): string | undefined {
+  return new XliffSpanIndex(inner).elements
+    .filter((element) => element.end > 0 && (
+      (element.localName === 'note' && element.parent === undefined)
+      || (element.localName === 'context' && element.parent?.localName === 'context-group'
+        && element.parent.parent === undefined)
+    ))
+    .map((element) => {
+      const scope = element.parent ? [element.parent, element] : [element]
+      const label = scope.filter((node) => Object.keys(node.attrs).length > 0)
+        .map((node) => `${node.localName} ${Object.entries(node.attrs)
+          .map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(' ')}`)
+        .join('; ')
+      return `${label ? `[${label}] ` : ''}${decodeXmlInline(element.inner).trim()}`
+    })
+    .join('\n') || undefined
+}
+
 /**
  * Finds the first `<name>...</name>` element in `block` (namespace-prefix
  * tolerant). Returns undefined when absent. Non-greedy: does not support

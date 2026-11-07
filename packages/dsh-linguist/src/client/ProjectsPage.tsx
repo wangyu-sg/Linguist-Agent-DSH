@@ -12,7 +12,7 @@ import { describeHealthCheck, describeProjectError } from './project-errors'
 import { useT } from './ui-locale'
 import { stageName } from './workflow-ui'
 import { ProjectSessions } from './ProjectSessions'
-import { ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
+import { DEFAULT_PROJECT_SETUP, ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
 import styles from './ProjectsPage.module.css'
 
 export type Role = 'general' | 'translator' | 'reviewer' | 'proofreader'
@@ -55,6 +55,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   const [draggingProjectId, setDraggingProjectId] = React.useState<string>()
   const [dropTarget, setDropTarget] = React.useState<{ projectId: string; position: 'before' | 'after' }>()
   const [dialog, setDialog] = React.useState<'create' | 'import' | 'formats'>()
+  const [projectInput, setProjectInput] = React.useState<ProjectSetup>(DEFAULT_PROJECT_SETUP)
 
   React.useEffect(() => {
     if (workspaceId === '' && workspaceSnapshot.items.length === 1) setWorkspaceId(workspaceSnapshot.items[0]!.workspaceId)
@@ -87,6 +88,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
 
   const create = async (input: ProjectSetup) => {
     const created = await required<Project>('linguistProjectsCreate', { ...input, workspaceId })
+    setProjectInput(DEFAULT_PROJECT_SETUP)
     setDialog(undefined)
     setRefresh(value => value + 1)
     await openProject(created)
@@ -216,7 +218,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>
           <p className={styles.formHint}>{t('先选择工作区，再设置项目语言和工作阶段。')}</p>
-          <ProjectCreateForm disabled={!workspaceId} onBusyChange={setBusy} onCreate={create}>{workspacePicker}</ProjectCreateForm>
+          <ProjectCreateForm input={projectInput} onInputChange={setProjectInput} disabled={!workspaceId} onBusyChange={setBusy} onCreate={create}>{workspacePicker}</ProjectCreateForm>
         {message && <p role={messageIsError ? 'alert' : 'status'} className={messageIsError ? styles.warning : styles.message}>{message}</p>}
       </Modal>
       <Modal open={dialog === 'import'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('导入项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>

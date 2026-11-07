@@ -22,6 +22,33 @@ test('empty projects expose their existing import panel even with batch navigati
   assert.match(empty, /导入批次与资料/)
 })
 
+test('reference inspector identifies translation memory and termbase sections as TM and TB', () => {
+  const workbench = readFileSync(new URL('./CatWorkbench.tsx', import.meta.url), 'utf8')
+  const inspector = workbench.slice(workbench.indexOf('function ContextPanel('))
+  assert.match(inspector, /<ReferenceMatches segment=\{data\.segment\} tagProfile=\{tagProfile\} tm=\{data\.tm\} terms=\{data\.termMatches\}/)
+  const matches = readFileSync(new URL('./ReferenceMatches.tsx', import.meta.url), 'utf8')
+  assert.match(matches, /<h3[^>]*>TM\b/)
+  assert.match(matches, /<h3[^>]*>TB\b/)
+})
+
+test('dock grouping keeps its divider outside the tab selection box', () => {
+  const source = ts.createSourceFile('CatWorkbench.tsx', readFileSync(new URL('./CatWorkbench.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let group
+  const visit = node => {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(source) === 'React.Fragment' && node.getText(source).includes('styles.dockDivider')) group = node
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  assert.ok(group, 'the divider and tab share a Fragment without a DOM wrapper')
+  const children = group.children.filter(node => !ts.isJsxText(node))
+  assert.equal(children.length, 2)
+  assert.match(children[0].getText(source), /<span className=\{styles\.dockDivider\} aria-hidden="true" \/>/)
+  assert.equal(children[1].openingElement.tagName.getText(source), 'Button')
+  assert.doesNotMatch(children[1].getText(source), /data-group-start|dockDivider/)
+  assert.doesNotMatch(css, /data-group-start/)
+  assert.match(css, /\.dockDivider\s*\{[^}]*border-inline-start:/)
+})
+
 test('CAT splitters drag from the displayed panel, clamp, support keyboard/reset, and release capture on disposal', () => {
   const require = createRequire(new URL('../../package.json', import.meta.url))
   const React = require('react')
@@ -63,4 +90,28 @@ test('CAT splitters drag from the displayed panel, clamp, support keyboard/reset
   handle.onPointerCancel(pointer(80)); assert.equal(captured.size, 0)
   key(handle, 'ArrowUp'); assert.equal(values.at(-1), 336)
   handle.onPointerDown(pointer(100)); cleanup(); assert.equal(captured.size, 0)
+})
+
+test('compact defaults and splitter resets preserve saved project layout preferences', () => {
+  const storage = new Map()
+  const exports = {}
+  const code = ts.transpileModule(readFileSync(new URL('./workbench-location.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  runInNewContext(code, { exports, localStorage: {
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+  } })
+  const { value: fresh } = exports.readWorkbenchLocation('fresh')
+  assert.equal(fresh.assetNavigatorWidth, 200)
+  assert.equal(fresh.inspectorWidth, 280)
+  assert.equal(fresh.dockHeight, 200)
+  assert.equal(fresh, exports.workbenchDefaults)
+  const saved = { ...fresh, assetId: 'synthetic-batch', segmentId: 'synthetic-row', assetNavigatorOpen: false, assetNavigatorWidth: 240, inspectorWidth: 320, dockOpen: false, dock: 'references', dockHeight: 240 }
+  exports.writeWorkbenchLocation('saved', saved)
+  assert.deepEqual(JSON.parse(JSON.stringify(exports.readWorkbenchLocation('saved').value)), saved)
+  const workbench = readFileSync(new URL('./CatWorkbench.tsx', import.meta.url), 'utf8')
+  for (const key of ['assetNavigatorWidth', 'inspectorWidth', 'dockHeight']) {
+    assert.ok(workbench.includes(`defaultValue={workbenchDefaults.${key}}`))
+  }
 })

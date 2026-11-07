@@ -120,8 +120,8 @@ export class ProjectQuality {
               ...(match.context.structural === 'match' ? ['结构上下文一致'] : []),
               ...(match.context.textFlow === 'match' ? ['文本流上下文一致'] : []),
               ...(match.sourcePriority > 0 ? [`来源优先级 ${match.sourcePriority}`] : []),
-              ...(candidate?.originalTuid === undefined ? [] : [`TMX TU ID：${candidate.originalTuid}`]),
-              ...(candidate?.metadata === undefined ? [] : [`TMX 属性：${JSON.stringify(candidate.metadata)}`]),
+              ...(candidate?.originalTuid === undefined ? [] : [`原库 TU ID：${candidate.originalTuid}`]),
+              ...(candidate?.metadata === undefined ? [] : [`原库属性（日期不代表审批）：${JSON.stringify(candidate.metadata)}`]),
               ...(candidate?.sourceInline === undefined ? [] : [`源文内联结构：${candidate.sourceInline}`]),
               ...(candidate?.targetInline === undefined ? [] : [`译文内联结构：${candidate.targetInline}`]),
             ],
@@ -369,11 +369,6 @@ export class ProjectQuality {
       if (previous === undefined) throw new UnknownSegmentError(segmentId)
       const repeated = db.segments.listExactRepetitions(previous)
       const segment = db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment
-      const safe = runDeterministicHardRules({
-        segment: previous,
-        proposedTarget: target,
-        ...(project.tagProfile === undefined ? {} : { tagProfile: project.tagProfile }),
-      }).ok
       const excluded = new Set(options.excludedSegmentIds)
       const repetition: NonNullable<EditSegmentResult['repetition']> = { runId, updatedSegmentIds: [], skipped: [] }
       const eligible = repeated.filter(candidate => {
@@ -382,7 +377,11 @@ export class ProjectQuality {
             : excluded.has(candidate.id) ? 'draft'
               : candidate.target === target ? 'same-target'
                 : candidate.target !== '' && candidate.target !== previous.target ? 'different-target'
-                  : !safe ? 'unsafe-target'
+                  : !runDeterministicHardRules({
+                    segment: candidate,
+                    proposedTarget: target,
+                    ...(project.tagProfile === undefined ? {} : { tagProfile: project.tagProfile }),
+                  }).ok ? 'unsafe-target'
                     : undefined
         if (reason !== undefined) repetition.skipped.push({ segmentId: candidate.id, reason })
         return reason === undefined

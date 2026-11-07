@@ -577,6 +577,8 @@ export function runDeterministicHardRules(
   options: { includeAdvisory?: boolean } = {},
 ): DeterministicHardRuleResult {
   const { segment, proposedTarget } = input
+  const extraPlaceholders = input.tagProfile?.placeholderExceptions?.find(entry => entry.segmentId === segment.id
+    && entry.source === segment.source && entry.targetLocale === segment.targetLocale)?.placeholders ?? []
   const sourceIcu = icuSignature(segment.source)
   const targetIcu = icuSignature(proposedTarget, sourceIcu.standard)
   // PB-097 tag 族管线：各侧用自身 ICU span（brace-named 跳过 ICU 分支体，
@@ -596,12 +598,15 @@ export function runDeterministicHardRules(
   const outsideIcu = (tokens: ReturnType<typeof scanTagTokens>, icu: IcuSignature) => icu.ast === undefined
     ? tokens
     : tokens.filter(token => !icu.spans.some(span => token.start >= span.start && token.end <= span.end))
-  const sourceOutsideTags = outsideIcu(sourceTags, sourceIcu).filter(token => !grammar.source.has(token))
+  const sourceOutsideTags = [
+    ...outsideIcu(sourceTags, sourceIcu).filter(token => !grammar.source.has(token)),
+    ...extraPlaceholders.flatMap(token => scanTagTokens(token, { targetLocale: segment.targetLocale, profile: input.tagProfile })),
+  ]
   const targetOutsideTags = outsideIcu(targetTags, targetIcu).filter(token => !grammar.target.has(token))
   const icuCompatible = sourceIcu.ast !== undefined && targetIcu.ast !== undefined
     ? compatibleIcuElements(sourceIcu.ast, targetIcu.ast, segment.targetLocale, input.tagProfile)
     : same(sourceIcu.signature, targetIcu.signature)
-  const sourcePlaceholders = placeholderSignature(segment.source, sourceIcu.spans)
+  const sourcePlaceholders = [...placeholderSignature(segment.source, sourceIcu.spans), ...extraPlaceholders].sort()
   const targetPlaceholders = placeholderSignature(proposedTarget, targetIcu.spans)
   // 成对配平/嵌套校验：源为事实基准——源本身不配平时跳过目标配对校验
   // （照抄源文不该被拦），守恒多重集兜底。
@@ -646,7 +651,7 @@ export function runDeterministicHardRules(
       : undefined,
     mismatch(
       DETERMINISTIC_HARD_RULE_CODES.PLACEHOLDER_SIGNATURE_MISMATCH,
-      'Placeholder signature differs between source and target.',
+      'Target placeholders differ from the source plus any registered segment-specific additions.',
       sourcePlaceholders,
       targetPlaceholders,
     ),

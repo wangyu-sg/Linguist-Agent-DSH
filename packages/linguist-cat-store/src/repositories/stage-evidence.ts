@@ -6,6 +6,7 @@ import type {
   StageEvidenceReceipt,
   StageEvidenceBaseline,
   StageEvidencePlan,
+  StageEvidenceRequirement,
   StageEvidenceRole,
   WorkflowStage,
 } from '@linguist/cat-core'
@@ -66,7 +67,12 @@ export interface RecordStageEvidenceReceiptInput {
 export interface StageEvidencePresentationCoverage {
   required: number
   presented: number
-  pending: Array<{ evidence: StageEvidenceRef; anchorIds: string[] }>
+  pending: Array<Pick<StageEvidenceRequirement, 'scope' | 'rationale'> & {
+    evidence: StageEvidenceRef
+    anchorIds: string[]
+    filename?: string
+    nextAnchor?: { anchorId: string; locator?: ContextAnchorLocator }
+  }>
 }
 
 export interface StageEvidenceCompletion {
@@ -84,6 +90,22 @@ export interface StageEvidenceCompletion {
   blockingGaps: EvidenceGap[]
   warnings: EvidenceGap[]
 }
+
+/** Give the model the next location to read, not every ID in the frozen scope. */
+export function stageEvidenceDetails(completion: StageEvidenceCompletion) {
+  const gaps = [...completion.blockingGaps, ...completion.warnings]
+  return {
+    remainingEvidence: completion.presentation.pending.map(({ scope, anchorIds, ...item }) => ({
+      ...item,
+      scope: scope.kind === 'stage' ? scope : { kind: scope.kind, count: scope.kind === 'segments' ? scope.segmentIds.length : scope.assetIds.length },
+      missingAnchorCount: anchorIds.length,
+    })),
+    gapExamples: gaps.slice(0, 5),
+    omittedGapCount: Math.max(0, gaps.length - 5),
+  }
+}
+
+export type StageEvidenceDetails = ReturnType<typeof stageEvidenceDetails>
 
 interface StageEvidenceStateRow {
   stage_run_id: string
@@ -418,10 +440,12 @@ export class StageEvidenceRepository {
         const missing = item.anchorIds.filter(id => !anchors?.has(id))
         const sourceCovered = item.evidence.ref.kind !== 'asset' || segments
           .filter(segment => segment.assetId === item.evidence.ref.id).every(segment => sourceSegments.get(key)?.has(segment.id))
-        return sourceCovered && anchors !== undefined && missing.length === 0 ? [] : [{ evidence: item.evidence.ref, anchorIds: missing }]
+        return sourceCovered && anchors !== undefined && missing.length === 0 ? [] : [{
+          evidence: item.evidence.ref, anchorIds: missing, scope: item.scope, rationale: item.rationale,
+        }]
       }
-      const doc = this.db.db.prepare('SELECT kind, text_extract FROM context_docs WHERE id = ? AND project_id = ?')
-        .get(item.evidence.ref.id, this.projectId) as { kind: string; text_extract: string | null } | undefined
+      const doc = this.db.db.prepare('SELECT kind, text_extract, original_filename FROM context_docs WHERE id = ? AND project_id = ?')
+        .get(item.evidence.ref.id, this.projectId) as { kind: string; text_extract: string | null; original_filename: string } | undefined
       const completeRange = (range: { start: number; end: number }): boolean => {
         let end = range.start
         for (const part of ranges.get(key) ?? []) {
@@ -446,7 +470,15 @@ export class StageEvidenceRepository {
       })
       const covered = ids.length > 0 ? missing.length === 0
         : doc?.kind === 'image' ? visual.has(key) : fullText
-      return covered ? [] : [{ evidence: item.evidence.ref, anchorIds: missing }]
+      const nextAnchor = missing[0] === undefined ? undefined : anchorsById.get(missing[0])
+      return covered ? [] : [{
+        evidence: item.evidence.ref, anchorIds: missing, scope: item.scope, rationale: item.rationale,
+        ...(doc === undefined ? {} : { filename: doc.original_filename }),
+        ...(missing[0] === undefined ? {} : { nextAnchor: {
+          anchorId: missing[0],
+          ...(nextAnchor === undefined ? {} : { locator: JSON.parse(nextAnchor.locator_json) as ContextAnchorLocator }),
+        } }),
+      }]
     })
     return { required: required.length, presented: required.length - pending.length, pending }
   }
