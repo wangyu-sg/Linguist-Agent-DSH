@@ -1,7 +1,7 @@
 /**
  * PB-093 chat transcript renderer: legacy chat.json rows -> ONE static,
  * read-only Markdown archive (projects/<newId>/legacy-archive/chat/
- * transcript.md). Legacy chats are NEVER migrated into continuable Proma
+ * transcript.md). Legacy chats are NEVER migrated into continuable DSH
  * sessions — the old Runtime/Tool/Prompt/Session semantics are incompatible
  * with the new repo, so the history is preserved as a rendered artifact.
  *

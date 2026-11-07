@@ -2,7 +2,7 @@
  * @linguist/cat-formats — bilingual format adapters (PB-022).
  *
  * Adapter interface + registry + typed format errors + injectable hashing.
- * May import @linguist/cat-core only; no Proma/Pi/Electron/React, no fs.
+ * Domain behavior comes from @linguist/cat-core; adapters operate on bytes.
  * Dependency direction: cat-core <- formats <- store <- tools.
  *
  * Test fixtures and the round-trip harness live under the `./testing`

@@ -3,7 +3,7 @@
   "version": "0.0.14",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "CAT bilingual format adapters for Linguist Agent: adapter interface, registry, typed format errors and the generic round-trip test harness. Bytes in, bytes out — no fs, no Proma/Pi/Electron/React.",
+  "description": "Host-independent CAT bilingual format adapters for Linguist Agent: adapter interface, registry, typed format errors and a round-trip test harness. Bytes in, bytes out.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

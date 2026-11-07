@@ -1,65 +1,38 @@
-# ATTRIBUTION
+# Attribution
 
-Linguist Agent is built on the work of the following projects.
+## DeepSeek Harness: current Host and Agent runtime
 
-## Proma (product foundation)
+Linguist Agent is a native DSH Host + Client plugin. DSH provides sessions,
+models, permissions, general tools, subagents and scheduling. LA provides
+CAT editing, localization resources, format handling and professional workflows.
+The supported DSH SDK version is declared in `packages/dsh-linguist/package.json`.
 
-- Repository: https://github.com/proma-ai/Proma
-- License: AGPL-3.0 (see `LICENSE`)
-- Role: product foundation — Electron shell, Pi runtime integration,
-  session/streaming/retry/compaction, provider/model management, UI,
-  packaging. Linguist Agent is a derivative work of Proma; the whole
-  product is distributed under AGPL-3.0.
-- Baseline: `docs/architecture/UPSTREAM_BASELINE.md`
+The native preset was initially adapted from the DSH standard preset; native
+UI integrations use its public SDK and components. DSH copyright and the MIT
+license text are retained in [NOTICE.md](NOTICE.md).
 
-### Modifications to Proma
+Source: https://github.com/deepseek-ai/deepseek-harness
 
-Linguist Agent is a modified version of Proma. The main categories of
-modification are:
+## Earlier Linguist Agent: CAT module lineage
 
-- rebranding and packaging as Linguist Agent (product name, app id, icons,
-  build configuration);
-- addition of the CAT (computer-aided translation) capability packages
-  under `packages/linguist-*` and their Electron integration
-  (`apps/electron/src/main/lib/linguist/`, renderer CAT workspace);
-- channel/provider, OAuth, and session-management changes maintained as
-  in-repo commits on top of the upstream baseline
-  (`docs/architecture/UPSTREAM_BASELINE.md`, baseline SHA
-  `f99edbdb594407ab190b97ae073889c5d96637ab`).
+The CAT domain, format adapters, resource storage, QA, proposals, delivery and
+legacy data import were carried forward from earlier Linguist Agent code.
+They remain distributed under AGPL-3.0 as part of this project.
 
-Per-file provenance, including every copy/adaptation from the legacy
-linguist-agent repository, is registered in
-`docs/attribution/SOURCE_PROVENANCE.md`.
+That earlier codebase recorded **Proma** as an upstream source. Its historical
+copyright attribution is retained in [NOTICE.md](NOTICE.md):
 
-## Linguist Agent (legacy, same author)
+- Copyright (C) ErlichLiu and contributors.
+- Source: https://github.com/proma-ai/Proma
+- License: GNU Affero General Public License, version 3.
 
-- Repository: https://github.com/wangyu-sg/linguist-agent (private)
-- Legacy freeze tag: `la-v2-legacy-freeze-2026-07-25` (branch `legacy/platform`)
-- Role: CAT domain source — bilingual format adapters, TM/TB, proposals,
-  deterministic QA, delivery gates, domain tests, legacy data migrator
-  reference. Code is selectively extracted into `packages/linguist-*`
-  under AGPL-3.0 as part of this product.
+## BrowserSkill
 
-## OpenWorker (reference, copy-on-demand)
+The companion adaptation uses the official BrowserSkill plugin, CLI and
+extension. Its fixed source version, changes and upgrade steps are recorded
+in [the BrowserSkill integration](integrations/browser-skill/README.md).
 
-- Repository: https://github.com/andrewyng/openworker
-- License: MIT
-- Role: minimal information architecture, artifact-first UX patterns.
-  Code is copied only on demand; every copy retains its MIT copyright and
-  license text and is registered in `docs/attribution/SOURCE_PROVENANCE.md`.
+Source: https://github.com/Tencent/BrowserSkill — MIT License,
+Copyright (c) 2026 Tencent.
 
-## openai/codex (reference, copy-on-demand)
-
-- Repository: https://github.com/openai/codex
-- License: Apache-2.0
-- Role: open-source protocol, safety, and session/turn design ideas.
-  Code is copied only on demand; every copy retains the Apache-2.0
-  license, `NOTICE` content, and a statement of modifications, and is
-  registered in `docs/attribution/SOURCE_PROVENANCE.md`.
-
-## Not included
-
-No third-party logos, fonts, brand names, closed-source copy text,
-decompiled components, original SVG/video/particle assets, or
-reverse-engineered file/chunk/class names are included in this
-repository. See `docs/attribution/PRIVATE_RESEARCH_POLICY.md`.
+Other components are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,8 +1,7 @@
 /**
  * CatFormatAdapter — plan §6.1 bilingual format adapter contract.
  *
- * Adapters are pure byte transformers: bytes in, bytes out. No fs, no Node,
- * no Proma/Pi/Electron/React. They run in any JS runtime.
+ * Adapters transform bytes in memory and use runtime-independent interfaces.
  *
  * Hard rules (plan §6.3) an adapter must honor:
  * - import records the SHA-256 of the original bytes (`asset.sourceSha256`);

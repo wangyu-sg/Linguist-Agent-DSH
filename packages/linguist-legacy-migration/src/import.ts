@@ -40,7 +40,7 @@
  * - chat.json rows are rendered ONCE into a static Markdown transcript at
  *   projects/<newId>/legacy-archive/chat/transcript.md (pure, deterministic
  *   render in chat-transcript.ts — PB-094 Verify can re-render and compare
- *   sha256). Legacy chats are never migrated into continuable Proma
+ *   sha256). Legacy chats are never migrated into continuable DSH
  *   sessions: the old Runtime/Tool/Prompt/Session semantics are
  *   incompatible with the new repo.
  * - _pi_sessions/*.jsonl bytes are archived VERBATIM under

@@ -1,7 +1,6 @@
 /**
  * @linguist/cat-core — pure CAT domain model (PB-021).
  *
- * No Proma/Pi/Electron/Node-fs/SQLite/React imports. No runtime deps.
  * Dependency direction: cat-core <- formats <- store <- tools.
  */
 
