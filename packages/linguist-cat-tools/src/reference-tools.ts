@@ -8,6 +8,7 @@ import {
   type StageEvidenceReceipt,
   type SegmentTermPolicyEvaluation,
   type TmAgentEvidence,
+  type TmMatchCandidate,
   type TmMatchDiagnostics,
 } from '@linguist/cat-core'
 import {
@@ -62,6 +63,7 @@ const SENTENCE_PATTERN_STATUSES = [
 const PROJECT_RULES_LIMIT = 20
 const INLINE_CONTEXT_TEXT_MAX_CHARS = 2_000
 const REQUIREDNESS_RANK = { optional: 0, conditional: 1, required: 2 } as const
+const automaticTmEvidence = new WeakMap<readonly TmMatchCandidate[], Map<string, { key: string; tm: TmAgentEvidence[] }>>()
 
 function translationContextCursorKey(
   segmentIds: readonly string[],
@@ -282,19 +284,27 @@ export function createReferenceTools(runtime: CatToolRuntime) {
             group[0]!.sourceLocale,
             group[0]!.targetLocale,
           )
+          let cachedEvidence = automaticTmEvidence.get(candidates)
+          if (cachedEvidence === undefined) {
+            cachedEvidence = new Map()
+            automaticTmEvidence.set(candidates, cachedEvidence)
+          }
           for (const segment of group) {
             const neighbors = neighborsBySegment.get(segment.id as string) ?? { previous: [], next: [] }
-            const diagnostics = matchTmCandidates(segment.source, candidates, {
-              context: {
-                ...(segment.key === undefined ? {} : { contextKey: segment.key }),
-                ...(neighbors.previous.at(-1) === undefined ? {} : { previousSource: neighbors.previous.at(-1)!.source }),
-                ...(neighbors.next[0] === undefined ? {} : { nextSource: neighbors.next[0]!.source }),
-              },
-            })
-            tmMatchesBySegment.set(
-              segment.id as string,
-              selectTmAgentEvidence(diagnostics, tmLimit),
-            )
+            const key = JSON.stringify([segment.source, segment.key, neighbors.previous.at(-1)?.source, neighbors.next[0]?.source, tmLimit])
+            let cached = cachedEvidence.get(segment.id as string)
+            if (cached?.key !== key) {
+              const diagnostics = matchTmCandidates(segment.source, candidates, {
+                context: {
+                  ...(segment.key === undefined ? {} : { contextKey: segment.key }),
+                  ...(neighbors.previous.at(-1) === undefined ? {} : { previousSource: neighbors.previous.at(-1)!.source }),
+                  ...(neighbors.next[0] === undefined ? {} : { nextSource: neighbors.next[0]!.source }),
+                },
+              })
+              cached = { key, tm: selectTmAgentEvidence(diagnostics, tmLimit) }
+              cachedEvidence.set(segment.id as string, cached)
+            }
+            tmMatchesBySegment.set(segment.id as string, cached.tm)
           }
         }
       }

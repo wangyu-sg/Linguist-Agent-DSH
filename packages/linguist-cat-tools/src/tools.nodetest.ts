@@ -55,6 +55,7 @@ import {
   type LinguistCatToolMutation,
   type LinguistCatToolName,
   type CatApplyTranslationsResult,
+  type CatGetTranslationContextResult,
   type PagedResult,
   type ResolveLinguistCatProject,
   type LinguistToolResult,
@@ -1927,6 +1928,88 @@ test('automatic TM evidence retains the full-scoring selection, ambiguity and pr
     })
     assert.deepEqual((taggedResult.details as typeof dto).contexts[0]!.tm, taggedExpected)
   } finally {
+    fixture.db.close()
+  }
+})
+
+test('automatic TM cache reuses remaining-page matches while keeping current Target fresh', async () => {
+  const fixture = setup()
+  const segment = Intl.Segmenter.prototype.segment
+  const counts = new Map<string, number>()
+  Intl.Segmenter.prototype.segment = function (value: string) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+    return segment.call(this, value)
+  }
+  try {
+    fixture.db.tmUnits.importMany(fixture.segmentsA.map((item, index) => ({ source: item.source,
+      target: `Synthetic TM target ${index}`, sourceLocale: 'en', targetLocale: 'zh-CN',
+      sourceId: 'synthetic-pages', occurrenceKey: String(index) })))
+    const tool = toolByName(createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }), 'cat_get_translation_context')
+    const params = { segmentIds: fixture.segmentsA.map(item => item.id), includeNeighbors: false,
+      tmLimitPerSegment: 1, termLimitPerSegment: 0, readOnly: true, maxBytes: 2500 }
+    const first = (await invoke(tool, params)).details as CatGetTranslationContextResult
+    assert.ok(first.nextCursor)
+    assert.ok(first.contexts.length > 0 && first.contexts.length < params.segmentIds.length)
+    const watched = fixture.segmentsA.at(-1)!.source.toLocaleLowerCase()
+    const before = counts.get(watched)
+    await invoke(tool, { ...params, cursor: first.nextCursor })
+    assert.equal(counts.get(watched), before, 'the remaining segment must not be scored again on the next page')
+    const edited = fixture.db.segments.applyTargetEdit(fixture.segmentsA[0]!.id, 'Synthetic fresh target', 0).segment
+    const refreshed = (await invoke(tool, params)).details as CatGetTranslationContextResult
+    assert.equal(refreshed.contexts[0]!.currentTarget, edited.target)
+    assert.equal(refreshed.contexts[0]!.revision, edited.revision)
+    assert.equal(counts.get(watched), before)
+  } finally {
+    Intl.Segmenter.prototype.segment = segment
+    fixture.db.close()
+  }
+})
+
+test('automatic TM cache refreshes Source, context, limit and changed TM sources', async () => {
+  const fixture = setup()
+  const segment = Intl.Segmenter.prototype.segment
+  const counts = new Map<string, number>()
+  Intl.Segmenter.prototype.segment = function (value: string) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+    return segment.call(this, value)
+  }
+  try {
+    const [previous, current, next] = fixture.segmentsA.slice(2, 5) as [Segment, Segment, Segment]
+    fixture.db.tmUnits.importMany(['A', 'B'].map((variant, index) => ({ source: current.source,
+      target: `Synthetic variant ${variant}`, sourceLocale: 'en', targetLocale: 'zh-CN',
+      sourceId: 'synthetic-context', occurrenceKey: String(index), contextKey: current.key,
+      previousSource: previous.source, nextSource: next.source })))
+    const tool = toolByName(createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }), 'cat_get_translation_context')
+    const read = async (limit: number) => ((await invoke(tool, { segmentIds: [current.id],
+      tmLimitPerSegment: limit, termLimitPerSegment: 0, readOnly: true })).details as CatGetTranslationContextResult).contexts[0]!
+    const watched = current.source.toLocaleLowerCase()
+    assert.equal((await read(1)).tm[0]!.score, 102)
+    const before = counts.get(watched)!
+    await read(1)
+    assert.equal(counts.get(watched), before)
+    assert.equal((await read(2)).tm.length, 2)
+    assert.equal(counts.get(watched), before + 1)
+    fixture.db.catDb.db.prepare('UPDATE segments SET source = ? WHERE id IN (?, ?)')
+      .run('Synthetic changed neighbor', previous.id, next.id)
+    assert.equal((await read(2)).tm[0]!.score, 101)
+    assert.equal(counts.get(watched), before + 2)
+    fixture.db.catDb.db.prepare('UPDATE segments SET key = ? WHERE id = ?').run('synthetic-changed-key', current.id)
+    assert.equal((await read(2)).tm[0]!.score, 100)
+    assert.equal(counts.get(watched), before + 3)
+    const changedSource = `${current.source}!`
+    fixture.db.catDb.db.prepare('UPDATE segments SET source = ? WHERE id = ?').run(changedSource, current.id)
+    const changed = await read(2)
+    assert.equal(changed.source, changedSource)
+    assert.equal(changed.tm[0]!.matchClass, 'near-exact')
+    fixture.db.tmSources.update('synthetic-context', { enabled: false })
+    assert.equal((await read(2)).tm.length, 0)
+    fixture.db.tmSources.update('synthetic-context', { enabled: true, priority: 3 })
+    assert.equal((await read(2)).tm.length, 2)
+    fixture.db.tmUnits.importMany([{ source: changedSource, target: 'Synthetic newly imported exact target',
+      sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic-new-context', occurrenceKey: 'new' }])
+    assert.equal((await read(2)).tm[0]!.target, 'Synthetic newly imported exact target')
+  } finally {
+    Intl.Segmenter.prototype.segment = segment
     fixture.db.close()
   }
 })
