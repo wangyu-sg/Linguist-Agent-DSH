@@ -31,6 +31,7 @@ export interface SqliteStatement {
 }
 
 export interface SqliteDatabase {
+  readonly isTransaction: boolean
   exec(sql: string): void
   prepare(sql: string): SqliteStatement
   close(): void

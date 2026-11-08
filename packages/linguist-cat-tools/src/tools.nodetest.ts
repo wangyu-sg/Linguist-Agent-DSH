@@ -15,6 +15,8 @@ import {
   createSeededEntropy,
   createStageEvidenceBaseline,
   deriveSegmentId,
+  matchTmCandidates,
+  selectTmAgentEvidence,
   tmSourceHash,
   RevisionConflictError,
   SegmentLockedError,
@@ -1882,6 +1884,48 @@ test('cat_get_translation_context: input order, revision, neighbors, TM/TB evide
       before,
       'context reads must not mutate Segment rows',
     )
+  } finally {
+    fixture.db.close()
+  }
+})
+
+test('automatic TM evidence retains the full-scoring selection, ambiguity and provenance', async () => {
+  const fixture = setup()
+  try {
+    const source = 'Please carefully review every translated sentence and preserve all original placeholders before delivery.'
+    const [segment] = seedConsistencyAsset(fixture, [{ key: 'synthetic-tm-context', source, target: '' }])
+    fixture.db.tmUnits.importMany([
+      { source, target: 'Synthetic exact target A' },
+      { source, target: 'Synthetic exact target B' },
+      { source: source.replace('carefully', 'thoroughly'), target: 'Synthetic fuzzy target' },
+      { source: source.toUpperCase(), target: 'Synthetic near-exact target' },
+      { source: 'Unrelated synthetic label', target: 'Synthetic unrelated target' },
+    ].map((entry, index) => ({ ...entry, sourceLocale: 'en', targetLocale: 'zh-CN',
+      sourceId: 'synthetic-tm-selection', occurrenceKey: String(index), originalTuid: `synthetic-tu-${index}`,
+      metadata: { note: 'Synthetic provenance' },
+    })))
+    const expected = selectTmAgentEvidence(matchTmCandidates(source, fixture.db.tmUnits.listCandidates('en', 'zh-CN')), 5)
+    assert.ok(expected.some(match => match.matchClass === 'fuzzy'))
+    assert.ok(expected.some(match => match.ambiguous))
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    const result = await invoke(toolByName(tools, 'cat_get_translation_context'), {
+      segmentIds: [segment!.id], includeNeighbors: false, tmLimitPerSegment: 5,
+    })
+    const dto = result.details as { contexts: Array<{ tm: unknown[] }> }
+    assert.deepEqual(dto.contexts[0]!.tm, expected)
+
+    const taggedSource = '<i>!Synthetic!</i>'
+    const [taggedSegment] = seedConsistencyAsset(fixture, [{ key: 'synthetic-tm-ambiguity', source: taggedSource, target: '' }])
+    fixture.db.tmUnits.importMany(['<b>Synthetic</b>', '＜b＞Synthetic＜/b＞'].map((source, index) => ({
+      source, target: `Synthetic variant ${index}`, sourceLocale: 'en', targetLocale: 'zh-CN',
+      sourceId: 'synthetic-normalized-variants', occurrenceKey: String(index),
+    })))
+    const taggedExpected = selectTmAgentEvidence(matchTmCandidates(taggedSource, fixture.db.tmUnits.listCandidates('en', 'zh-CN')), 5)
+    assert.ok(taggedExpected.some(match => match.ambiguous), 'low-score normalized variants still contribute ambiguity')
+    const taggedResult = await invoke(toolByName(tools, 'cat_get_translation_context'), {
+      segmentIds: [taggedSegment!.id], includeNeighbors: false, tmLimitPerSegment: 5,
+    })
+    assert.deepEqual((taggedResult.details as typeof dto).contexts[0]!.tm, taggedExpected)
   } finally {
     fixture.db.close()
   }

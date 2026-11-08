@@ -197,6 +197,9 @@ function buildWhere(projectId: string, filter: TmUnitSearch): { where: string; p
 }
 
 export class TmUnitsRepository {
+  private readonly candidates = new Map<string, TmStoredMatchCandidate[]>()
+  private dataVersion?: number
+
   constructor(
     private readonly db: CatDatabase,
     private readonly projectId: string,
@@ -224,13 +227,14 @@ export class TmUnitsRepository {
       for (const input of inputs) {
         const sourceId = input.sourceId
         const approved = sourceId === `approved:${this.projectId}`
-        ensureSource.run(
+        const sourceInserted = ensureSource.run(
           sourceId,
           this.projectId,
           approved ? 'approved' : 'legacy',
           approved ? 'Approved exemplars' : 'Legacy TM',
           this.now(),
         )
+        if (Number(sourceInserted.changes) > 0) this.clearCandidates()
         const id = stableId(this.projectId, input)
         const existing = find.get(id) as TmUnitRow | undefined
         if (existing !== undefined) {
@@ -258,6 +262,7 @@ export class TmUnitsRepository {
           input.targetInline ?? null,
           this.now(),
         )
+        if (imported === 0) this.clearCandidates()
         imported++
       }
       if (imported > 0) this.events?.appendProjectEvent({ kind: 'project-updated' })
@@ -288,6 +293,7 @@ export class TmUnitsRepository {
       if (existing !== undefined) {
         this.db.db.prepare('DELETE FROM tm_units WHERE id = ? AND project_id = ?')
           .run(existing.id, this.projectId)
+        this.clearCandidates()
       }
       const approvedAt = this.now()
       const metadata: ApprovedExemplarMetadata = {
@@ -384,6 +390,7 @@ export class TmUnitsRepository {
         .prepare('DELETE FROM tm_units WHERE id = ? AND project_id = ?')
         .run(id, this.projectId)
       if (Number(result.changes) === 0) throw new StoreNotFoundError('TM unit', id)
+      this.clearCandidates()
       this.events?.appendProjectEvent({ kind: 'project-updated' })
     })
   }
@@ -394,9 +401,19 @@ export class TmUnitsRepository {
     targetLocale: string,
     exactSource?: string,
   ): TmStoredMatchCandidate[] {
+    const { data_version: dataVersion } = this.db.db.prepare('PRAGMA data_version').get() as { data_version: number }
+    if (this.dataVersion !== dataVersion) {
+      this.clearCandidates()
+      this.dataVersion = dataVersion
+    }
     const exactHash = exactSource === undefined
       ? undefined
       : tmSourceHash(exactSource, sourceLocale, targetLocale)
+    const key = JSON.stringify([sourceLocale, targetLocale, exactHash ?? null])
+    // An outer transaction may roll back: its reads must not publish or reuse cached rows.
+    const cacheable = !this.db.db.isTransaction
+    const cached = cacheable ? this.candidates.get(key) : undefined
+    if (cached !== undefined) return cached
     const rows = this.db.db.prepare(`
       SELECT u.*, s.display_name AS source_label, s.priority AS source_priority
       FROM tm_units AS u
@@ -411,6 +428,12 @@ export class TmUnitsRepository {
       targetLocale,
       ...(exactHash === undefined ? [] : [exactHash]),
     ) as TmUnitRow[]
-    return rows.map(tmMatchCandidateFromRow)
+    const candidates = rows.map(tmMatchCandidateFromRow)
+    if (cacheable) this.candidates.set(key, candidates)
+    return candidates
+  }
+
+  clearCandidates(): void {
+    this.candidates.clear()
   }
 }

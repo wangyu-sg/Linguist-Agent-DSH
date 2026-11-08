@@ -18,7 +18,7 @@ pnpm pack:plugin
 
 检查使用当前源码、已声明的官方 SDK、Node 回归、Bun 格式回归和合成样本。失败立即报错；不读取旧源码快照、功能清单或人工安装回执。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.3.5.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据；Linguist 及配套 BrowserSkill 包均执行此检查。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.3.6.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据；Linguist 及配套 BrowserSkill 包均执行此检查。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
 LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill；当前适配包、CLI 和扩展版本以 [BrowserSkill 集成说明](integrations/browser-skill/README.md) 为准。
 

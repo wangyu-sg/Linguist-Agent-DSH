@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import {
   matchTmCandidates,
   selectTmAgentEvidence,
@@ -60,6 +60,98 @@ const lexicalCases: CorpusCase[] = [
 ]
 
 describe('TM high-risk synthetic corpus', () => {
+  test('repeated queries reuse candidate segmentation without merging independent TU evidence', () => {
+    const source = 'synthetic writer checks every token carefully'
+    const units = [candidate('synthetic-first', source, 'Synthetic target A'), candidate('synthetic-second', 'synthetic writer checks every token again', 'Synthetic target B')]
+    const counts = new Map<string, number>()
+    const segment = Intl.Segmenter.prototype.segment
+    Intl.Segmenter.prototype.segment = function (value: string) {
+      counts.set(value, (counts.get(value) ?? 0) + 1)
+      return segment.call(this, value)
+    }
+    try {
+      const query = 'synthetic reader checks every label carefully'
+      const first = matchTmCandidates(query, units, { minimumScore: 0 })
+      expect(counts.get(source)).toBe(1)
+      expect(matchTmCandidates(query, units, { minimumScore: 0 })).toEqual(first)
+      matchTmCandidates('synthetic reader checks every label again', units, { minimumScore: 0 })
+      expect(counts.get(source)).toBe(1)
+    } finally { Intl.Segmenter.prototype.segment = segment }
+  })
+
+  test('cached Source features never freeze target, provenance, priority or query context', () => {
+    const query = 'Synthetic complete source'
+    const unit = { ...candidate('mutable-synthetic', 'Synthetic earlier source', 'Synthetic earlier target'),
+      sourcePriority: 0, sourceLabel: 'Synthetic initial library', metadata: { note: 'Synthetic initial metadata' },
+      contextKey: 'earlier-key', previousSourceHash: tmSourceHash('Earlier neighbor'),
+    }
+    matchTmCandidates(query, [unit])
+    const units = [unit]
+    matchTmCandidates(query, units)
+    Object.assign(unit, { source: query, target: 'Synthetic current target', sourcePriority: 7, sourceLabel: 'Synthetic current library',
+      metadata: { note: 'Synthetic current metadata' }, contextKey: 'current-key', previousSourceHash: tmSourceHash('Current neighbor'),
+    })
+    const options = { context: { contextKey: 'current-key', previousSource: 'Current neighbor' } }
+    const current = matchTmCandidates(query, units, options)
+    expect(current).toEqual(matchTmCandidates(query, [{ ...unit }], options))
+    expect(current[0]?.displayScore).toBe(102)
+    expect(current[0]?.target).toBe('Synthetic current target')
+    expect(current[0]?.metadata).toEqual({ note: 'Synthetic current metadata' })
+    expect(matchTmCandidates(query, units)[0]?.displayScore).toBe(100)
+    unit.source = query.toUpperCase()
+    expect(matchTmCandidates(query, units, options)).toEqual(matchTmCandidates(query, [{ ...unit }], options))
+    expect(matchTmCandidates(query, units, options)[0]?.displayScore).toBe(97)
+  })
+
+  test('a safe upper bound skips edit-distance rows only below the original threshold', () => {
+    const units = [candidate('synthetic-unrelated', 'omega theta iota kappa lambda mu', 'Synthetic target')]
+    const query = 'alpha beta gamma delta epsilon zeta'
+    const allocations = spyOn(Array, 'from')
+    const rows = () => allocations.mock.calls.filter(([value]) => value !== null && typeof value === 'object'
+      && 'length' in value && !(Symbol.iterator in value)).length
+    try {
+      expect(matchTmCandidates(query, units, { minimumScore: 75 })).toHaveLength(0)
+      expect(rows()).toBe(0)
+      expect(matchTmCandidates(query, units, { minimumScore: 0 })).toHaveLength(1)
+      expect(rows()).toBe(1)
+    } finally { allocations.mockRestore() }
+  })
+
+  test('near-exact matches bypass fuzzy length bounds and retain raw structural diagnostics', () => {
+    for (const [query, source] of [
+      ['Synthetic {a}', `Synthetic {${'synthetic'.repeat(30)}}`],
+      ['Synthetic 1', `Synthetic ${'9'.repeat(100)}`],
+      ['', '.'.repeat(100)],
+      ['＜b＞Synthetic＜/b＞', '<i>Synthetic</i>'],
+    ]) {
+      const matches = matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: 97 })
+      expect(matches).toHaveLength(1)
+      expect(matches[0]?.matchClass).toBe('near-exact')
+      expect(matches[0]?.displayScore).toBe(97)
+      expect(matches[0]?.structure.safety).toBe('review')
+      expect(matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: 97.001 })).toHaveLength(0)
+    }
+  })
+
+  test('threshold uses the unrounded score and ambiguity counts only surviving TU variants', () => {
+    const fuzzy = [candidate('synthetic-fuzzy', 'a b x', 'Synthetic target')]
+    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 69.583 })[0]?.displayScore).toBe(69.58)
+    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 69.584 })).toHaveLength(0)
+    const source = 'Synthetic source'
+    const units = [
+      { ...candidate('z', source, 'Synthetic target A'), originalTuid: 'synthetic-first', sourcePriority: 1 },
+      { ...candidate('a', source, 'Synthetic target A'), originalTuid: 'synthetic-second', sourcePriority: 1 },
+      { ...candidate('b', source, 'Synthetic target A'), originalTuid: 'synthetic-third', sourcePriority: 7 },
+      candidate('variant', source.toUpperCase(), 'Synthetic target B'),
+    ]
+    const all = matchTmCandidates(source, units, { minimumScore: 0 })
+    expect(all.map(item => item.unitId)).toEqual(['b', 'a', 'z', 'variant'])
+    expect(all.map(item => [item.provenanceCount, item.variantCount])).toEqual([[3, 2], [3, 2], [3, 2], [1, 2]])
+    const exact = matchTmCandidates(source, units, { minimumScore: 100 })
+    expect(exact.map(item => [item.provenanceCount, item.variantCount])).toEqual([[3, 1], [3, 1], [3, 1]])
+    expect(exact.map(item => item.originalTuid)).toEqual(['synthetic-third', 'synthetic-second', 'synthetic-first'])
+  })
+
   test('covers every high-risk lexical and structural case without a contains floor', () => {
     for (const item of lexicalCases) {
       const matches = matchTmCandidates(item.query, [candidate(item.name, item.source)], { minimumScore: 0 })

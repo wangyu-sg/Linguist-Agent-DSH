@@ -90,7 +90,6 @@ export class ProjectQuality {
         .at(-1)
       const neighbors = db.segments.neighbors(segmentId, 1)
       const tmCandidates = db.tmUnits.listCandidates(segment.sourceLocale, segment.targetLocale)
-      const tmCandidatesById = new Map(tmCandidates.map((candidate) => [candidate.unitId, candidate]))
       const tmDiagnostics = matchTmCandidates(
         segment.source,
         tmCandidates,
@@ -107,7 +106,6 @@ export class ProjectQuality {
         segment,
         ...(pendingProposal !== undefined ? { pendingProposal } : {}),
         tm: tmDiagnostics.slice(0, 10).map((match) => {
-          const candidate = tmCandidatesById.get(match.unitId)
           return {
             id: match.unitId,
             matchClass: match.matchClass,
@@ -120,10 +118,10 @@ export class ProjectQuality {
               ...(match.context.structural === 'match' ? ['结构上下文一致'] : []),
               ...(match.context.textFlow === 'match' ? ['文本流上下文一致'] : []),
               ...(match.sourcePriority > 0 ? [`来源优先级 ${match.sourcePriority}`] : []),
-              ...(candidate?.originalTuid === undefined ? [] : [`原库 TU ID：${candidate.originalTuid}`]),
-              ...(candidate?.metadata === undefined ? [] : [`原库属性（日期不代表审批）：${JSON.stringify(candidate.metadata)}`]),
-              ...(candidate?.sourceInline === undefined ? [] : [`源文内联结构：${candidate.sourceInline}`]),
-              ...(candidate?.targetInline === undefined ? [] : [`译文内联结构：${candidate.targetInline}`]),
+              ...(match.originalTuid === undefined ? [] : [`原库 TU ID：${match.originalTuid}`]),
+              ...(match.metadata === undefined ? [] : [`原库属性（日期不代表审批）：${JSON.stringify(match.metadata)}`]),
+              ...(match.sourceInline === undefined ? [] : [`源文内联结构：${match.sourceInline}`]),
+              ...(match.targetInline === undefined ? [] : [`译文内联结构：${match.targetInline}`]),
             ],
             safety: match.structure.safety,
             warnings: [...match.structure.reasons],

@@ -22,7 +22,7 @@ Saved projects, terminology, translation memory and revisions are stored in the 
 
 **Save unsaved editor content before reloading, updating or exiting.** Local storage does not mean entirely offline operation: model and browser tasks use the connected services, host permissions and project requirements.
 
-Read snapshots and fragment progress issued by this version are saved with their original session and survive hot updates or restarts. Writes still check source and target versions. After upgrading to this version, save and pause current work, then restart DSH once so existing sessions stop using the previous extra tool-result pruning component. The original sessions are retained.
+Read snapshots and fragment progress are saved with their original session and survive hot updates or restarts. Writes still check source and target versions. When upgrading from 1.3.4 or earlier, save and pause current work, then restart DSH once so existing sessions stop using the previous extra tool-result pruning component. The original sessions are retained. Upgrades from 1.3.5 can be hot-applied directly.
 
 ## Compatibility and limits
 

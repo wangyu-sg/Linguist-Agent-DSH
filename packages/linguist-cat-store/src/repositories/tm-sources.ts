@@ -37,6 +37,7 @@ export class TmSourcesRepository {
   constructor(
     private readonly db: CatDatabase,
     private readonly projectId: string,
+    private readonly onChanged: () => void,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
@@ -54,6 +55,7 @@ export class TmSourcesRepository {
         (id, project_id, kind, display_name, enabled, priority, created_at)
       VALUES (?, ?, 'imported', ?, 1, 0, ?)
     `).run(id, this.projectId, reference.originalFilename, this.now())
+    this.onChanged()
     return this.get(id)!
   }
 
@@ -84,14 +86,19 @@ export class TmSourcesRepository {
     const result = this.db.db.prepare(
       `UPDATE tm_sources
        SET enabled = COALESCE(?, enabled), priority = COALESCE(?, priority)
-       WHERE id = ? AND project_id = ?`,
+       WHERE id = ? AND project_id = ?
+         AND (enabled != COALESCE(?, enabled) OR priority != COALESCE(?, priority))`,
     ).run(
       patch.enabled === undefined ? null : patch.enabled ? 1 : 0,
       patch.priority ?? null,
       id,
       this.projectId,
+      patch.enabled === undefined ? null : patch.enabled ? 1 : 0,
+      patch.priority ?? null,
     )
-    if (Number(result.changes) === 0) throw new Error(`TM source not found: ${id}`)
-    return this.get(id)!
+    if (Number(result.changes) > 0) this.onChanged()
+    const source = this.get(id)
+    if (source === undefined) throw new Error(`TM source not found: ${id}`)
+    return source
   }
 }
