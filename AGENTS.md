@@ -32,5 +32,5 @@ README 写给译者，开发命令放 CONTRIBUTING。说明以实际代码、产
 
 - 允许目标代码、固定必要依赖、非客户合成检查、本地插件包及原生安装、自己服务的启停和本地提交。官方 Desktop 管理其 desktop profile；CLI 不得修改该保留 profile。安装标识和已有设置保持稳定。
 - 允许向 https://github.com/wangyu-sg/Linguist-Agent-DSH 推送公开源码；凭据、运行时 profile、客户数据和个人日志不提交。安装包公开发布须另有明确授权。
-- 不访问真实 Phrase 任务，不修改真实 OSgame／客户库，不覆盖旧 LA／Proma／DSH 用户数据，不提取 Cookie／密钥，不绕过登录或系统授权，不静默更换模型、Provider 或 effort。
+- 不访问真实任务，不修改真实客户库，不覆盖旧用户数据，不提取 Cookie／密钥，不绕过登录或系统授权，不静默更换模型、Provider 或 effort。
 - 提交和推送前须对精确 diff 运行 /ponytail-review，只有 Lean already. Ship. 才可继续。报告使用中文，未执行的检查与真实缺口如实交代。
