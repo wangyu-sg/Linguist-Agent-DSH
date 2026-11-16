@@ -79,7 +79,18 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     await ctx.serial('agent/created', { agent, source: 'create' } as never)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'general', workMode: 'working-copy' })
     assert.ok(ctx.tools.get('linguist_working_copy'))
+    assert.ok(ctx.tools.get('linguist_delegate'), 'professional delegation is available without a CAT project')
     assert.equal(ctx.tools.get('cat_project_summary'), undefined)
+    const parentId = agent.id
+    // This harness reuses one Context; real parent and child have distinct scopes.
+    await ctx.serial('agent/disposed', { agent } as never)
+    preset = 'linguist-reviewer'
+    agent = { ...agent, id: SessionId('native-reviewer'), session: Session.create(SessionId('native-reviewer'), undefined, {
+      version: 4, id: SessionId('native-reviewer'), createdAt: Date.now(), isSeeded: false, cwd: multiplePath,
+      origin: 'subagent', parentSession: parentId, agentPreset: 'linguist-reviewer',
+    }) }
+    await ctx.serial('agent/created', { agent, source: 'create' } as never)
+    assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'reviewer', workMode: 'working-copy' })
   } finally {
     await host.dispose()
     await executorPlugin.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
@@ -119,6 +130,9 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
       role, readFileSync(new URL(`../../packages/dsh-linguist/resources/linguist-roles/${role}.md`, import.meta.url), 'utf8'),
     ])) as Record<'general' | 'translator' | 'reviewer' | 'proofreader', string>
     for (const text of Object.values(roles)) assert.ok(text.length <= 6_000)
+    const conversation = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'working-copy' })
+    assert.match(conversation.prompt, /游戏本地化专家/)
+    assert.match(conversation.prompt, /简单问题直接回答，不要求用户先建项目/)
     for (const role of ['general', 'translator', 'reviewer', 'proofreader'] as const) {
       for (const workMode of ['cat', 'file', 'browser'] as const) {
         const current = buildLinguistPromptSection(service, roles, professional, { role, workMode, projectId: project.id })
@@ -132,7 +146,7 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
         assert.match(current.prompt, /父任务.*不等于客户批准/)
         if (role === 'general') {
           assert.match(current.prompt, /正式翻译从一开始交给 Translator/)
-          assert.match(current.prompt, /已被父任务明确委派.*不再转派/)
+          assert.match(current.prompt, /已被明确委派.*不再转派/)
           assert.doesNotMatch(current.prompt, /少量任务直接完成/)
         }
         if (role === 'reviewer') {

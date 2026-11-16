@@ -63,6 +63,7 @@ export const LINGUIST_IPC_ERROR_CODES = {
   STORE_INDEX_CORRUPT: 'STORE_INDEX_CORRUPT',
   STORE_READ_ONLY: 'STORE_READ_ONLY',
   STORE_BUSY: 'STORE_BUSY',
+  STORE_RESTORE_PENDING: 'STORE_RESTORE_PENDING',
   STORE_PROJECT_EXISTS: 'STORE_PROJECT_EXISTS',
   STORE_ASSET_SOURCE_MISMATCH: 'STORE_ASSET_SOURCE_MISMATCH',
   STORE_BACKUP_CORRUPT: 'STORE_BACKUP_CORRUPT',
@@ -260,6 +261,7 @@ export interface LinguistProjectHealthCheckInfo {
   scope: 'complete' | 'sampled'
   checkedItems?: number
   totalItems?: number
+  upgradeRequired?: boolean
   /** 仅含错误码 / 计数，绝无客户文本。 */
   detail?: string
 }
@@ -618,6 +620,7 @@ export interface LinguistTmPanelItem {
   id: string
   matchClass: LinguistTmMatchClass
   score: number
+  baseScore: number
   matchedSource: string
   target: string
   sourceLabel: string
@@ -626,6 +629,11 @@ export interface LinguistTmPanelItem {
   safety: LinguistTmReuseSafety
   warnings: string[]
   differences: string[]
+  adaptation?: {
+    status: 'adapted' | 'needs-review'
+    candidate?: string
+    replacements: Array<{ type: string; from: string; to: string }>
+  }
   variantCount: number
 }
 
@@ -650,6 +658,7 @@ export interface LinguistTermInfo {
   module?: string
   category?: string
   imageRef?: string
+  sources?: Array<{ id: string; filename: string; sha256: string; term: string; translation: string; note?: string }>
 }
 
 export interface LinguistTermMatchInfo extends LinguistTermInfo {

@@ -898,20 +898,25 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
       resolveMaxDepth: () => 1,
       async startActivation(spec) {
         assert.equal(spec.provider, 'spawn')
-        assert.equal(spec.request.maxDepth, 1)
-        assert.equal(spec.request.parent, agent)
-        assert.deepEqual(spec.request.agentOptions, requestedRoute)
-        if (requestedRoute === undefined) assert.equal(Object.hasOwn(spec.request, 'agentOptions'), false)
+        assert.equal(spec.maxDepth, 1)
+        assert.equal(spec.parent, agent)
+        assert.deepEqual(spec.agentOptions, requestedRoute)
+        if (requestedRoute === undefined) assert.equal(Object.hasOwn(spec, 'agentOptions'), false)
         assert.deepEqual(intents.get(spec.childId).delegatedScope.segmentIds, [segment.id])
-        assert.match(spec.request.prompt[0].text, /Review context/)
-        assert.match(spec.request.prompt[0].text, /Parent drafts and conclusions are review inputs, not client approval/)
-        assert.ok(spec.request.prompt[0].text.indexOf('Parent drafts') < spec.request.prompt[0].text.indexOf('Objective:'))
+        assert.match(spec.prompt[0].text, /Review context/)
+        assert.match(spec.prompt[0].text, /Parent drafts and conclusions are review inputs, not client approval/)
+        assert.doesNotMatch(spec.prompt[0].text, /Frozen (Asset|Segment) IDs|checkedInputs/)
+        assert.match(spec.prompt[0].text, new RegExp(segment.id))
+        assert.match(spec.prompt[0].text, /Begin/)
+        assert.match(spec.prompt[0].text, /first normal review group/)
+        assert.doesNotMatch(spec.prompt[0].text, /paged cat_get_segments/)
+        assert.ok(spec.prompt[0].text.indexOf('Parent drafts') < spec.prompt[0].text.indexOf('Objective:'))
         bindings.bindSession(spec.childId, intents.get(spec.childId))
-        catalog.push({ id: spec.childId, mode: 'continuable', label: spec.label, createdAt: 1 })
+        catalog.push({ kind: 'child', parentId: agent.id, depth: 1, id: spec.childId, mode: 'continuable', label: spec.label, createdAt: 1 })
         calls.push('start')
         return { childId: spec.childId, messageId: 'first-message' }
       },
-      async listChildren(id) { assert.equal(id, agent.id); return catalog },
+      async listDescendants(id) { assert.equal(id, agent.id); return catalog },
       async sendMessage(sender, childId, content, options) {
         assert.equal(sender, agent)
         assert.equal(options.signal.aborted, false)
@@ -919,9 +924,8 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
         return 'followup-message'
       },
       async prompt(request) { calls.push(['prompt', request.childSessionId, request.content[0].text, request.delivery]); return { messageId: 'human-message' } },
-      interruptByParent(childId, parentId, mode) {
-        calls.push(['interrupt', childId, parentId, mode])
-        return { accepted: true }
+      interrupt(childId, authority) {
+        calls.push(['interrupt', childId, authority])
       },
     }
     const control = new LinguistDelegationControl(service, bindings, native, async (sessionId, projectId) => {
@@ -940,8 +944,8 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     const result = await tool.execute(args, { agent, callId: 'synthetic-tool-call', signal: callerWait.signal })
     assert.equal(result.status, 'started')
     assert.equal(result.messageId, 'first-message')
-    assert.deepEqual(result.checkedInputs, [])
-    assert.deepEqual(result.notChecked, [])
+    assert.equal(Object.hasOwn(result, 'checkedInputs'), false)
+    assert.equal(Object.hasOwn(result, 'notChecked'), false)
     assert.equal(calls[0], 'start')
     assert.equal(intents.size, 0)
     callerWait.abort()
@@ -967,7 +971,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
       ['message', result.childSessionId, 'Continue within the same scope'],
       ['prompt', result.childSessionId, 'Human follow-up', 'queue'],
       ['prompt', result.childSessionId, 'Host follow-up', 'steer'],
-      ['interrupt', result.childSessionId, agent.id, 'continuable'],
+      ['interrupt', result.childSessionId, { kind: 'ancestor', agent }],
     ])
     assert.equal((await dispatchOperation({ ...operationInput, operation: 'linguistDelegationsInterrupt', payload: {
       parentSessionId: agent.id, childSessionId: result.childSessionId,
@@ -1272,6 +1276,24 @@ test('failed Session seed copy is archived through the real native registry and 
   }
 })
 
+test('file-review delegation list is lossless JSON without a CAT outcome', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-dsh-file-delegation-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const bindings = new BindingStore(root)
+    bindings.bindSession('parent', { workspaceId: 'workspace', role: 'general', workMode: 'working-copy' })
+    bindings.bindSession('child', { workspaceId: 'workspace', role: 'reviewer', workMode: 'working-copy' })
+    const native = { async listDescendants() { return [{ kind: 'child', parentId: 'parent', id: 'child', mode: 'continuable', label: 'Review file' }] } }
+    const control = new LinguistDelegationControl(service, bindings, native, async () => {})
+    const agent = { id: 'parent' }
+    const { listTool } = createLinguistDelegationTool({ service, agent, control })
+    const result = await listTool.execute({}, { agent })
+    assert.deepEqual(result.items, [{ childSessionId: 'child', label: 'Review file', role: 'reviewer' }])
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), result)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
 test('parent delegation list exposes current actor/revision evidence and never treats partial Stage scope as full completion', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-delegation-outcome-'))
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
@@ -1292,7 +1314,7 @@ test('parent delegation list exposes current actor/revision evidence and never t
       const baseline = createStageEvidenceBaseline({ stageRunId: plan.stageRunId, discoveryScopeHash: 'scope', mappingRevision: 'mapping', ruleSetRevision: 'rules', segmentIds: plan.segmentIds, evidence: [] })
       db.stageEvidence.create({ stageRunId: plan.stageRunId, sessionId: child, plan, baseline })
     }
-    const native = { async listChildren() { return children.map(id => ({ id, mode: 'continuable', label: id, createdAt: 1 })) } }
+    const native = { async listDescendants() { return children.map(id => ({ kind: 'child', parentId: 'parent', depth: 1, id, mode: 'continuable', label: id, createdAt: 1 })) } }
     const control = new LinguistDelegationControl(service, bindings, native, async () => {})
     const agent = { id: 'parent' }
     const { listTool } = createLinguistDelegationTool({ service, binding: parent, agent, control })
@@ -1765,7 +1787,9 @@ test('all eight shipped CAT adapters detect and round-trip synthetic original by
   const phraseXml = '<?xml version="1.0"?><xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="one"><source>Open</source><target>打开</target></trans-unit></body></file></xliff>'
   const phraseDocx = new JSZip()
   const cell = value => `<w:tc><w:p><w:r><w:t>${value}</w:t></w:r></w:p></w:tc>`
-  phraseDocx.file('word/document.xml', `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr>${['synthetic:0', '', '1', 'Open', '打开', 'Draft', ''].map(cell).join('')}</w:tr></w:tbl></w:body></w:document>`)
+  const docxUnchanged = `<w:tr>${['synthetic:1', '', '2', 'Take {0}', '取得 {0}', 'Draft', 'Synthetic note'].map(cell).join('')}</w:tr>`
+  phraseDocx.file('word/document.xml', `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr>${['synthetic:0', '', '1', 'Open', '打开', 'Draft', ''].map(cell).join('')}</w:tr>${docxUnchanged}</w:tbl></w:body></w:document>`)
+  phraseDocx.file('docProps/custom.xml', '<synthetic>untouched</synthetic>')
   const workbook = new JSZip()
   workbook.file('xl/workbook.xml', '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic" sheetId="1" r:id="rId1"/></sheets></workbook>')
   workbook.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
@@ -1804,6 +1828,12 @@ test('all eight shipped CAT adapters detect and round-trip synthetic original by
     const matching = changed.segments.find(segment => segment.key === writable.key)
     assert.ok(matching, `${filename} lost the edited segment`)
     assert.equal(adapter.id === 'json_i18n' ? matching.source : matching.target, nextTarget, filename)
+    if (filename === 'synthetic.docx') {
+      const changedZip = await JSZip.loadAsync(changedBytes)
+      assert.ok((await changedZip.file('word/document.xml').async('string')).includes(docxUnchanged))
+      assert.equal(await changedZip.file('docProps/custom.xml').async('string'), '<synthetic>untouched</synthetic>')
+      assert.equal(changed.segments.find(segment => segment.key === 'synthetic:1').target, '取得 {0}')
+    }
     const locked = bound.find(segment => segment.locked)
     if (locked) {
       await assert.rejects(adapter.export({ originalBytes: bytes, asset, segments: bound.map(segment => segment.id === locked.id ? { ...segment, target: 'Forbidden edit' } : segment) }), undefined, `${filename} allowed a locked edit`)

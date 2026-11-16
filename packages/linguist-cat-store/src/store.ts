@@ -5,7 +5,7 @@
  * Clock and entropy are injectable for deterministic ids/timestamps.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   CreateProjectDeps,
@@ -26,8 +26,10 @@ import {
   StoreBusyError,
   StoreDatabaseIdentityError,
   StoreNotFoundError,
+  StoreRestorePendingError,
 } from './errors'
 import {
+  RESTORE_TRANSACTION_FILE,
   recoverInterruptedRestore,
   restoreProjectBackup,
   type RestoreBackupResult,
@@ -112,7 +114,11 @@ export class CatStore {
   }
 
   archiveProject(projectId: string): LinguistProject {
-    return this.index.archive(projectId)
+    const project = this.index.get(projectId)
+    if (lstatSync(join(this.index.projectDir(project.id), 'backups', RESTORE_TRANSACTION_FILE), { throwIfNoEntry: false }) !== undefined) {
+      throw new StoreRestorePendingError()
+    }
+    return this.index.archive(project.id)
   }
 
   /** 可恢复删除：完整项目目录移入数据根 trash/，并从项目索引移除。 */
@@ -126,7 +132,12 @@ export class CatStore {
    */
   openProject(projectId: string, options: OpenProjectOptions = {}): ProjectDatabase {
     const project = this.index.get(projectId) // throws StoreNotFoundError
-    recoverInterruptedRestore(this.index.projectDir(project.id), project.id)
+    const projectDir = this.index.projectDir(project.id)
+    if (options.readOnly === true) {
+      if (lstatSync(join(projectDir, 'backups', RESTORE_TRANSACTION_FILE), { throwIfNoEntry: false }) !== undefined) {
+        throw new StoreRestorePendingError()
+      }
+    } else recoverInterruptedRestore(projectDir, project.id)
     const trustedManifest = this.index.readProjectManifest(project.id)
     if (trustedManifest.id !== project.id) {
       throw new StoreDatabaseIdentityError(
@@ -196,7 +207,7 @@ export class CatStore {
     if (!existsSync(this.index.projectDbPath(project.id))) {
       throw new StoreNotFoundError('cat database', this.index.projectDbPath(project.id))
     }
-    const catDb = this.openProject(projectId).catDb
+    const catDb = this.openProject(projectId, { readOnly: true }).catDb
     try {
       return createProjectBackup(catDb, projectDir, this.now())
     } finally {

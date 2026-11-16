@@ -1,0 +1,15 @@
+{
+  "name": "@local/memsearch-control",
+  "version": "0.1.5",
+  "description": "DSH settings and presentation for the official MemSearch plugin",
+  "type": "module",
+  "private": true,
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./client": "./client.js", "./cordis.patch.yml": "./cordis.patch.yml", "./package.json": "./package.json" },
+  "files": ["index.js", "settings.js", "client.js", "cordis.patch.yml", "README.md"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-slots", "@deepseek-ai/dsh-client-locale"] } },
+  "dependencies": { "yaml": "^2.9.1" },
+  "devDependencies": { "react": "18.3.1", "react-dom": "18.3.1" },
+  "engines": { "dsh": ">=0.2.2-rc.2" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}

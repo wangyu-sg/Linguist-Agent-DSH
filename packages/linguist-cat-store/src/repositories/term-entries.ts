@@ -22,6 +22,7 @@ export interface TermEntry {
   module?: string
   category?: string
   imageRef?: string
+  sources?: Array<{ id: string; filename: string; sha256: string; term: string; translation: string; note?: string }>
 }
 
 export interface TermEntryImportInput {
@@ -158,6 +159,62 @@ function normalizeText(value: string, foldCase = true): string {
   return foldCase ? normalized.toLowerCase() : normalized
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+function normalizedTextWithOffsets(value: string, foldCase: boolean) {
+  const normalized = value.normalize('NFKC')
+  const positions = new Map<string, { indices: number[]; next: number }>()
+  for (let i = 0; i < normalized.length;) {
+    const char = String.fromCodePoint(normalized.codePointAt(i)!)
+    for (const decomposed of char.normalize('NFD')) {
+      const bucket = positions.get(decomposed) ?? { indices: [], next: 0 }
+      bucket.indices.push(i)
+      positions.set(decomposed, bucket)
+    }
+    i += char.length
+  }
+  const originalSpans = new Map<number, { start: number; end: number }>()
+  // NFD of the whole NFKC result has the same decomposed scalars as NFKD of
+  // the original; equal scalars keep their order through canonical reordering.
+  for (const part of graphemes.segment(value)) {
+    const span = { start: part.index, end: part.index + part.segment.length }
+    for (const char of part.segment.normalize('NFKD')) {
+      const bucket = positions.get(char)!
+      const index = bucket.indices[bucket.next++]!
+      const previous = originalSpans.get(index)
+      originalSpans.set(index, previous === undefined ? span : {
+        start: Math.min(previous.start, span.start), end: Math.max(previous.end, span.end),
+      })
+    }
+  }
+  let text = ''
+  let offsets: Array<{ start: number; end: number }> = []
+  for (let i = 0; i < normalized.length;) {
+    const char = String.fromCodePoint(normalized.codePointAt(i)!)
+    const span = originalSpans.get(i)!
+    if (/\s/u.test(char)) {
+      if (text && text.endsWith(' ')) offsets[offsets.length - 1]!.end = span.end
+      else if (text) { text += ' '; offsets.push({ ...span }) }
+    } else {
+      text += char
+      for (let j = 0; j < char.length; j++) offsets.push({ ...span })
+    }
+    i += char.length
+  }
+  if (text.endsWith(' ')) { text = text.slice(0, -1); offsets.pop() }
+  if (foldCase) {
+    const foldedOffsets: typeof offsets = []
+    for (let i = 0; i < text.length;) {
+      const char = String.fromCodePoint(text.codePointAt(i)!)
+      for (let j = 0; j < char.toLowerCase().length; j++) foldedOffsets.push(offsets[i]!)
+      i += char.length
+    }
+    text = text.toLowerCase()
+    offsets = foldedOffsets
+  }
+  return { text, offsets }
+}
+
 function termPattern(term: string): RegExp {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'gu')
@@ -230,19 +287,21 @@ export class TermEntriesRepository {
     private readonly events?: RunHarnessRepository,
   ) {}
 
-  importMany(inputs: readonly TermEntryImportInput[]): ReferenceImportResult {
+  importMany(inputs: readonly TermEntryImportInput[], referenceId?: string): ReferenceImportResult {
     return this.db.transaction('import term entries', () => {
       const find = this.db.db.prepare('SELECT * FROM term_entries WHERE id = ?')
-      const existingContent = new Set(
-        (this.db.db.prepare('SELECT term, translation, status, case_sensitive FROM term_entries WHERE project_id = ?')
-          .all(this.projectId) as Array<Pick<TermEntryRow, 'term' | 'translation' | 'status' | 'case_sensitive'>>)
-          .map((row) => contentKey({
+      const existingContent = new Map(
+        (this.db.db.prepare('SELECT id, term, translation, status, case_sensitive FROM term_entries WHERE project_id = ?')
+          .all(this.projectId) as Array<Pick<TermEntryRow, 'id' | 'term' | 'translation' | 'status' | 'case_sensitive'>>)
+          .map((row) => [contentKey({
             term: row.term,
             translation: row.translation,
             status: row.status,
             caseSensitive: row.case_sensitive === 1,
-          })),
+          }), row.id] as const),
       )
+      const link = this.db.db.prepare(`INSERT OR IGNORE INTO term_entry_sources
+        (term_id, reference_id, source_term, source_translation, source_note) VALUES (?, ?, ?, ?, ?)`)
       const insert = this.db.db.prepare(
         `INSERT INTO term_entries
          (id, project_id, term, translation, status, case_sensitive, note, module, category, image_ref, created_at)
@@ -253,16 +312,19 @@ export class TermEntriesRepository {
       for (const rawInput of inputs) {
         const input = cleanInput(rawInput)
         const key = contentKey(input)
-        if (existingContent.has(key)) {
+        const sameId = existingContent.get(key)
+        if (sameId !== undefined) {
+          if (referenceId !== undefined) link.run(sameId, referenceId, input.term, input.translation, input.note ?? '')
           unchanged++
           continue
         }
         const id = stableId(this.projectId, input)
         const existing = find.get(id) as TermEntryRow | undefined
         if (existing !== undefined) {
-          if (!sameContent(existing, this.projectId, input)) {
+          if (existing.project_id !== this.projectId) {
             throw new Error(`Term content id collision: ${id}`)
           }
+          if (referenceId !== undefined) link.run(id, referenceId, input.term, input.translation, input.note ?? '')
           unchanged++
           continue
         }
@@ -279,7 +341,8 @@ export class TermEntriesRepository {
           input.imageRef ?? null,
           this.now(),
         )
-        existingContent.add(key)
+        if (referenceId !== undefined) link.run(id, referenceId, input.term, input.translation, input.note ?? '')
+        existingContent.set(key, id)
         imported++
       }
       if (imported > 0) {
@@ -294,7 +357,18 @@ export class TermEntriesRepository {
     const row = this.db.db
       .prepare('SELECT * FROM term_entries WHERE id = ? AND project_id = ?')
       .get(id, this.projectId) as TermEntryRow | undefined
-    return row === undefined ? undefined : termEntryFromRow(row)
+    return row === undefined ? undefined : this.fromRow(row)
+  }
+
+  private fromRow(row: TermEntryRow): TermEntry {
+    // Read-only pre-upgrade backups have no per-term source links.
+    if (this.db.schemaVersion < 20) return termEntryFromRow(row)
+    const sources = this.db.db.prepare(`SELECT r.id, r.original_filename AS filename, r.source_sha256 AS sha256,
+        s.source_term AS term, s.source_translation AS translation, s.source_note AS note
+      FROM term_entry_sources s JOIN reference_imports r ON r.id = s.reference_id
+      WHERE s.term_id = ? AND r.project_id = ? ORDER BY r.created_at, r.id, s.source_note`)
+      .all(row.id, this.projectId) as Array<{ id: string; filename: string; sha256: string; term: string; translation: string; note: string }>
+    return { ...termEntryFromRow(row), ...(sources.length ? { sources: sources.map(({ note, ...source }) => ({ ...source, ...(note ? { note } : {}) })) } : {}) }
   }
 
   upsert(input: TermEntryUpsertInput): TermEntry {
@@ -381,7 +455,7 @@ export class TermEntriesRepository {
     const rows = this.db.db
       .prepare(`SELECT * FROM term_entries ${where} ORDER BY created_at, id LIMIT ? OFFSET ?`)
       .all(...params, filter.limit ?? 500, filter.offset ?? 0) as TermEntryRow[]
-    return rows.map(termEntryFromRow)
+    return rows.map(row => this.fromRow(row))
   }
 
   /** 现有只读工具使用的检索别名。 */
@@ -480,10 +554,13 @@ export class TermEntriesRepository {
       for (const row of compiled.buckets.get(key) ?? []) rows.set(row.id, row)
     }
     const positioned: PositionedMatch[] = []
+    const normalized = new Map<boolean, ReturnType<typeof normalizedTextWithOffsets>>()
     for (const row of rows.values()) {
       if ((statuses !== undefined && !statuses.has(row.status)) || !this.applicable(row, options)) continue
       const foldCase = row.case_sensitive !== 1
-      const text = normalizeText(rawText, foldCase)
+      let source = normalized.get(foldCase)
+      if (source === undefined) { source = normalizedTextWithOffsets(rawText, foldCase); normalized.set(foldCase, source) }
+      const { text, offsets } = source
       const term = normalizeText(row.term, foldCase)
       const lowDiscrimination = [...term].length === 1
       const contextMatched = (row.module !== null && row.module === options.module)
@@ -494,7 +571,8 @@ export class TermEntriesRepository {
       for (const span of spans) positioned.push({
         row,
         matchType: text === term ? 'exact' : 'contains',
-        ...span,
+        start: offsets[span.start]!.start,
+        end: offsets[span.end - 1]!.end,
         lowDiscrimination,
         contextRank: contextMatched ? 0 : row.module === null && row.category === null ? 1 : 2,
       })
@@ -535,7 +613,7 @@ export class TermEntriesRepository {
       conflictTranslations.set(key, translations)
     }
     return selected.slice(0, options.limit ?? 20).map((match) => ({
-      ...termEntryFromRow(match.row),
+      ...this.fromRow(match.row),
       matchType: match.matchType,
       conflict: (conflictTranslations.get(normalizeText(match.row.term))?.size ?? 0) > 1,
       start: match.start,

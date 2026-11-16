@@ -61,7 +61,7 @@ async function setup() {
     snapshots = new SessionReadSnapshots(ctx.sessionQuery, sessionId, projectId)
     const tools = createLinguistCatTools({ resolveProject: () => ({ project: { ...project, id: projectId }, db }), resultProjectId: projectId,
       sessionId, linguistRole: 'reviewer', readSnapshots: snapshots })
-    disposers = tools.map(source => ctx.tools.register(adaptCatTool(source, {} as never, undefined, undefined, undefined, snapshots)))
+    disposers = tools.map(source => ctx.tools.register(adaptCatTool(source, {} as never, undefined, undefined, undefined, snapshots, () => ids)))
   }
   bind()
   const invoke = async (name: string, args: unknown, options: { ptc?: boolean } = {}) => {
@@ -105,6 +105,24 @@ test('native Session metadata restores complete snapshots and applied revisions 
     { segmentId: f.ids[1], decision: 'unchanged', revision: 0 },
     { segmentId: f.ids[2], decision: 'unchanged', revision: 0 },
   ])
+}))
+
+test('a reviewer can explicitly finish its full scope without copying read IDs or unchanged segment IDs', () => fixture(async f => {
+  await assert.rejects(f.invoke('cat_apply_translations', { edits: [], reviewedAll: true }), /No previously supplied complete read/)
+  await f.read()
+  assert.equal(f.db.segments.listStageEvents(f.ids[0]!).length, 0, 'receiving materials does not confirm review')
+  await f.restoreNativeSession()
+  const result = await f.invoke('cat_apply_translations', { edits: [{ segmentId: f.ids[0], target: '审校后' }], reviewedAll: true })
+  assert.equal(result.applied, 1)
+  assert.deepEqual(result.review.decisions.map((item: { decision: string }) => item.decision), ['corrected', 'unchanged', 'unchanged'])
+}))
+
+test('automatic read selection refuses conflicting versions instead of guessing', () => fixture(async f => {
+  await f.read([f.ids[0]!])
+  f.db.segments.applyTargetEdit(f.ids[0]!, '其他人的新译文', 0)
+  await f.read([f.ids[0]!])
+  await assert.rejects(f.invoke('cat_apply_translations', { edits: [{ segmentId: f.ids[0], target: '不应覆盖' }] }), /Multiple read versions/)
+  assert.equal(f.db.segments.getById(f.ids[0]!)!.target, '其他人的新译文')
 }))
 
 test('a native surface replacement replaying the original read metadata cannot downgrade a committed revision', () => fixture(async f => {

@@ -1,15 +1,132 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { CatStore, LINGUIST_APPLICATION_ID, loadDatabaseSync, MIGRATIONS } from '@linguist/cat-store'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
-import { executeWorkingCopyAction } from './working-copy-service'
+import test, { mock } from 'node:test'
+
 import { prepareWorkingCopy, readWorkingJson, workingCopyPath } from './working-copy'
-import { LinguistProjectService } from './project-service'
+
 import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import { LinguistImportTooLargeError } from './errors'
 import { PROJECT_BRIEF_PATH, readProjectBrief, readWorkspaceBriefSource, type ProjectBrief } from './project-brief'
+
+mock.module('./semantic-review', { namedExports: { getSemanticReview: async () => ({ status: 'failed', error: 'Synthetic test: local model unavailable' }) } })
+const { LinguistProjectService } = await import('./project-service')
+const { executeWorkingCopyAction } = await import('./working-copy-service')
+
+test('project summary reads an old project without migrating it or replacing a live handle', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-summary-readonly-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic old project', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const paths = service.getProjectPaths(project.id)
+    const db = new (loadDatabaseSync())(paths.catDbPath)
+    db.exec(`DROP TABLE term_entry_sources;
+      ALTER TABLE tm_units DROP COLUMN local_metadata_json;
+      ALTER TABLE tm_units DROP COLUMN locally_confirmed;
+      DELETE FROM schema_migrations WHERE version = 20;
+      PRAGMA user_version = 19;
+      PRAGMA wal_checkpoint(TRUNCATE);`)
+    db.close()
+    new CatStore({ rootDir: root, applicationVersion: 'synthetic-test' }).index.recordDatabaseIdentity(project.id, { applicationId: LINGUIST_APPLICATION_ID, schemaVersion: 19, migrated: false })
+    const before = readFileSync(paths.projectJsonPath)
+    const beforeDb = readFileSync(paths.catDbPath)
+    assert.equal(service.getProjectSummary(project.id).totalSegments, 0)
+    assert.equal(service.checkProjectHealth(project.id).checks.find(check => check.id === 'schema_version')?.upgradeRequired, true)
+    assert.deepEqual(readFileSync(paths.projectJsonPath), before)
+    assert.deepEqual(readFileSync(paths.catDbPath), beforeDb)
+    assert.equal(service.listBackups(project.id).length, 0)
+    const old = new (loadDatabaseSync())(paths.catDbPath, { readOnly: true })
+    try { assert.equal((old.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 19) }
+    finally { old.close() }
+    const live = service.openProject(project.id)
+    assert.equal(live.schemaVersion, 20)
+    assert.equal(service.listBackups(project.id).length, 1)
+    service.getProjectSummary(project.id)
+    assert.equal(service.openProject(project.id), live)
+    service.closeProject(project.id)
+    writeFileSync(paths.catDbPath, 'synthetic corruption')
+    assert.throws(() => service.getProjectSummary(project.id), { code: 'PROJECT_UNHEALTHY' })
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('a schema 7 project is identified as needing an upgrade without upgrading it from the list', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-summary-v7-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic v7 project', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const paths = service.getProjectPaths(project.id)
+    rmSync(paths.catDbPath)
+    const legacy = new (loadDatabaseSync())(paths.catDbPath)
+    legacy.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)')
+    const record = legacy.prepare('INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?)')
+    for (const migration of MIGRATIONS.filter(item => item.version <= 7)) {
+      legacy.exec(migration.sql)
+      migration.backfill?.(legacy)
+      record.run(migration.version, '2026-01-01T00:00:00.000Z', migration.description)
+    }
+    legacy.exec(`PRAGMA application_id = ${LINGUIST_APPLICATION_ID}; PRAGMA user_version = 7`)
+    legacy.close()
+    new CatStore({ rootDir: root, applicationVersion: 'synthetic-test' }).index.recordDatabaseIdentity(project.id, { applicationId: LINGUIST_APPLICATION_ID, schemaVersion: 7, migrated: false })
+    const beforeDb = readFileSync(paths.catDbPath)
+    assert.throws(() => service.getProjectSummary(project.id))
+    assert.equal(service.checkProjectHealth(project.id).checks.find(check => check.id === 'schema_version')?.upgradeRequired, true)
+    assert.deepEqual(readFileSync(paths.catDbPath), beforeDb)
+    assert.equal(service.listBackups(project.id).length, 0)
+    assert.equal(service.openProject(project.id).schemaVersion, 20)
+    assert.equal(service.listBackups(project.id).length, 1)
+    assert.equal(service.getProjectSummary(project.id).totalSegments, 0)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('human stage confirmation writes the same TM with a real local-user record', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-confirmed-tm-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const path = join(root, 'batch.csv')
+    writeFileSync(path, 'key,source,target\na,Open,打开\n')
+    await service.importResourcesFromPaths(project.id, root, { paths: [path], recursive: false, kind: 'batch', dryRun: false })
+    const db = service.openProject(project.id), segment = db.segments.query()[0]!
+    const tmx = Buffer.from('<tmx version="1.4"><header srclang="en"/><body><tu tuid="synthetic"><prop type="la_confirmations">external one</prop><prop type="la_confirmations">external two</prop><prop type="la_reuse_count">external count</prop><tuv xml:lang="en"><seg>Open</seg></tuv><tuv xml:lang="zh-CN"><seg>打开</seg></tuv></tu></body></tmx>')
+    await service.importReference(project.id, 'tm', { filename: 'synthetic.tmx', bytes: tmx })
+    service.confirmCurrentStage(project.id, segment.id, segment.revision, 'synthetic-task')
+    const match = db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+    assert.equal(match.target, '打开')
+    assert.deepEqual(match.metadata?.la_confirmations, ['external one', 'external two'])
+    assert.equal(match.metadata?.la_reuse_count, 'external count')
+    assert.equal((await service.importReference(project.id, 'tm', { filename: 'synthetic.tmx', bytes: tmx })).unchanged, 1)
+    assert.deepEqual([JSON.parse((match.localMetadata!.la_confirmations as string[])[0]!).actor, JSON.parse((match.localMetadata!.la_confirmations as string[])[0]!).taskId], ['local-user', 'synthetic-task'])
+    assert.ok(service.getSegmentContext(project.id, segment.id).tm[0]!.warnings.some(value => value.includes('同一句段')))
+    assert.throws(() => service.confirmCurrentStage(project.id, segment.id, segment.revision))
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata!.la_confirmation_count, '1')
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('human use of a selected TM is counted only with a successful matching save', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-human-tm-reuse-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const path = join(root, 'batch.csv')
+    writeFileSync(path, 'key,source,target\na,Open,初稿\nb,Open,\nc,Open,\n')
+    await service.importResourcesFromPaths(project.id, root, { paths: [path], recursive: false, kind: 'batch', dryRun: false })
+    const db = service.openProject(project.id), segment = db.segments.query()[0]!
+    db.tmUnits.importMany([{ source: 'Open', target: '打开', sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic', occurrenceKey: 'one' }])
+    const unit = db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+    const saved = service.editSegment(project.id, segment.id, '打开', segment.revision, { tmUnitId: unit.unitId, propagateRepeated: true })
+    assert.equal(saved.repetition?.updatedSegmentIds.length, 2)
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '3')
+    assert.throws(() => service.editSegment(project.id, segment.id, '打开', segment.revision, { tmUnitId: unit.unitId }))
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '3')
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
 
 test('project service creates versioned metadata and preserves import/CAS/archive behavior', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-dsh-project-'))

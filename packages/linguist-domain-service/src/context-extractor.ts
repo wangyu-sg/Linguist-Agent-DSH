@@ -5,7 +5,7 @@ import {
   type ContextTextSection,
   type ExtractedContextAnchor,
 } from '@linguist/cat-core'
-import { extractXlsxContext } from '@linguist/cat-formats'
+import { extractPptxContext, extractXlsxContext } from '@linguist/cat-formats'
 import { LinguistContextDocExtractError } from './errors'
 import type { ContextImageMetadata } from './project-service-types'
 
@@ -200,6 +200,7 @@ export async function extractContext(
     }
   }
   if (extension === '.xlsx') return extractXlsxContext(bytes, filename)
+  if (extension === '.pptx') return extractPptxContext(bytes, filename)
   if (TEXT_EXTENSIONS.has(extension)) {
     const text = new TextDecoder('utf-8').decode(bytes)
     return textExtraction(sourceHash, text.split(/\n{2,}|\r?\n/), (index) => ({ kind: 'paragraph', index }))

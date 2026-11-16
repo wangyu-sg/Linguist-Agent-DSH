@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { CatReadVersion } from '@linguist/cat-tools'
 
 export type LinguistRole = 'general' | 'translator' | 'reviewer' | 'proofreader'
 export type LinguistWorkMode = 'cat' | 'working-copy' | 'browser'
@@ -10,6 +11,7 @@ export interface SessionBinding {
   role: LinguistRole
   workMode: LinguistWorkMode
   delegatedScope?: { assetIds: string[]; segmentIds: string[] }
+  reviewSnapshot?: { id: string; versions: CatReadVersion[] }
 }
 
 interface BindingState {

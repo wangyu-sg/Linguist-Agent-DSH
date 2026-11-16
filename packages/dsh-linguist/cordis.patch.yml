@@ -9,7 +9,7 @@
         name: Linguist
         description: 游戏本地化工作环境；选择通用、译者、审校或校对岗位，使用 CAT、工作副本与浏览器。
         order: 2
-        plugins:
+        plugins: &linguist-plugins
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
@@ -86,6 +86,7 @@
                   toolName: subagent
                   modelSelection: true
                   modelDiscovery: true
+                  allowedAgentPresets: [linguist, linguist-translator, linguist-reviewer, linguist-proofreader]
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -132,3 +133,21 @@
             name: '@deepseek-ai/dsh-tool-present'
           - id: tool-plugin-manager
             name: '@deepseek-ai/dsh-plugin-manager/tools'
+    - id: preset-linguist-translator
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linguist-translator
+        name: Linguist Translator
+        plugins: *linguist-plugins
+    - id: preset-linguist-reviewer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linguist-reviewer
+        name: Linguist Reviewer
+        plugins: *linguist-plugins
+    - id: preset-linguist-proofreader
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linguist-proofreader
+        name: Linguist Proofreader
+        plugins: *linguist-plugins

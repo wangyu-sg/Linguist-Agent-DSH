@@ -19,6 +19,7 @@ const WorkingDecisionSchema = z.object({
   edits: z.array(z.object({
     segmentId: z.string(),
     target: z.string(),
+    tmUnitId: z.string().min(1).optional(),
   }).strict()),
   unresolved: z.array(z.string()),
 }).strict()
@@ -37,6 +38,7 @@ const PreviousWorkingCopySchema = z.object({
     id: z.string(), source: z.string(), target: z.string(), revision: z.number().int(),
     sourceLocale: z.string(), targetLocale: z.string(), locked: z.boolean(), key: z.string().optional(),
   })),
+  tmReuses: z.array(z.object({ segmentId: z.string(), tmUnitId: z.string(), target: z.string() })).optional(),
 })
 
 export interface LinguistWorkingCopy {
@@ -58,6 +60,9 @@ export interface WorkingJsonSnapshot {
   sha256: string
 }
 
+// Keep the two most recent parsed originals; target drafts are never stored here.
+const parsedOriginals = new Map<string, LinguistWorkingCopy>()
+
 /** 仅受管工作区内的真实普通文件；工具结果不暴露绝对路径。 */
 export function workingCopyPath(workspaceRoot: string, file: string): string {
   const root = realpathSync(workspaceRoot)
@@ -74,9 +79,15 @@ export async function prepareWorkingCopy(input: {
   sourceLocale: string
   targetLocale: string
   formatConfigJson?: string
+  sourceData?: { bytes: Uint8Array; filename: string }
 }): Promise<LinguistWorkingCopy> {
-  const path = workingCopyPath(input.workspaceRoot, input.sourcePath)
-  const { bytes, filename } = await readPickedFileWithinLimit(path, LINGUIST_FILE_MAX_BYTES)
+  const root = realpathSync(input.workspaceRoot)
+  const path = workingCopyPath(root, input.sourcePath)
+  const { bytes, filename } = input.sourceData ?? await readPickedFileWithinLimit(path, LINGUIST_FILE_MAX_BYTES)
+  const key = createHash('sha256').update(bytes).update(JSON.stringify({ root, path, filename, sourceLocale: input.sourceLocale,
+    targetLocale: input.targetLocale, formatConfigJson: input.formatConfigJson })).digest('hex')
+  const cached = parsedOriginals.get(key)
+  if (cached) return structuredClone(cached)
   const adapter = await createDefaultCatFormatRegistry().detectBest(bytes, filename)
   if (adapter.id === 'json_i18n') {
     const value: unknown = JSON.parse(Buffer.from(bytes).toString('utf8').replace(/^\uFEFF/u, ''))
@@ -85,10 +96,10 @@ export async function prepareWorkingCopy(input: {
   }
   const imported = await adapter.import({ bytes, filename, sourceLocale: input.sourceLocale, targetLocale: input.targetLocale,
     ...(input.formatConfigJson === undefined ? {} : { formatConfigJson: input.formatConfigJson }) })
-  return {
+  const result: LinguistWorkingCopy = {
     schemaVersion: 1,
     artifactKind: 'linguist-working-copy',
-    sourcePath: relative(realpathSync(input.workspaceRoot), path),
+    sourcePath: relative(root, path),
     sourceSha256: imported.asset.sourceSha256,
     sourceLocale: input.sourceLocale,
     targetLocale: input.targetLocale,
@@ -96,6 +107,9 @@ export async function prepareWorkingCopy(input: {
     segments: bindImportedSegments(imported.segments, deriveAssetId('working-copy', imported.asset.sourceSha256, basename(path))),
     warnings: imported.warnings,
   }
+  parsedOriginals.set(key, structuredClone(result))
+  if (parsedOriginals.size > 2) parsedOriginals.delete(parsedOriginals.keys().next().value!)
+  return result
 }
 
 /** 候选只合并到派生工作稿；完整覆盖必须来自明确裁定，不取差异表补集。 */
@@ -131,12 +145,23 @@ export function assembleWorkingCopy(
     if (decision === 'corrected' && !edits.has(id)) throw new Error(`corrected 缺少修订：${id}`)
   }
   const segments = current.segments.map(segment => edits.has(segment.id) ? { ...segment, target: edits.get(segment.id)!.target } : segment)
+  const tmReuses = new Map((previousResult === undefined ? [] : PreviousWorkingCopySchema.parse(previousResult.value).tmReuses ?? [])
+    .map(item => [item.segmentId, item]))
+  for (const edit of input.edits) {
+    if (edit.tmUnitId === undefined) tmReuses.delete(edit.segmentId)
+    else tmReuses.set(edit.segmentId, { segmentId: edit.segmentId, tmUnitId: edit.tmUnitId, target: edit.target })
+  }
+  const retainedReuses = segments.flatMap((segment, index) => {
+    const reuse = tmReuses.get(segment.id)
+    return reuse && reuse.target === segment.target && segment.target !== baseline.segments[index]!.target ? [reuse] : []
+  })
   return {
     ...baseline,
     // 文件候选不递增 CAT revision，不写 Stage，也不虚构正式提交回执。
     segments,
     ...(previousResult === undefined ? {} : { previousResultSha256: previousResult.sha256 }),
     groups: input.groups,
+    tmReuses: retainedReuses,
     changes: input.edits.map(edit => ({ ...edit, baseRevision: byId.get(edit.segmentId)!.revision, source: byId.get(edit.segmentId)!.source, previousTarget: byId.get(edit.segmentId)!.target })),
     finalChanges: segments.flatMap((segment, index) => {
       const original = baseline.segments[index]!
@@ -158,7 +183,7 @@ export function assembleWorkingCopy(
 }
 
 /** 只接续已核实的译文；标签、上下文、锁和原版本仍从原件重建。 */
-function resumeWorkingCopy(baseline: LinguistWorkingCopy, value: unknown, tagProfile?: LinguistTagProfile): LinguistWorkingCopy {
+export function resumeWorkingCopy(baseline: LinguistWorkingCopy, value: unknown, tagProfile?: LinguistTagProfile): LinguistWorkingCopy {
   const previous = PreviousWorkingCopySchema.parse(value)
   if (previous.sourceSha256 !== baseline.sourceSha256 || previous.sourcePath !== baseline.sourcePath
     || previous.sourceLocale !== baseline.sourceLocale || previous.targetLocale !== baseline.targetLocale

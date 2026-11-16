@@ -42,7 +42,7 @@ for (const name of ['InlineTaggedText', 'ReferenceMatches']) {
 const expandedComponents = ['ProposalReviewConfirmation', 'DeliveryPreparation', 'ReferenceMatches', 'TmMatch', 'TermMatch', 'InlineTaggedText']
 
 // Execute each production component and its hooks; only external I/O and native primitives are substituted.
-function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, fetch, writeClipboard, openNative } = {}) {
+function mount(file, symbol, props, { required = async () => { throw new Error('Unexpected domain request') }, getBinding, fetch, writeClipboard, openNative } = {}) {
   const state = [], memo = [], effects = [], pending = [], store = jotai.createStore()
   let cursor, memoCursor, effectCursor, tree
   const exports = {}
@@ -57,11 +57,11 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
       useRef(value) { const i = memoCursor++; if (!memo[i]) memo[i] = { value: { current: value } }; return memo[i].value },
       useEffect(run, deps) { const i = effectCursor++; if (!effects[i] || deps.some((value, j) => value !== effects[i].deps[j])) pending.push(() => { effects[i]?.cleanup?.(); effects[i] = { deps, cleanup: run() } }) },
     }
-    if (name === 'jotai') return { ...jotai, useAtomValue: atom => store.get(atom) }
+    if (name === 'jotai') return { ...jotai, useAtomValue: atom => store.get(atom), useAtom: atom => [store.get(atom), value => store.set(atom, value)] }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { ...primitives, writeClipboard }
-    if (name === './api') return { required, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
+    if (name === './api') return { required, getBinding, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
     if (name === './ui-locale') return { useT: () => t }
-    if (name === './project-errors') return { describeProjectError: String }
+    if (name === './project-errors') return { describeProjectError: String, describeHealthCheck: check => check.id }
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
     if (name === './proposal-view') return { groupProposalRuns: () => [], textDiffParts: () => [] }
     if (name === './ReferenceMatches') return referenceViews.ReferenceMatches
@@ -708,6 +708,55 @@ test('managed original previews use confirmed media types, reject foreign URLs a
 })
 
 
+test('project list clears old counts and explains a pending recovery after refresh', async () => {
+  const project = { id: 'project', name: 'Synthetic', sourceLocale: 'en', targetLocale: 'zh-CN', workspaceId: 'workspace', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
+  const archived = { ...project, id: 'archived', name: 'Synthetic archived', archivedAt: '2026-01-02T00:00:00Z' }
+  let pending = false
+  const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
+    workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: [{ workspaceId: 'workspace', title: 'Synthetic', path: '/synthetic' }] } } } }, sessions: {}, onEnter() {}, onOpenProject() {}, onOpenSession() {}, onPickDirectory() {},
+  }, { required: async operation => {
+    if (operation === 'linguistProjectsList') return [project, archived]
+    if (operation === 'linguistProjectsListFormatQualifications') return []
+    if (operation === 'linguistProjectsGetSummary') { if (pending) throw new Error('pending'); return { totalSegments: 50, assetCount: 1 } }
+    if (operation === 'linguistProjectsCheckHealth') return { checks: pending ? [{ id: 'cat_db_open', ok: false, detail: 'STORE_RESTORE_PENDING' }] : [] }
+    throw new Error(operation)
+  } })
+  component.render(); await tick(); component.render(); await tick()
+  assert.match(component.render(), /50 段/)
+  pending = true
+  component.click('刷新'); component.render(); await tick(); component.render(); await tick()
+  const rendered = component.render()
+  assert.doesNotMatch(rendered, /50 段/)
+  assert.match(rendered, /计数不可用/)
+  assert.match(rendered, /恢复未完成：打开项目后会完成中断恢复/)
+  assert.doesNotMatch(rendered, /需要修复/)
+  component.nodes().find(node => node.type === 'checkbox' && node.props.label === '显示归档').props.onChange(true)
+  assert.match(component.render(), /恢复未完成：已归档项目请保留现场并人工处理/)
+  component.dispose()
+})
+
+test('project list distinguishes an older schema from damaged project data', async () => {
+  const project = { id: 'old', name: 'Synthetic old', sourceLocale: 'en', targetLocale: 'zh-CN', workspaceId: 'workspace', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
+  const archived = { ...project, id: 'archived-old', name: 'Synthetic archived old', archivedAt: '2026-01-02T00:00:00Z' }
+  const component = mount('ProjectsPage.tsx', 'ProjectsPage', {
+    workspaces: { list: { subscribe() { return () => {} }, getSnapshot() { return { items: [{ workspaceId: 'workspace', title: 'Synthetic', path: '/synthetic' }] } } } }, sessions: {}, onEnter() {}, onOpenProject() {}, onOpenSession() {}, onPickDirectory() {},
+  }, { required: async operation => {
+    if (operation === 'linguistProjectsList') return [project, archived]
+    if (operation === 'linguistProjectsListFormatQualifications') return []
+    if (operation === 'linguistProjectsGetSummary') throw new Error('counts unavailable')
+    if (operation === 'linguistProjectsCheckHealth') return { checks: [{ id: 'schema_version', ok: false, upgradeRequired: true }] }
+    throw new Error(operation)
+  } })
+  component.render(); await tick(); component.render(); await tick()
+  const rendered = component.render()
+  assert.match(rendered, /需要升级：打开可写项目时会先备份/)
+  assert.doesNotMatch(rendered, /需要修复/)
+  assert.match(rendered, /计数不可用/)
+  component.nodes().find(node => node.type === 'checkbox' && node.props.label === '显示归档').props.onChange(true)
+  assert.match(component.render(), /旧版本归档项目：请使用只读查看，部分数据可能无法查看/)
+  component.dispose()
+})
+
 test('compact project controls preserve all four roles, three work modes and Workspace identity', async () => {
   const workspaces = [
     { workspaceId: 'workspace-a', title: 'Shared', path: '/synthetic/a' },
@@ -739,9 +788,11 @@ test('compact project controls preserve all four roles, three work modes and Wor
   assert(!component.nodes().some(node => node.props?.role === 'radiogroup'))
   const picker = select('工作区')
   assert.deepEqual(React.Children.toArray(picker.props.children).slice(1).map(node => node.props.children), ['Shared · /synthetic/a', 'Shared · /synthetic/b', 'Unique'])
+  picker.props.onChange({ target: { value: 'workspace-a' } })
   role.props.onChange({ target: { value: 'reviewer' } }); mode.props.onChange({ target: { value: 'browser' } }); component.render()
-  assert.equal(component.button('进入工作会话').variant, 'outline')
-  await component.click('进入工作会话'); component.render()
+  assert.equal(component.button('新建 LA 会话').variant, 'outline')
+  assert.equal(component.nodes().find(node => node.type === 'project-sessions').props.workspaceId, 'workspace-a')
+  await component.click('新建 LA 会话'); component.render()
   assert.deepEqual(JSON.parse(JSON.stringify(entered)), [{ projectId: 'one', workspaceId: 'workspace-a', role: 'reviewer', workMode: 'browser' }])
   const menus = component.nodes().filter(node => node.type === 'menu')
   assert.equal(menus.length, 2)
@@ -756,6 +807,29 @@ test('compact project controls preserve all four roles, three work modes and Wor
   await component.click('one'); await tick()
   assert.match(component.render(), /Synthetic project open refused/)
   assert.equal(component.button('one').disabled, false)
+  component.dispose()
+})
+
+test('project sessions follow the selected Workspace without rereading bindings or changing the open target', async () => {
+  const bindings = ['a', 'b'].map(id => ({ sessionId: `session-${id}`, workspaceId: `workspace-${id}`, projectId: `project-${id}`, role: 'reviewer', workMode: 'cat' }))
+  const snapshot = { phase: 'ready', ids: bindings.map(row => row.sessionId), byId: Object.fromEntries(bindings.map(row => [row.sessionId, { displayTitle: row.sessionId, updatedAt: 1 }])) }
+  const opened = [], reads = []
+  const component = mount('ProjectSessions.tsx', 'ProjectSessions', {
+    workspaceId: 'workspace-a',
+    sessions: { list: { subscribe() { return () => {} }, getSnapshot: () => snapshot } },
+    projects: bindings.map(row => ({ id: row.projectId, name: row.projectId })),
+    onOpen: async binding => opened.push(binding),
+  }, { getBinding: async id => { reads.push(id); return bindings.find(row => row.sessionId === id) } })
+  component.render(); await tick()
+  assert.match(component.render(), /project-a.*session-a/)
+  assert.doesNotMatch(component.render(), /project-b|session-b/)
+  await component.click('打开会话'); await tick()
+  assert.equal(opened[0].sessionId, 'session-a')
+  assert.match(component.render({ workspaceId: 'workspace-b' }), /project-b.*session-b/)
+  assert.doesNotMatch(component.render(), /project-a|session-a/)
+  assert.match(component.render({ workspaceId: 'empty' }), /当前没有项目会话/)
+  assert.match(component.render({ workspaceId: undefined }), /project-a.*session-a.*project-b.*session-b/)
+  assert.equal(reads.length, 2, 'changing the Workspace filter reuses loaded session bindings')
   component.dispose()
 })
 

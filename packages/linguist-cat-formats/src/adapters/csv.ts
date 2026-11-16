@@ -146,7 +146,17 @@ interface ParsedRow {
   target: string
   locked: boolean
   note: string | undefined
+  fields: Record<string, string>
   record: RawRecord
+}
+
+/** Keep every non-text column verbatim, with its original heading and position. */
+export function rowContextFields(header: readonly string[], read: (index: number) => string, primary: readonly number[]): Record<string, string> {
+  return Object.fromEntries(header.flatMap((heading, index) => {
+    if (primary.includes(index)) return []
+    const value = read(index)
+    return value === '' ? [] : [[`column:${index + 1}:${heading}`, value]]
+  }))
 }
 
 export function normalizeDelimitedHeader(value: string): string {
@@ -323,7 +333,11 @@ export class CsvAdapter implements CatFormatAdapter {
       locked: row.locked,
       revision: 0,
       sourceHash: fnv1a64(row.source),
-      ...(row.note !== undefined ? { context: { note: row.note } } : {}),
+      context: {
+        ...(row.note === undefined ? {} : { note: row.note }),
+        origin: `${filename} / record ${row.ordinal + 2}`,
+        meta: row.fields,
+      },
     }))
     return {
       asset: {
@@ -480,6 +494,7 @@ export class CsvAdapter implements CatFormatAdapter {
         target: columns.target >= 0 ? cell(columns.target) : '',
         locked: LOCKED_TRUTHY.has(lockedRaw),
         note: note !== '' ? note : undefined,
+        fields: rowContextFields(header, cell, [columns.key, columns.source, columns.target, columns.locked, columns.context]),
         record,
       }
     })

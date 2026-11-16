@@ -4,24 +4,30 @@ import { Type } from 'typebox'
 import { Value } from 'typebox/value'
 
 const parameters = Type.Object({
-  operation: Type.Union([Type.Literal('prepare'), Type.Literal('assemble'), Type.Literal('deliver')]),
+  operation: Type.Union([Type.Literal('prepare'), Type.Literal('references'), Type.Literal('assemble'), Type.Literal('deliver')]),
   sourcePath: Type.String({ description: 'Original source file relative to the current DSH Workspace; it remains untouched.' }),
   sourceLocale: Type.String({ minLength: 2 }),
   targetLocale: Type.String({ minLength: 2 }),
-  previousResultPath: Type.Optional(Type.String({ description: 'For assemble/deliver: the exact reviewed prepare/assemble JSON snapshot for this source; required when a CAT project is bound.' })),
-  decisionsPath: Type.Optional(Type.String({ description: 'For assemble/deliver: Workspace-relative JSON with explicit review groups, edits, unresolved IDs, source SHA and previous-result SHA.' })),
+  previousResultPath: Type.Optional(Type.String({ description: 'For references/assemble/deliver: the exact prepare/assemble JSON snapshot being read; required when a CAT project is bound.' })),
+  decisionsPath: Type.Optional(Type.String({ description: 'For assemble/deliver: Workspace-relative JSON with explicit review groups, edits, unresolved IDs, source SHA and previous-result SHA. An edit may include tmUnitId when its target actually adopts that TM original or adapted candidate; reuse is counted only after the retained target is saved.' })),
+  segmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'For references: omit to prepare reading materials for the entire current draft in one call. Supply IDs only for an explicitly selected subset.' })),
+  wait: Type.Optional(Type.Boolean({ description: 'For references: wait for the selected group by default; false returns pending status immediately.' })),
+  outputDir: Type.Optional(Type.String({ minLength: 1, description: 'Existing workspace-relative directory for task materials.' })),
+  referenceFiles: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1 }), kind: Type.Union([Type.Literal('tm'), Type.Literal('terms')]),
+    xlsxMapping: Type.Optional(Type.Object({ sheetName: Type.String({ minLength: 1 }), columns: Type.Object({ source: Type.String({ minLength: 1 }), target: Type.String({ minLength: 1 }) }) })) }))),
+  contextFiles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Workspace-relative spreadsheets, presentations or images with visual context.' })),
 })
 
 export function createWorkingCopyTool(resolveContext: (toolCallId: string, rootCallId: string) => WorkingCopyContext, verifySession: () => Promise<void>): ToolDefinition {
   return {
     name: 'linguist_working_copy',
-    description: 'Prepare complete bilingual working JSON from an original Workspace file. With a bound CAT project, automatically resolve/import its source and read the shared current targets, stable IDs and revisions. Read that snapshot in coherent groups; assemble explicitly reviewed decisions and edits into a private draft. deliver requires complete explicit coverage and a bound project, commits reviewed changes with CAS, and produces a verified original-format file. Reuse snapshots through previousResultPath with their SHA in decisions. Original files remain untouched; workflow stages and external platform jobs are not confirmed or submitted by this tool. Use DSH native Workspace tools for unsupported files.',
+    description: 'Prepare a bilingual working copy, with or without a bound CAT project. Call references once for the current draft: supply previousResultPath and any task-specific TM/TB referenceFiles. The first reading group includes current source/target, matched references and cached semantic associations; read continuationPaths without separate per-50 queries. Similarity is a lead, not an error. Read related images when needed. Assemble explicitly reviewed decisions into a private draft; deliver currently requires a bound project and verifies its original-format output. For unsupported formats use existing workspace tools.',
     parameters: JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>,
     output: {
       schema: { type: 'object', properties: {
         path: { type: 'string' }, artifactSha256: { type: 'string' }, sourceSha256: { type: 'string' },
         segments: { type: 'integer' }, format: { type: 'string' }, warnings: { type: 'array' },
-      }, required: ['path', 'artifactSha256', 'sourceSha256', 'segments', 'format', 'warnings'], additionalProperties: true },
+      }, additionalProperties: true },
       render(_args, value) { return [{ type: 'text', text: JSON.stringify(value) }] },
     },
     async execute(args, exec) {

@@ -26,6 +26,7 @@ export const QA_RULE_CODES = {
   NEWLINE_MISMATCH: 'NEWLINE_MISMATCH',
   EDGE_WHITESPACE: 'EDGE_WHITESPACE',
   DOUBLE_SPACE: 'DOUBLE_SPACE',
+  BOUNDARY_LABEL_SPACING: 'BOUNDARY_LABEL_SPACING',
   UNPAIRED_SYMBOL: 'UNPAIRED_SYMBOL',
   UNPAIRED_QUOTE: 'UNPAIRED_QUOTE',
   REPEATED_WORD: 'REPEATED_WORD',
@@ -281,6 +282,13 @@ const REQUIRED_TERM_SPEC: FindingSpec = {
   message: '译文缺少必需术语。',
 }
 
+/** Candidate only: inspect label and dialogue after joining adjacent source-unit segments. */
+export function hasMissingLabelSpace(left: Pick<Segment, 'source' | 'target'>, right: Pick<Segment, 'target'>): boolean {
+  return /^[^\n\r：:]{1,40}：$/u.test(left.source.trim())
+    && /^[\p{L}][\p{L}\p{M}\p{N} .'’()-]{0,60}:$/u.test(left.target)
+    && /^[\p{L}\p{N}('"“‘]/u.test(right.target)
+}
+
 function segmentFindings(segment: Segment, options: QaRunOptions): OpenQaFindingInput[] {
   if (segment.locked || segment.source === '') return []
   if (segment.target === '') {
@@ -451,6 +459,14 @@ export function runQa(
     ordered.map((segment) => [`${segment.assetId}:${segment.ordinal}`, segment]),
   )
   for (const segment of ordered) {
+    const next = byPosition.get(`${segment.assetId}:${segment.ordinal + 1}`)
+    const unit = segment.context?.meta?.sdlTransUnitOrdinal
+    if (!segment.locked && next && !next.locked && unit !== undefined
+      && unit === next.context?.meta?.sdlTransUnitOrdinal && checksCjkLeakage(segment)
+      && hasMissingLabelSpace(segment, next)) {
+      results.push(finding(segment, { code: QA_RULE_CODES.BOUNDARY_LABEL_SPACING,
+        message: '同一原稿单元的说话人标签与下一句连读时冒号后无空格；请核对最终显示用途。' }))
+    }
     if (segment.locked || segment.source === '' || segment.target === '') continue
     const group = repeated.get(segment.source) ?? []
     group.push(segment)

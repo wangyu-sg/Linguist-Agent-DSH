@@ -100,43 +100,51 @@ describe('TM high-risk synthetic corpus', () => {
     expect(matchTmCandidates(query, units)[0]?.displayScore).toBe(100)
     unit.source = query.toUpperCase()
     expect(matchTmCandidates(query, units, options)).toEqual(matchTmCandidates(query, [{ ...unit }], options))
-    expect(matchTmCandidates(query, units, options)[0]?.displayScore).toBe(97)
+    expect(matchTmCandidates(query, units, options)[0]?.displayScore).toBe(91)
   })
 
-  test('a safe upper bound skips edit-distance rows only below the original threshold', () => {
-    const units = [candidate('synthetic-unrelated', 'omega theta iota kappa lambda mu', 'Synthetic target')]
-    const query = 'alpha beta gamma delta epsilon zeta'
+  test('a safe upper bound skips impossible scores without excluding a qualifying result', () => {
+    const units = [candidate('synthetic-unrelated', 'omega '.repeat(30), 'Synthetic target')]
+    const query = 'alpha'
     const allocations = spyOn(Array, 'from')
     const rows = () => allocations.mock.calls.filter(([value]) => value !== null && typeof value === 'object'
       && 'length' in value && !(Symbol.iterator in value)).length
     try {
-      expect(matchTmCandidates(query, units, { minimumScore: 75 })).toHaveLength(0)
+      expect(matchTmCandidates(query, units, { minimumScore: 85 })).toHaveLength(0)
       expect(rows()).toBe(0)
       expect(matchTmCandidates(query, units, { minimumScore: 0 })).toHaveLength(1)
-      expect(rows()).toBe(1)
+      expect(rows()).toBeGreaterThan(0)
     } finally { allocations.mockRestore() }
+    for (const item of lexicalCases) {
+      const unit = [candidate(item.name, item.source)]
+      const full = matchTmCandidates(item.query, unit, { minimumScore: 0 })
+      for (const minimumScore of [50, 75, 85, 95]) {
+        expect(matchTmCandidates(item.query, unit, { minimumScore })).toEqual(full.filter(match => match.displayScore >= minimumScore))
+      }
+    }
   })
 
-  test('near-exact matches bypass fuzzy length bounds and retain raw structural diagnostics', () => {
+  test('near-exact matches keep their computed score and structural diagnostics', () => {
     for (const [query, source] of [
       ['Synthetic {a}', `Synthetic {${'synthetic'.repeat(30)}}`],
       ['Synthetic 1', `Synthetic ${'9'.repeat(100)}`],
       ['', '.'.repeat(100)],
       ['＜b＞Synthetic＜/b＞', '<i>Synthetic</i>'],
     ]) {
-      const matches = matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: 97 })
+      const matches = matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: 0 })
       expect(matches).toHaveLength(1)
       expect(matches[0]?.matchClass).toBe('near-exact')
-      expect(matches[0]?.displayScore).toBe(97)
       expect(matches[0]?.structure.safety).toBe('review')
-      expect(matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: 97.001 })).toHaveLength(0)
+      const score = matches[0]!.displayScore
+      expect(matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: score })).toHaveLength(1)
+      expect(matchTmCandidates(query!, [candidate('synthetic-near', source!)], { minimumScore: score + .001 })).toHaveLength(0)
     }
   })
 
-  test('threshold uses the unrounded score and ambiguity counts only surviving TU variants', () => {
+  test('threshold uses the penalized score and accounts for all variants', () => {
     const fuzzy = [candidate('synthetic-fuzzy', 'a b x', 'Synthetic target')]
-    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 69.583 })[0]?.displayScore).toBe(69.58)
-    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 69.584 })).toHaveLength(0)
+    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 77 })[0]?.displayScore).toBe(77)
+    expect(matchTmCandidates('a b c', fuzzy, { minimumScore: 77.001 })).toHaveLength(0)
     const source = 'Synthetic source'
     const units = [
       { ...candidate('z', source, 'Synthetic target A'), originalTuid: 'synthetic-first', sourcePriority: 1 },
@@ -148,15 +156,15 @@ describe('TM high-risk synthetic corpus', () => {
     expect(all.map(item => item.unitId)).toEqual(['b', 'a', 'z', 'variant'])
     expect(all.map(item => [item.provenanceCount, item.variantCount])).toEqual([[3, 2], [3, 2], [3, 2], [1, 2]])
     const exact = matchTmCandidates(source, units, { minimumScore: 100 })
-    expect(exact.map(item => [item.provenanceCount, item.variantCount])).toEqual([[3, 1], [3, 1], [3, 1]])
-    expect(exact.map(item => item.originalTuid)).toEqual(['synthetic-third', 'synthetic-second', 'synthetic-first'])
+    expect(exact).toEqual([])
+    expect(matchTmCandidates(source, units, { minimumScore: 99 }).map(item => item.originalTuid)).toEqual(['synthetic-third', 'synthetic-second', 'synthetic-first'])
   })
 
   test('covers every high-risk lexical and structural case without a contains floor', () => {
     for (const item of lexicalCases) {
       const matches = matchTmCandidates(item.query, [candidate(item.name, item.source)], { minimumScore: 0 })
       expect(matches[0]?.matchClass, item.name).toBe(item.expected)
-      expect(matches[0]?.displayScore, item.name).toBeGreaterThan(0)
+      expect(matches[0]?.displayScore, item.name).toBeGreaterThanOrEqual(0)
       expect(matches[0]?.structure.safety, item.name).toBe('review')
     }
   })
@@ -176,7 +184,7 @@ describe('TM high-risk synthetic corpus', () => {
       candidate('plain', 'Charge', '收费'),
     ], { context: { contextKey: 'skill.charge', previousSource: 'Before', nextSource: 'After' } })
     expect(matches.map((match) => match.matchClass)).toEqual(['double-context', 'context', 'exact'])
-    expect(matches.every((match) => match.displayScore >= 100)).toBe(true)
+    expect(matches.map(match => match.displayScore)).toEqual([101, 100, 99])
     expect(matches.every((match) => match.variantCount === 3)).toBe(true)
     const evidence = selectTmAgentEvidence(matches)
     expect(evidence).toHaveLength(3)

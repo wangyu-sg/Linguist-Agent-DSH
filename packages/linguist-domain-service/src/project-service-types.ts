@@ -56,6 +56,7 @@ export interface LinguistTmPanelItem {
   id: string
   matchClass: 'double-context' | 'context' | 'exact' | 'near-exact' | 'fuzzy'
   score: number
+  baseScore: number
   matchedSource: string
   target: string
   sourceLabel: string
@@ -64,6 +65,7 @@ export interface LinguistTmPanelItem {
   safety: 'compatible' | 'review'
   warnings: string[]
   differences: string[]
+  adaptation?: { status: 'adapted' | 'needs-review'; candidate?: string; replacements: Array<{ type: string; from: string; to: string }> }
   variantCount: number
 }
 
@@ -140,6 +142,7 @@ export interface StageMutationBatchResult {
 export interface EditSegmentOptions {
   propagateRepeated?: boolean
   excludedSegmentIds?: readonly string[]
+  tmUnitId?: string
 }
 
 export interface EditSegmentResult {
@@ -160,6 +163,7 @@ export interface LinguistProjectHealthCheck {
   scope: 'complete' | 'sampled'
   checkedItems?: number
   totalItems?: number
+  upgradeRequired?: boolean
   /** 仅含错误码 / 计数，绝无客户文本。 */
   detail?: string
 }

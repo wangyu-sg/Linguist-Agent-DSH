@@ -80,6 +80,7 @@ export const QA_CODE_ISSUE_MAPPING: Readonly<Record<string, QaIssueMapping>> = {
   NEWLINE_MISMATCH: { issueType: 'whitespace_linebreaks', severity: 'L2', disposition: 'defect' },
   EDGE_WHITESPACE: { issueType: 'whitespace_linebreaks', severity: 'L3', disposition: 'defect' },
   DOUBLE_SPACE: { issueType: 'whitespace_linebreaks', severity: 'L3', disposition: 'defect' },
+  BOUNDARY_LABEL_SPACING: { issueType: 'whitespace_linebreaks', severity: 'L3', disposition: 'needs_review' },
   UNPAIRED_SYMBOL: { issueType: 'punctuation_typography', severity: 'L2', disposition: 'defect' },
   UNPAIRED_QUOTE: { issueType: 'punctuation_typography', severity: 'L2', disposition: 'defect' },
   REPEATED_WORD: { issueType: 'fluency_readability', severity: 'L3', disposition: 'defect' },

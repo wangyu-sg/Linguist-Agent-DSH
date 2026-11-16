@@ -37,6 +37,7 @@ export interface TargetEditorDraft {
   conflict: boolean
   resolvingConflict: boolean
   selection?: InlineSelection
+  tmReference?: { unitId: string; target: string }
 }
 
 export type TargetDraftAction =

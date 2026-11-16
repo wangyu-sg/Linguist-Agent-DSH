@@ -166,6 +166,7 @@ async function extractWorkbookMedia(
           }
         }
         const from = coordinate(placement, 'from')
+        const to = coordinate(placement, 'to')
         const cell = from === undefined ? undefined : `${columnLettersFromIndex(from.col)}${from.row}`
         anchors.push({
           id: stableId('ctxa', workbookHash, sheet.name, drawingPath, embedId ?? mediaPath, cell ?? 'absolute'),
@@ -174,6 +175,7 @@ async function extractWorkbookMedia(
             mediaId,
             sheet: sheet.name,
             ...(from === undefined ? {} : { row: from.row, cell }),
+            ...(to === undefined ? {} : { rowEnd: to.row }),
           },
           label: `${sheet.name}${cell === undefined ? '' : `!${cell}`}: ${basenameOf(mediaPath)}`,
           mediaId,
@@ -230,4 +232,50 @@ export async function extractXlsxContext(
       ...extractedMedia.warnings,
     ],
   }
+}
+
+/** Extract embedded slide images in presentation order; each anchor keeps its slide number. */
+export async function extractPptxContext(bytes: Uint8Array, filename: string): Promise<ContextExtraction> {
+  const zip = await JSZip.loadAsync(bytes)
+  const presentation = zip.file('ppt/presentation.xml')
+  if (!presentation) throw new FormatParseError(PARSER_ID, filename, 'ppt/presentation.xml is missing')
+  const doc = parseXml(await presentation.async('uint8array'), PARSER_ID, filename)
+  const presentationRelationships = await relationships(zip, 'ppt/presentation.xml', filename)
+  const media = new Map<string, ContextMedia>()
+  const anchors: ExtractedContextAnchor[] = []
+  const warnings: ContextExtraction['warnings'] = []
+  const sourceHash = sha256Hex(bytes)
+  const slideIds = descendants(doc, 'sldId')
+  for (const [index, slideId] of slideIds.entries()) {
+    const id = slideId.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id')
+    const relation = id ? presentationRelationships.get(id) : undefined
+    if (!relation || relation.external) throw new FormatParseError(PARSER_ID, filename, `slide ${index + 1} has an unresolved relationship`)
+    const path = resolveZipPath('ppt', relation.target)
+    const slide = zip.file(path)
+    if (!slide) throw new FormatParseError(PARSER_ID, filename, `slide part ${path} is missing`)
+    const slideDoc = parseXml(await slide.async('uint8array'), PARSER_ID, filename)
+    const blips = descendants(slideDoc, 'blip')
+    if (!blips.length) continue
+    const slideRelationships = await relationships(zip, path, filename)
+    for (const blip of blips) {
+      const embedId = elementAttrByLocalName(blip, 'embed')
+      if (!embedId) {
+        warnings.push({ code: 'pptx_context.linked_media', message: `slide ${index + 1} contains linked media; inspect the original slide` })
+        continue
+      }
+      const imageRelationship = slideRelationships.get(embedId)
+      if (!imageRelationship || imageRelationship.external) throw new FormatParseError(PARSER_ID, filename, `slide ${index + 1} has an unresolved image`)
+      const mediaPath = resolveZipPath(directoryOf(path), imageRelationship.target)
+      const entry = zip.file(mediaPath)
+      if (!entry) throw new FormatParseError(PARSER_ID, filename, `embedded image ${mediaPath} is missing`)
+      const mediaId = stableId('ctxm', sourceHash, mediaPath)
+      if (!media.has(mediaId)) {
+        const content = await entry.async('uint8array')
+        media.set(mediaId, { id: mediaId, filename: basenameOf(mediaPath), mimeType: mimeTypeOf(mediaPath), bytes: content, sha256: sha256Hex(content) })
+      }
+      anchors.push({ id: stableId('ctxa', sourceHash, String(index), embedId), mediaId,
+        locator: { kind: 'image', mediaId, page: index + 1 }, label: `Slide ${index + 1}: ${basenameOf(mediaPath)}` })
+    }
+  }
+  return { textSections: [], media: [...media.values()], anchors, warnings }
 }

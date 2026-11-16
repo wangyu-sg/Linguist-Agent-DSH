@@ -2,6 +2,7 @@ import { analyzeBatchConsistency, runQa } from '@linguist/cat-core'
 import type { WorkerRequest } from './cat-job-worker-client'
 import { importContextInWorker, prepareContextImport } from './context-import'
 import { parentPort, threadId, workerData } from 'node:worker_threads'
+import { runWorkingReferenceWorker } from './working-reference-worker'
 
 if (parentPort === null) throw new Error('CAT job worker requires a worker thread')
 
@@ -9,6 +10,10 @@ const workerRequest = workerData as WorkerRequest
 parentPort.postMessage({ type: 'progress', phase: 'started', threadId })
 async function run(): Promise<void> {
   try {
+    if (workerRequest.kind === 'working-references') {
+      await runWorkingReferenceWorker(workerRequest.request, parentPort!)
+      return
+    }
     let result: unknown
     if (workerRequest.kind === 'qa') {
       result = {

@@ -4,6 +4,7 @@ import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { CatReadState, CatReadStateStore } from '@linguist/cat-tools'
 import { Type, type Static } from 'typebox'
 import { Value } from 'typebox/value'
+import type { SessionBinding } from './bindings'
 
 export const READ_SNAPSHOT_META_SCHEMA = Type.Object({
   kind: Type.Literal('linguist-read-snapshots'),
@@ -31,7 +32,10 @@ export class SessionReadSnapshots implements CatReadStateStore {
   private activeCalls = 0
   private restoration?: Promise<void>
 
-  constructor(private readonly query: Pick<SessionQueryEngine, 'observeSession'>, private readonly sessionId: string, private readonly projectId: string) {}
+  constructor(private readonly query: Pick<SessionQueryEngine, 'observeSession'>, private readonly sessionId: string, private readonly projectId: string,
+    initial?: SessionBinding['reviewSnapshot']) {
+    if (initial) this.states.set(initial.id, { kind: 'snapshot', versions: structuredClone(initial.versions) })
+  }
 
   restore(): Promise<void> {
     return this.restoration ??= this.restoreSession()
@@ -58,6 +62,13 @@ export class SessionReadSnapshots implements CatReadStateStore {
   get(id: string): CatReadState | undefined {
     const current = this.states.get(id), pending = this.calls.getStore()?.get(id)
     return pending === undefined ? current : this.merge(current, pending)
+  }
+
+  /** Find host-issued reads covering the requested rows; conflicting versions remain an error in CAT. */
+  covering(segmentIds: readonly string[]): string[] {
+    const selected = new Set(segmentIds)
+    return [...this.states].flatMap(([id, state]) => state.kind === 'snapshot'
+      && state.versions.some(version => selected.has(version.segmentId)) ? [id] : [])
   }
 
   set(id: string, state: CatReadState): void {

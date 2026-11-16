@@ -43,6 +43,8 @@ import { ensureStageEvidenceForSession } from './host/stage-evidence'
 import { adaptCatTool } from './host/tool-adapter'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from './host/turn-context'
 import { createWorkingCopyTool } from './host/working-copy-tool'
+import { createReviewMaterialsTool } from './host/review-materials-tool'
+import { settingsOperation, SETTINGS_OPERATIONS } from './host/settings'
 
 export const name = '@linguist/dsh-plugin'
 export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
@@ -53,6 +55,14 @@ export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_
   })).default([]).volatile(),
 })
 export type Config = { dataRoot: string; installationId: string; notificationDestinations: Volatile<FeishuDestination[]> }
+
+function presetRole(preset: string | null | undefined): LinguistRole | undefined {
+  if (preset === 'linguist') return 'general'
+  if (preset === 'linguist-translator') return 'translator'
+  if (preset === 'linguist-reviewer') return 'reviewer'
+  if (preset === 'linguist-proofreader') return 'proofreader'
+  return undefined
+}
 
 export function apply(ctx: Context, config: Config): void {
   config = { ...config, ...initializeStorage(config) }
@@ -155,7 +165,9 @@ export function apply(ctx: Context, config: Config): void {
         }
         return {
           workspaceRoot: owned.path,
+          service,
           sessionId: agent.id,
+          taskId: agent.session.header.origin === 'subagent' ? agent.session.header.parentSession ?? agent.id : agent.id,
           ...(current.projectId ? { tagProfile: service.getProject(current.projectId).tagProfile } : {}),
           ...(current.projectId ? {
             project: { service, projectId: current.projectId },
@@ -164,7 +176,16 @@ export function apply(ctx: Context, config: Config): void {
           get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
       }, async () => { await resolveSessionWorkspace(agent.id) })))
-      if (binding.projectId && binding.workMode === 'cat' && binding.role === 'general') {
+      let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
+      const readSnapshots = binding.projectId ? new SessionReadSnapshots(ctx.sessionQuery, agent.id, binding.projectId, binding.reviewSnapshot) : undefined
+      disposers.push(agent.ctx.tools.register(createReviewMaterialsTool(service, async () => {
+        const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
+        const current = bindings.session(agent.id)!
+        return { workspaceRoot, projectId: current.projectId,
+          taskId: agent.session.header.origin === 'subagent' ? agent.session.header.parentSession ?? agent.id : agent.id,
+          allowedIds: reviewScope() }
+      }, readSnapshots)))
+      if (binding.role === 'general') {
         const delegation = createLinguistDelegationTool({
           service, binding, agent, subagents: ctx.subagents, control: delegationControl,
           resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id),
@@ -201,6 +222,7 @@ export function apply(ctx: Context, config: Config): void {
           refreshStage(db)
           return { db, delegatedScope }
         }
+        reviewScope = () => resolveStage().delegatedScope
         const attachedFiles = () => {
           const images = new Map<string, ContextImageMetadata>()
           const paths = agent.session.deriveMessages().flatMap(message => {
@@ -242,10 +264,9 @@ export function apply(ctx: Context, config: Config): void {
             restart: task?.restart, toolCallId: task?.toolCallId,
           })
         }
-        const readSnapshots = new SessionReadSnapshots(ctx.sessionQuery, sessionId, projectId)
         const deps = createCatDeps({
           professional,
-          service, projectId, sessionId, readSnapshots, role: binding.role, sessionCwd: workspace.path,
+          service, projectId, sessionId, taskId: parentSession ?? sessionId, readSnapshots: readSnapshots!, role: binding.role, sessionCwd: workspace.path,
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
           authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles().paths),
@@ -282,7 +303,7 @@ export function apply(ctx: Context, config: Config): void {
                 const { jobId, ...job } = progress
                 mutations.publish(projectId, { kind: 'job-updated', sessionId, toolCallId, jobId, job })
               }
-            }, readSnapshots,
+            }, readSnapshots, () => bindings.session(sessionId)?.delegatedScope?.segmentIds,
           )))
         }
       }
@@ -294,7 +315,9 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const initializeLinguistSession = (agent: Agent): void => {
-    if (bindings.session(agent.id) || ctx.agentPresets.composedPreset(agent.ctx) !== 'linguist') return
+    if (bindings.session(agent.id)) return
+    const role = presetRole(ctx.agentPresets.composedPreset(agent.ctx))
+    if (role === undefined) return
     // A detached, already-started session keeps its historical evidence without reactivation.
     if (agent.session.ownEvents().some(event => event.type === 'user/message')) return
     const cwd = agent.session.header.cwd
@@ -302,7 +325,7 @@ export function apply(ctx: Context, config: Config): void {
     if (!workspace) throw new Error('Linguist mode requires a registered DSH Workspace')
     const projects = service.listProjects().filter(project => bindings.projectWorkspace(project.id) === workspace.id)
     const projectId = projects.length === 1 ? projects[0]!.id : undefined
-    bindings.bindSession(agent.id, { workspaceId: workspace.id, role: 'general', workMode: projectId ? 'cat' : 'working-copy', ...(projectId ? { projectId } : {}) })
+    bindings.bindSession(agent.id, { workspaceId: workspace.id, role, workMode: projectId ? 'cat' : 'working-copy', ...(projectId ? { projectId } : {}) })
   }
   ctx.on('agent/created', ({ agent }) => {
     let inherited = false
@@ -313,7 +336,8 @@ export function apply(ctx: Context, config: Config): void {
         if (!workspace || !agent.session.header.cwd || realpathSync(agent.session.header.cwd) !== workspace.path) throw new Error('Linguist subagent Workspace differs from its parent')
         const intent = delegationIntents.get(agent.id)
         if (intent && intent.parentSessionId !== agent.session.header.parentSession) throw new Error('Linguist child parent identity changed')
-        bindings.bindSession(agent.id, intent?.binding ?? parent)
+        const explicitRole = presetRole(agent.session.header.agentPreset)
+        bindings.bindSession(agent.id, intent?.binding ?? (explicitRole ? { ...parent, role: explicitRole } : parent))
         inherited = true
       }
     }
@@ -324,7 +348,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('agent-preset/selected', (sessionId, preset) => {
     const agent = ctx.agents.get(sessionId)
     if (!agent) return
-    if (preset === 'linguist') initializeLinguistSession(agent)
+    const role = presetRole(preset)
+    const current = bindings.session(sessionId)
+    if (role && current) bindings.bindSession(sessionId, { ...current, role })
+    else if (role) initializeLinguistSession(agent)
     else bindings.restoreSession(sessionId, undefined)
     bindAgent(agent)
   })
@@ -388,7 +415,9 @@ export function apply(ctx: Context, config: Config): void {
   const removeHttp = registerHttpRoutes({
     ctx, service, bindings, files, mutations, installationId: config.installationId,
     rebindAgent: sessionId => { const agent = ctx.agents.get(sessionId as SessionId); if (agent) bindAgent(agent) },
-    dispatch: (operation, payload) => INTEGRITY_OPERATIONS.includes(operation as typeof INTEGRITY_OPERATIONS[number])
+    dispatch: (operation, payload) => SETTINGS_OPERATIONS.includes(operation as typeof SETTINGS_OPERATIONS[number])
+      ? settingsOperation(service, operation, payload)
+      : INTEGRITY_OPERATIONS.includes(operation as typeof INTEGRITY_OPERATIONS[number])
       ? integrity.dispatch(operation, payload)
       : DIAGNOSTICS_OPERATIONS.includes(operation as typeof DIAGNOSTICS_OPERATIONS[number])
         ? diagnostics.dispatch(operation, payload)

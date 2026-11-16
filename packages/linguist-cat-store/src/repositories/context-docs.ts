@@ -389,6 +389,7 @@ export class ContextDocsRepository {
           requiredness, mapping_revision
         )
         SELECT context_doc_id, anchor_id, 'segment', NULL, segment_id, 'required', ? FROM matches
+        WHERE anchor_id IN (SELECT anchor_id FROM matches GROUP BY anchor_id HAVING COUNT(*) = 1)
         UNION
         SELECT context_doc_id, anchor_id, 'asset', asset_id, NULL, 'conditional', ? FROM matches WHERE true
         ON CONFLICT DO UPDATE SET mapping_revision = excluded.mapping_revision

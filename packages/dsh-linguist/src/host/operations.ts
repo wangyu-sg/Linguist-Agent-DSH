@@ -6,6 +6,7 @@ import { setImmediate } from 'node:timers/promises'
 import type { LinguistImportProgress } from '@linguist/domain-service/contracts'
 import { basename, extname, isAbsolute, join, relative } from 'node:path'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   normalizeQaProfile,
   normalizeWorkflowStage,
@@ -78,6 +79,16 @@ export interface DispatchOperationInput {
   scheduleContext?: ScheduleContextManager
   delegationControl?: LinguistDelegationControl
   detachSessionBinding?: (sessionId: string) => Promise<LinguistSessionDetachBindingResult>
+}
+
+async function stageTaskId(input: DispatchOperationInput, projectId: string): Promise<string | undefined> {
+  if (input.payload.sessionId === undefined) return undefined
+  const sessionId = string(input.payload.sessionId, 'sessionId')
+  await input.assertProjectSession(sessionId, projectId)
+  if (!input.sessionCopyHost) return sessionId
+  using observation = await input.sessionCopyHost.sessionQuery.observeSession(SessionId(sessionId))
+  if (observation.header.id !== sessionId) throw new Error('Stage Session identity changed')
+  return observation.header.origin === 'subagent' ? observation.header.parentSession : sessionId
 }
 
 function object(value: unknown, field = 'input'): Data {
@@ -516,6 +527,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const result = service.editSegment(id, segmentId(payload), payload.target, revision(payload), {
         propagateRepeated: boolean(payload.propagateRepeated, 'propagateRepeated', false),
         excludedSegmentIds: payload.excludedSegmentIds === undefined ? [] : strings(payload.excludedSegmentIds, 'excludedSegmentIds', 10_000, SEGMENT_ID, true),
+        ...(payload.tmUnitId === undefined ? {} : { tmUnitId: string(payload.tmUnitId, 'tmUnitId', 150) }),
       })
       notify(mutations, id, 'segment-updated', { segmentIds: [result.segment.id, ...(result.repetition?.updatedSegmentIds ?? [])] })
       return result
@@ -523,7 +535,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     case 'linguistCatConfirmStage':
     case 'linguistCatUnconfirmStage': {
       const id = projectId(payload)
-      const result = operation === 'linguistCatConfirmStage' ? service.confirmCurrentStage(id, segmentId(payload), revision(payload)) : service.unconfirmCurrentStage(id, segmentId(payload), revision(payload))
+      const result = operation === 'linguistCatConfirmStage' ? service.confirmCurrentStage(id, segmentId(payload), revision(payload), await stageTaskId(input, id)) : service.unconfirmCurrentStage(id, segmentId(payload), revision(payload))
       notify(mutations, id, 'segment-updated', { segmentIds: [result.id] })
       return result
     }
@@ -531,7 +543,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const id = projectId(payload)
       if (!Array.isArray(payload.items) || payload.items.length === 0 || payload.items.length > 200) throw new TypeError('items must contain 1-200 entries')
       const items = payload.items.map((item) => { const row = object(item, 'item'); return { segmentId: segmentId(row), expectedRevision: revision(row) } })
-      const result = service.confirmCurrentStageBulk(id, items)
+      const result = service.confirmCurrentStageBulk(id, items, await stageTaskId(input, id))
       if (result.succeeded.length > 0) notify(mutations, id, 'segment-updated', { segmentIds: result.succeeded.map((item) => item.id) })
       return result
     }

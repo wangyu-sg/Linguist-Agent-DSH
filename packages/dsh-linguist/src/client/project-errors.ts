@@ -22,6 +22,7 @@ const messages: Record<LinguistIpcErrorCode, string> = {
   STORE_SCHEMA_TOO_NEW: '项目数据由更新版本创建，请升级应用后再打开',
   STORE_NOT_FOUND: '项目存储不存在', STORE_INDEX_CORRUPT: '项目索引损坏',
   STORE_READ_ONLY: '项目存储为只读，无法写入', STORE_BUSY: '项目数据正被占用，请稍后重试',
+  STORE_RESTORE_PENDING: '项目恢复未完成：请打开活动项目；已归档项目请保留现场并人工处理',
   STORE_PROJECT_EXISTS: '同名项目已存在',
   STORE_ASSET_SOURCE_MISMATCH: '批次源文件校验不一致',
   STORE_BACKUP_CORRUPT: '备份未通过完整性校验，已拒绝恢复',

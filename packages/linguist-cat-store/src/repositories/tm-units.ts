@@ -1,4 +1,4 @@
-import { deriveStableIdV2, tmSourceHash, type TmMatchCandidate } from '@linguist/cat-core'
+import { deriveStableIdV2, matchTmCandidates, tmSourceHash, type Segment, type TmMatchCandidate, type WorkflowStageEvent } from '@linguist/cat-core'
 import type { CatDatabase } from '../database'
 import { StoreNotFoundError } from '../errors'
 import type { RunHarnessRepository } from '../run-harness'
@@ -82,6 +82,7 @@ interface TmUnitRow {
   previous_source_hash: string | null
   next_source_hash: string | null
   metadata_json: string | null
+  local_metadata_json?: string | null
   source_inline_xml: string | null
   target_inline_xml: string | null
   source_label?: string | null
@@ -152,6 +153,7 @@ function tmMatchCandidateFromRow(row: TmUnitRow): TmStoredMatchCandidate {
     ...(row.metadata_json === null
       ? {}
       : { metadata: JSON.parse(row.metadata_json) as Record<string, string | string[]> }),
+    ...(row.local_metadata_json == null ? {} : { localMetadata: JSON.parse(row.local_metadata_json) as Record<string, string | string[]> }),
     ...(row.source_inline_xml === null
       ? {}
       : { sourceInline: row.source_inline_xml }),
@@ -162,6 +164,7 @@ function tmMatchCandidateFromRow(row: TmUnitRow): TmStoredMatchCandidate {
 }
 
 function sameContent(row: TmUnitRow, projectId: string, input: TmUnitImportInput): boolean {
+  const metadata = row.metadata_json === null ? undefined : JSON.parse(row.metadata_json) as Record<string, string | string[]>
   return row.project_id === projectId
     && row.source === input.source
     && row.target === input.target
@@ -173,7 +176,7 @@ function sameContent(row: TmUnitRow, projectId: string, input: TmUnitImportInput
     && row.context_key === (input.contextKey ?? null)
     && row.previous_source_hash === (input.previousSource === undefined ? null : tmSourceHash(input.previousSource))
     && row.next_source_hash === (input.nextSource === undefined ? null : tmSourceHash(input.nextSource))
-    && row.metadata_json === (input.metadata === undefined ? null : JSON.stringify(input.metadata))
+    && JSON.stringify(metadata) === JSON.stringify(input.metadata)
     && row.source_inline_xml === (input.sourceInline ?? null)
     && row.target_inline_xml === (input.targetInline ?? null)
 }
@@ -267,6 +270,62 @@ export class TmUnitsRepository {
       }
       if (imported > 0) this.events?.appendProjectEvent({ kind: 'project-updated' })
       return { imported, unchanged }
+    })
+  }
+
+  /** A stage decision is recorded atomically with its TU; it is not customer approval. */
+  addConfirmed(segment: Segment, event: WorkflowStageEvent, taskId: string): void {
+    this.db.transaction(`record confirmed TM ${segment.id}`, () => {
+      const row = this.db.db.prepare(`SELECT * FROM tm_units WHERE project_id = ? AND source_locale = ?
+        AND target_locale = ? AND source = ? AND target = ? ORDER BY created_at, id LIMIT 1`)
+        .get(this.projectId, segment.sourceLocale, segment.targetLocale, segment.source, segment.target) as TmUnitRow | undefined
+      const { event_id: eventId } = this.db.db.prepare('SELECT event_id FROM segment_stage_events WHERE segment_id = ? ORDER BY event_id DESC LIMIT 1')
+        .get(segment.id) as { event_id: number }
+      const metadata = row?.local_metadata_json ? JSON.parse(row.local_metadata_json) as Record<string, string | string[]> : {}
+      const confirmations = Array.isArray(metadata.la_confirmations) ? metadata.la_confirmations : []
+      if (confirmations.some(value => (JSON.parse(value) as { eventId: number }).eventId === eventId)) return
+      confirmations.push(JSON.stringify({ eventId, projectId: this.projectId, assetId: segment.assetId,
+        segmentId: segment.id, revision: event.segmentRevision, taskId, actor: event.actor ?? 'unknown',
+        stage: event.stage, confirmedAt: event.createdAt }))
+      metadata.la_confirmations = confirmations
+      metadata.la_confirmation_count = String(confirmations.length)
+      metadata.la_reuse_count ??= '0'
+      metadata.la_task_ids = [...new Set([...(Array.isArray(metadata.la_task_ids) ? metadata.la_task_ids : []), taskId])]
+      if (row) {
+        this.db.db.prepare('UPDATE tm_units SET local_metadata_json = ?, locally_confirmed = 1 WHERE id = ?').run(JSON.stringify(metadata), row.id)
+        this.clearCandidates()
+      } else {
+        const sourceId = `confirmed:${this.projectId}`
+        this.db.db.prepare(`INSERT OR IGNORE INTO tm_sources (id, project_id, kind, display_name, enabled, priority, created_at)
+          VALUES (?, ?, 'legacy', 'Stage-confirmed TM', 1, 0, ?)`).run(sourceId, this.projectId, event.createdAt)
+        const input = { source: segment.source, target: segment.target, sourceLocale: segment.sourceLocale,
+          targetLocale: segment.targetLocale, sourceId,
+          occurrenceKey: JSON.stringify([segment.sourceLocale, segment.targetLocale, segment.source, segment.target]) }
+        this.importMany([input])
+        this.db.db.prepare('UPDATE tm_units SET locally_confirmed = 1, local_metadata_json = ? WHERE id = ?').run(JSON.stringify(metadata), stableId(this.projectId, input))
+      }
+    })
+  }
+
+  recordReuse(unitId: string, segment: Segment, target: string, record: { runId: string; segmentId: string; revision: number; actor: string }): void {
+    this.db.transaction(`record TM reuse ${unitId}`, () => {
+      const row = this.db.db.prepare('SELECT * FROM tm_units WHERE id = ? AND project_id = ?').get(unitId, this.projectId) as TmUnitRow | undefined
+      if (!row) throw new StoreNotFoundError('TM unit', unitId)
+      if (row.source_locale !== segment.sourceLocale || row.target_locale !== segment.targetLocale) throw new Error('TM reuse language pair does not match the segment')
+      const candidate = tmMatchCandidateFromRow(row)
+      if (target !== row.target && target !== matchTmCandidates(segment.source, [candidate], { minimumScore: 0 })[0]?.adaptation?.candidate) {
+        throw new Error('TM reuse target does not match the original or adapted candidate')
+      }
+      const metadata = row.local_metadata_json ? JSON.parse(row.local_metadata_json) as Record<string, string | string[]> : {}
+      const records = Array.isArray(metadata.la_reuse_records) ? metadata.la_reuse_records : []
+      const value = JSON.stringify(record)
+      if (records.includes(value)) return
+      records.push(value)
+      metadata.la_reuse_records = records
+      metadata.la_reuse_count = String(records.length)
+      metadata.la_last_used_at = this.now()
+      this.db.db.prepare('UPDATE tm_units SET local_metadata_json = ? WHERE id = ?').run(JSON.stringify(metadata), unitId)
+      this.clearCandidates()
     })
   }
 
@@ -414,21 +473,28 @@ export class TmUnitsRepository {
     const cacheable = !this.db.db.isTransaction
     const cached = cacheable ? this.candidates.get(key) : undefined
     if (cached !== undefined) return cached
-    const rows = this.db.db.prepare(`
-      SELECT u.*, s.display_name AS source_label, s.priority AS source_priority
+    const rows = (this.db.schemaVersion < 19 ? this.db.db.prepare(`
+      SELECT u.*, NULL AS source_id, NULL AS source_hash, NULL AS original_tuid, NULL AS context_key,
+        NULL AS previous_source_hash, NULL AS next_source_hash, NULL AS metadata_json,
+        NULL AS source_inline_xml, NULL AS target_inline_xml
+      FROM tm_units AS u WHERE u.project_id = ? AND u.source_locale = ? AND u.target_locale = ?
+      ORDER BY u.created_at, u.id
+    `).all(this.projectId, sourceLocale, targetLocale) : this.db.db.prepare(`
+      SELECT u.*, CASE WHEN s.enabled = 0 THEN 'Stage-confirmed TM (source paused)' ELSE s.display_name END AS source_label,
+        s.priority AS source_priority
       FROM tm_units AS u
       LEFT JOIN tm_sources AS s ON s.id = u.source_id AND s.project_id = u.project_id
       WHERE u.project_id = ? AND u.source_locale = ? AND u.target_locale = ?
         ${exactHash === undefined ? '' : 'AND u.source_hash = ?'}
-        AND (s.id IS NULL OR s.enabled = 1)
+        AND (s.id IS NULL OR s.enabled = 1 ${this.db.schemaVersion < 20 ? '' : "OR (u.locally_confirmed = 1 AND s.id <> 'confirmed:' || u.project_id)"})
       ORDER BY COALESCE(s.priority, 0) DESC, u.created_at, u.id
     `).all(
       this.projectId,
       sourceLocale,
       targetLocale,
       ...(exactHash === undefined ? [] : [exactHash]),
-    ) as TmUnitRow[]
-    const candidates = rows.map(tmMatchCandidateFromRow)
+    )) as TmUnitRow[]
+    const candidates = rows.filter(row => this.db.schemaVersion >= 19 || exactHash === undefined || tmSourceHash(row.source, sourceLocale, targetLocale) === exactHash).map(tmMatchCandidateFromRow)
     if (cacheable) this.candidates.set(key, candidates)
     return candidates
   }

@@ -1,5 +1,18 @@
-.badge { composes: surface from './Controls.module.css'; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.badge { composes: surface from './Controls.module.css'; display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .identity { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badgeOpen { display: inline-flex; flex: none; }
+.badgeIcon { display: none; align-items: center; justify-content: center; }
+.headerMessage { display: inline-block; box-sizing: border-box; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The host Session title row is an inline-size container for its occupants. */
+@container (max-width: 1200px) {
+  .identityProject { display: none; }
+}
+@container (max-width: 960px) {
+  .identity, .badgeOpen, .badgeEllipsis { display: none; }
+  .badgeIcon { display: inline-flex; }
+  .badgeMenu { width: 28px; padding: 0; }
+  .headerMessage { max-width: 72px; }
+}
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .notice { composes: notice from './Controls.module.css'; padding: 16px; }
 .error { composes: error from './Controls.module.css'; padding: 8px; }

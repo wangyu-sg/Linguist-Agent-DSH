@@ -42,6 +42,7 @@ export function recordReviewedWork(runtime: CatToolRuntime, db: ProjectDatabase,
       ...(deps.sessionId === undefined ? {} : { actor: deps.sessionId }),
       ...(deps.now === undefined ? {} : { now: deps.now() }),
     })
+    if (decision !== 'blocked') db.tmUnits.addConfirmed(result.segment, result.event, deps.taskId ?? deps.sessionId ?? 'unknown')
     decisions.push({ segmentId: read.segmentId, decision, revision: result.event.segmentRevision })
   }
   const completion = evidence === undefined ? undefined : db.stageEvidence.getCompletion(evidence.stageRunId)
@@ -59,8 +60,8 @@ export function recordReviewedWork(runtime: CatToolRuntime, db: ProjectDatabase,
 }
 
 export function validateReviewedGroup(segmentIds: readonly string[], blockedIds: readonly string[]): void {
-  if (segmentIds.length < 1 || segmentIds.length > 200 || new Set(segmentIds).size !== segmentIds.length) {
-    throw new LinguistCatInvalidArgumentError('segmentIds', 'expected 1-200 unique explicitly reviewed IDs')
+  if (segmentIds.length < 1 || new Set(segmentIds).size !== segmentIds.length) {
+    throw new LinguistCatInvalidArgumentError('segmentIds', 'expected unique explicitly reviewed IDs')
   }
   if (new Set(blockedIds).size !== blockedIds.length || blockedIds.some(id => !segmentIds.includes(id))) {
     throw new LinguistCatInvalidArgumentError('blockedSegmentIds', 'expected a unique subset of the reviewed IDs')
@@ -75,8 +76,8 @@ export function createStageTools(runtime: CatToolRuntime) {
     promptSnippet: 'Declare the explicit full reviewed group; software records versions and decisions',
     parameters: Type.Object({
       snapshotIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 }),
-      segmentIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 }),
-      blockedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 })),
+      segmentIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+      blockedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
     }),
     async execute(toolCallId, params) {
       const blocked = params.blockedSegmentIds ?? []

@@ -14,6 +14,8 @@ import {
   type CatSegmentIndexItem,
   type CatSegmentListItem,
   type PagedResult,
+  type CatReviewMaterials,
+  type LinguistToolResult,
 } from './types'
 import {
   defineTool,
@@ -31,6 +33,7 @@ const SEGMENT_STATUSES: readonly SegmentStatus[] = [
 
 const ARCHIVED_NOTE = 'Project is archived: all data is read-only.'
 const SEGMENT_PAGE_BYTES = 24 * 1024
+type SegmentPage = PagedResult<CatSegmentListItem | CatSegmentIndexItem> & { nextOffset: number | null; maxBytes: number; oversized?: true }
 
 /** 项目概览、批次目录与分页句段读取。 */
 export function createProjectTools(runtime: CatToolRuntime) {
@@ -152,7 +155,7 @@ export function createProjectTools(runtime: CatToolRuntime) {
     label: 'CAT list batches',
     description:
       'List imported work batches (source files), not language reference assets, of the bound CAT project: batchId, filename, formatId, ' +
-      'segmentCount, and the content-derived sourceSha256 (not a path). Paginated: default limit ' +
+      'segmentCount, and the content-derived sourceSha256 (not a path). Delegated sessions list only batches and counts within their frozen scope. Paginated: default limit ' +
       `${CAT_TOOL_PAGE_LIMITS.listBatches.defaultLimit}, hard max ${CAT_TOOL_PAGE_LIMITS.listBatches.maxLimit} ` +
       '(larger limits are clamped with a note). Use offset to page.',
     promptSnippet: 'List work batches of the bound CAT project',
@@ -165,12 +168,16 @@ export function createProjectTools(runtime: CatToolRuntime) {
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.listBatches)
       // Asset rows are file-level metadata (tens, not millions); listByProject
       // never loads segment rows, so an in-memory page slice stays cheap.
-      const batches = db.assets.listByProject()
-      const items: CatBatchListItem[] = batches.slice(page.offset, page.offset + page.limit).map((batch) => ({
+      const batches = db.assets.listByProject().map(batch => ({
+        batch,
+        segmentCount: deps.delegatedScopeSegmentIds === undefined ? batch.segmentCount
+          : db.segments.count({ assetId: batch.id, segmentIds: deps.delegatedScopeSegmentIds }),
+      })).filter(item => deps.delegatedScopeSegmentIds === undefined || item.segmentCount > 0)
+      const items: CatBatchListItem[] = batches.slice(page.offset, page.offset + page.limit).map(({ batch, segmentCount }) => ({
         batchId: batch.id as string,
         filename: batch.originalFilename,
         formatId: batch.formatId,
-        segmentCount: batch.segmentCount,
+        segmentCount,
         sourceSha256: batch.sourceSha256,
       }))
       const dto: PagedResult<CatBatchListItem> = {
@@ -189,9 +196,10 @@ export function createProjectTools(runtime: CatToolRuntime) {
     name: 'cat_get_segments',
     label: 'CAT get segments',
     description:
-      'Read segments of the bound CAT project, optionally filtered by batchId (must come from ' +
+      'Read segments of the bound CAT project; delegated sessions list only their frozen scope. Optionally filter by batchId (must come from ' +
       'cat_list_batches), status, or a case-insensitive literal substring over source/target. ' +
-      'Paginated: default limit ' +
+      'For Reviewer/Proofreader, content returns the first normal reading group with related source/target and TM/TB evidence, plus continuationPaths for the rest of the selected scope. An oversized first group is also in continuationPaths. Read those files in order; do not query every 50 rows or re-read the first group. In this mode offset/limit do not narrow the review scope. ' +
+      'For other roles or view=index, paginated: default limit ' +
       `${CAT_TOOL_PAGE_LIMITS.getSegments.defaultLimit}, hard max ${CAT_TOOL_PAGE_LIMITS.getSegments.maxLimit} ` +
       '(larger limits are clamped with a note). Pages fit a 24 KiB UTF-8 result budget; continue with ' +
       'the returned nextOffset, not offset+limit. Content rows include segmentId, one-based originalOrdinal, ' +
@@ -199,9 +207,9 @@ export function createProjectTools(runtime: CatToolRuntime) {
       'complete with oversized=true; if the host truncates it, use cat_get_translation_context with maxBytes=24576 for that ' +
       'segment and collect its cursor fragments before reviewing. view=index returns only IDs and ' +
       'navigation metadata, not review content or evidence. Segment ids are stable across filtering and paging.',
-    promptSnippet: 'Read segments of the bound CAT project (paged)',
+    promptSnippet: 'Read bound CAT content; Reviewer input includes related materials automatically',
     promptGuidelines: [
-      'Continue cat_get_segments using its nextOffset; byte-limited pages can contain fewer than limit rows. Never treat host-truncated content as fully read.',
+      'Reviewer/Proofreader: read the supplied first group, then continuationPaths; no separate semantic lookup or receipt. Other paged reads use nextOffset. Never treat host-truncated content as fully read.',
     ],
     parameters: Type.Object({
       batchId: Type.Optional(Type.String({ description: 'Batch ID from cat_list_batches.' })),
@@ -220,7 +228,7 @@ export function createProjectTools(runtime: CatToolRuntime) {
       limit: Type.Optional(Type.Integer({ minimum: 1 })),
       offset: Type.Optional(Type.Integer({ minimum: 0 })),
     }),
-    async execute(toolCallId, params) {
+    async execute(toolCallId, params, signal): Promise<LinguistToolResult<SegmentPage | (CatReviewMaterials & { mode: 'review-materials' })>> {
       const { batchId, status, search, view } = params
       if (status !== undefined && !SEGMENT_STATUSES.includes(status)) {
         throw new LinguistCatInvalidArgumentError('status', `expected one of ${SEGMENT_STATUSES.join('/')}, got ${String(status)}`)
@@ -234,9 +242,15 @@ export function createProjectTools(runtime: CatToolRuntime) {
       }
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.getSegments)
       const filter = {
+        ...(deps.delegatedScopeSegmentIds === undefined ? {} : { segmentIds: deps.delegatedScopeSegmentIds }),
         ...(batchId !== undefined ? { assetId: batchId } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(search !== undefined && search !== '' ? { search } : {}),
+      }
+      if (view !== 'index' && (deps.linguistRole === 'reviewer' || deps.linguistRole === 'proofreader') && deps.prepareReviewMaterials) {
+        const ids = db.segments.queryIds(filter)
+        if (!ids.length) return toolResult({ mode: 'review-materials', coverage: { loaded: 0, expected: 0, complete: true }, readingContent: '', continuationPaths: [] }, deps.resultProjectId)
+        return toolResult({ mode: 'review-materials', ...await deps.prepareReviewMaterials(ids, signal) }, deps.resultProjectId)
       }
       const pageFilter = { ...filter, limit: page.limit, offset: page.offset }
       const total = db.segments.count(filter)
@@ -252,11 +266,7 @@ export function createProjectTools(runtime: CatToolRuntime) {
             revision: segment.revision,
           }))
         : db.segments.query(pageFilter).map(toSegmentItem)
-      let dto: PagedResult<CatSegmentListItem | CatSegmentIndexItem> & {
-        nextOffset: number | null
-        maxBytes: number
-        oversized?: true
-      } = {
+      let dto: SegmentPage = {
         items: [],
         total,
         limit: page.limit,

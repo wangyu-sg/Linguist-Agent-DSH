@@ -37,7 +37,7 @@ function mount(symbol, props, required = async operation => { throw Error(`Unexp
     useEffect(run, deps) { const index = cursor++; if (!slots[index] || deps.some((value, i) => !Object.is(value, slots[index].deps[i]))) pending.push(() => { slots[index]?.cleanup?.(); slots[index] = { deps, cleanup: run() } }) },
   }
   class ElementFixture { constructor(id) { this.dataset = { assistId: id } } closest() { return this } }
-  const storage = new Map()
+  const storage = new Map(), events = new EventTarget()
   function load(file) {
     if (cache.has(file)) return cache.get(file)
     const exports = {}
@@ -47,7 +47,7 @@ function mount(symbol, props, required = async operation => { throw Error(`Unexp
       exports, Element: ElementFixture,
       setTimeout(callback) { const id = ++timerId; timers.set(id, callback); return id }, clearTimeout: id => timers.delete(id),
       localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-      window: { getSelection: () => null },
+      Event, window: { getSelection: () => null, addEventListener: (...args) => events.addEventListener(...args), removeEventListener: (...args) => events.removeEventListener(...args), dispatchEvent: (...args) => events.dispatchEvent(...args) },
       require: name => {
         if (name === 'react') return { ...React, ...Object.fromEntries(Object.keys(hooks).map(name => [name, (...args) => active ? hooks[name](...args) : React[name](...args)])) }
         if (name === 'jotai') return { ...jotai, useAtomValue: atom => store.get(atom) }
@@ -61,18 +61,18 @@ function mount(symbol, props, required = async operation => { throw Error(`Unexp
         if (name === './PreviewView') return { PreviewView: 'PreviewView' }
         if (name === './TokenEditor') return { TokenEditor: 'TokenEditor' }
         if (name.endsWith('.module.css')) return { default: {} }
-        if (name.startsWith('./')) return load(name.slice(2) + (['./InlineTaggedText', './TargetEditor'].includes(name) ? '.tsx' : '.ts'))
+        if (name.startsWith('./')) return load(name.slice(2) + (['./InlineTaggedText', './TargetEditor', './RelatedSegments'].includes(name) ? '.tsx' : '.ts'))
         throw Error(`Unexpected fixture import: ${name}`)
       },
     })
     return exports
   }
-  const exports = load('EditorAssistance.tsx')
+  const exports = load(symbol === 'RelatedSegments' ? 'RelatedSegments.tsx' : 'EditorAssistance.tsx')
   const children = node => React.Children.toArray(node?.props?.children)
   const nodes = node => typeof node !== 'object' || node === null ? [] : [node, ...children(node).flatMap(nodes)]
   const text = node => typeof node !== 'object' || node === null ? (node == null || typeof node === 'boolean' ? '' : String(node)) : children(node).map(text).join('')
   return {
-    store, load, Element: ElementFixture,
+    store, load, Element: ElementFixture, notifySettings: () => events.dispatchEvent(new Event('linguist:review-settings')),
     render(next = {}) { Object.assign(props, next); active = true; try { for (let pass = 0; pass < 2; pass++) { cursor = 0; tree = exports[symbol](props); pending.splice(0).forEach(run => run()) } } finally { active = false } return tree },
     nodes: () => nodes(tree), text: () => text(tree),
     find(predicate) { const found = nodes(tree).find(predicate); assert(found, 'Missing expected rendered node'); return found },
@@ -104,6 +104,30 @@ function activeProps(changes = {}) {
   return { projectId: 'project-A', mutation: 0, segment, target: segment.target, baseTarget: segment.target, options: { ...views }, termMatches: [match], selectedText: '', onSelectedText() {}, spelling: spelling(), spellingError: '', onDictionaryChanged() {}, archived: false, onNavigate() {}, onLocate() {}, ...changes }
 }
 const concordanceResult = label => ({ segments: [{ segment: { ...segment, id: `result-${label}`, source: label }, assetLabel: label }], segmentTotal: 1, tm: [], tmTotal: 0, limit: 10, offset: 0 })
+
+test('related CAT segments coalesce rapid selection, discard stale results and refresh after settings changes', async () => {
+  const calls = [], navigation = []
+  const panel = mount('RelatedSegments', { projectId: 'synthetic', segmentId: 'first', mutation: 0, onNavigate: id => navigation.push(id) }, (operation, input) => {
+    assert.equal(operation, 'linguistCatRelated')
+    const reply = deferred(); calls.push({ input, reply }); return reply.promise
+  })
+  panel.render(); panel.render({ segmentId: 'second' }); panel.flushTimers()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].input.segmentId, 'second')
+  panel.render({ segmentId: 'third' }); panel.flushTimers()
+  calls[1].reply.resolve({ status: 'ready', scope: 55, segments: [{ id: 'linked', ordinal: 54, source: 'Similar source', target: 'Current saved target' }] })
+  await tick(); panel.render()
+  assert.match(panel.text(), /Current saved target/)
+  calls[0].reply.resolve({ status: 'ready', scope: 55, segments: [{ id: 'old', ordinal: 1, source: 'Stale', target: 'Old target' }] })
+  await tick(); panel.render()
+  assert.doesNotMatch(panel.text(), /Old target/)
+  panel.click('定位句段'); assert.deepEqual(navigation, ['linked'])
+  panel.notifySettings(); panel.render(); panel.flushTimers()
+  calls[2].reply.resolve({ status: 'disabled', segments: [] }); await tick(); panel.render()
+  assert.match(panel.text(), /已在 LA 设置中关闭/)
+  panel.render({ segmentId: 'fourth' }); panel.dispose(); panel.flushTimers()
+  assert.equal(calls.length, 3)
+})
 
 test('SourceText popup uses supplied actual Host occurrence, status and note, without re-matching another occurrence', () => {
   const harness = mount('SourceText', { segment, target: 'Potion 10', matches: [match], options: views, onTagFocus() {}, annotations: [] })

@@ -95,11 +95,13 @@ export class ProjectQuality {
         tmCandidates,
         {
           context: {
+            segmentId: segment.id,
             ...(segment.key === undefined ? {} : { contextKey: segment.key }),
             ...(neighbors.previous.at(-1) === undefined ? {} : { previousSource: neighbors.previous.at(-1)!.source }),
             ...(neighbors.next[0] === undefined ? {} : { nextSource: neighbors.next[0]!.source }),
           },
           minimumScore: 75,
+          includeAdaptable: true,
         },
       )
       return {
@@ -110,6 +112,7 @@ export class ProjectQuality {
             id: match.unitId,
             matchClass: match.matchClass,
             score: Math.round(match.displayScore),
+            baseScore: match.baseScore,
             matchedSource: match.matchedSource,
             target: match.target,
             sourceLabel: match.sourceLabel,
@@ -120,12 +123,14 @@ export class ProjectQuality {
               ...(match.sourcePriority > 0 ? [`来源优先级 ${match.sourcePriority}`] : []),
               ...(match.originalTuid === undefined ? [] : [`原库 TU ID：${match.originalTuid}`]),
               ...(match.metadata === undefined ? [] : [`原库属性（日期不代表审批）：${JSON.stringify(match.metadata)}`]),
+              ...(match.localMetadata === undefined ? [] : [`本地阶段记录：${JSON.stringify(match.localMetadata)}`]),
               ...(match.sourceInline === undefined ? [] : [`源文内联结构：${match.sourceInline}`]),
               ...(match.targetInline === undefined ? [] : [`译文内联结构：${match.targetInline}`]),
             ],
             safety: match.structure.safety,
             warnings: [...match.structure.reasons],
             differences: match.differences,
+            ...(match.adaptation === undefined ? {} : { adaptation: match.adaptation }),
             variantCount: match.variantCount,
           }
         }),
@@ -360,13 +365,16 @@ export class ProjectQuality {
     return this.context.call(() => db.catDb.transaction('save CAT target', () => {
       const editOptions = { source: 'human' as const, now: this.context.now() }
       if (options.propagateRepeated !== true) {
-        return { segment: db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment }
+        const segment = db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment
+        if (options.tmUnitId !== undefined) db.tmUnits.recordReuse(options.tmUnitId, segment, target, { runId: `human:${segment.id}:${segment.revision}`, segmentId: segment.id, revision: segment.revision, actor: 'local-user' })
+        return { segment }
       }
       const runId = `repeat-save:${randomUUID()}`
       const previous = db.segments.getById(segmentId)
       if (previous === undefined) throw new UnknownSegmentError(segmentId)
       const repeated = db.segments.listExactRepetitions(previous)
       const segment = db.segments.applyTargetEdit(segmentId, target, expectedRevision, editOptions).segment
+      if (options.tmUnitId !== undefined) db.tmUnits.recordReuse(options.tmUnitId, segment, target, { runId: `human:${segment.id}:${segment.revision}`, segmentId: segment.id, revision: segment.revision, actor: 'local-user' })
       const excluded = new Set(options.excludedSegmentIds)
       const repetition: NonNullable<EditSegmentResult['repetition']> = { runId, updatedSegmentIds: [], skipped: [] }
       const eligible = repeated.filter(candidate => {
@@ -393,6 +401,7 @@ export class ProjectQuality {
           const changes: RunMutationChange[] = []
           for (const candidate of eligible) {
             const updated = db.segments.applyTargetEdit(candidate.id, target, candidate.revision, editOptions).segment
+            if (options.tmUnitId !== undefined) db.tmUnits.recordReuse(options.tmUnitId, updated, target, { runId: `human:${updated.id}:${updated.revision}`, segmentId: updated.id, revision: updated.revision, actor: 'local-user' })
             repetition.updatedSegmentIds.push(updated.id)
             changes.push({
               entityType: 'segment', entityId: updated.id, changeKind: 'updated', segmentId: updated.id,
@@ -414,20 +423,19 @@ export class ProjectQuality {
     projectId: string,
     segmentId: string,
     expectedRevision: number,
+    taskId = 'local-user',
   ): Segment {
     this.context.assertProjectWritable(projectId)
     const project = this.context.getProject(projectId)
     const db = this.context.openProject(projectId)
     return this.context.call(
-      () => db.segments.confirmCurrentStage(
-        segmentId,
-        project.workflowStage ?? 'translation',
-        expectedRevision,
-        {
-          actor: 'local-user',
-          now: this.context.now(),
-        },
-      ).segment,
+      () => db.catDb.transaction(`confirm and record TM ${segmentId}`, () => {
+        const result = db.segments.confirmCurrentStage(segmentId, project.workflowStage ?? 'translation', expectedRevision, {
+          actor: 'local-user', now: this.context.now(),
+        })
+        db.tmUnits.addConfirmed(result.segment, result.event, taskId)
+        return result.segment
+      }),
       projectId,
     )
   }
@@ -459,10 +467,9 @@ export class ProjectQuality {
   confirmCurrentStageBulk(
     projectId: string,
     items: readonly StageMutationItem[],
+    taskId = 'local-user',
   ): StageMutationBatchResult {
     this.context.assertProjectWritable(projectId)
-    const project = this.context.getProject(projectId)
-    const db = this.context.openProject(projectId)
     const succeeded: Segment[] = []
     const failed: StageMutationFailure[] = []
     const seen = new Set<string>()
@@ -477,15 +484,7 @@ export class ProjectQuality {
       }
       seen.add(item.segmentId)
       try {
-        succeeded.push(db.segments.confirmCurrentStage(
-          item.segmentId,
-          project.workflowStage ?? 'translation',
-          item.expectedRevision,
-          {
-            actor: 'local-user',
-            now: this.context.now(),
-          },
-        ).segment)
+        succeeded.push(this.confirmCurrentStage(projectId, item.segmentId, item.expectedRevision, taskId))
       } catch (error) {
         failed.push({
           segmentId: item.segmentId,

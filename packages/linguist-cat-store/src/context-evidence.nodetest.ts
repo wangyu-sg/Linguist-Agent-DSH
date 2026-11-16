@@ -95,3 +95,28 @@ test('大型 Context 精确关联不逐单元格扫描整个批次，保留 sour
     rmSync(rootDir, { recursive: true, force: true })
   }
 })
+
+test('重复原文不把两个句段的备注互相标成必需，唯一 key 仍能关联同排资料', () => {
+  const rootDir = makeTempDir()
+  const store = new CatStore({ rootDir, entropy: makeEntropy(), now: makeClock() })
+  const project = store.createProject({ name: 'Ambiguous text', sourceLocale: 'en', targetLocale: 'zh-CN' })
+  const db = store.openProject(project.id)
+  try {
+    const input = makeImportedAsset({ segmentCount: 2 })
+    input.segments[1] = { ...input.segments[1]!, source: input.segments[0]!.source }
+    const { segments } = db.assets.insertImported(input)
+    const doc = db.contextDocs.insert({ kind: 'doc', originalFilename: 'brief.xlsx', blobRelpath: 'brief.xlsx' })
+    db.contextDocs.replaceExtraction(doc.id, [
+      { id: 'key-a', locator: { kind: 'sheet', sheet: 'Brief', row: 2 }, text: segments[0]!.key },
+      { id: 'source-a', locator: { kind: 'sheet', sheet: 'Brief', row: 2 }, text: segments[0]!.source },
+      { id: 'note-a', locator: { kind: 'sheet', sheet: 'Brief', row: 2 }, text: 'First use only' },
+      { id: 'source-b', locator: { kind: 'sheet', sheet: 'Brief', row: 3 }, text: segments[1]!.source },
+      { id: 'note-b', locator: { kind: 'sheet', sheet: 'Brief', row: 3 }, text: 'Unresolved row' },
+    ])
+    const links = db.contextDocs.linkExtractionByExactText(doc.id, 'synthetic')
+    const specific = links.filter(link => link.relation.kind === 'segment')
+    assert.deepEqual(specific.map(link => link.anchorId).sort(), ['key-a', 'note-a', 'source-a'])
+    assert.ok(specific.every(link => link.relation.kind === 'segment' && link.relation.segmentId === segments[0]!.id))
+    assert.ok(links.some(link => link.anchorId === 'note-b' && link.relation.kind === 'asset' && link.requiredness === 'conditional'))
+  } finally { db.close(); rmSync(rootDir, { recursive: true, force: true }) }
+})

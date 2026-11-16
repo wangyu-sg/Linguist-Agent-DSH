@@ -78,10 +78,10 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     for (const project of projects) {
       required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId: project.id })
         .then((summary) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], summary, summaryError: undefined } })) })
-        .catch((error: unknown) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], summaryError: describeProjectError(error, t) } })) })
+        .catch((error: unknown) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], summary: undefined, summaryError: describeProjectError(error, t) } })) })
       required<LinguistProjectHealthReport>('linguistProjectsCheckHealth', { projectId: project.id })
         .then((health) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], health, healthError: undefined } })) })
-        .catch((error: unknown) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], healthError: describeProjectError(error, t) } })) })
+        .catch((error: unknown) => { if (live) setDetails((current) => ({ ...current, [project.id]: { ...current[project.id], health: undefined, healthError: describeProjectError(error, t) } })) })
     }
     return () => { live = false }
   }, [projects])
@@ -179,7 +179,9 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
         {loading ? <p role="status">{t("正在读取项目…")}</p> : visibleProjects.length === 0 ? <div className={styles.empty}><strong>{t("开始一个本地化项目")}</strong><p>{t("当前没有项目。新建项目或导入已有项目后开始工作。")}</p></div> : <ul className={styles.list}>{visibleProjects.map((project) => {
           const detail = details[project.id]
           const workspace = workspaceSnapshot.items.find(item => item.workspaceId === project.workspaceId)
-          const failedChecks = detail?.health?.checks.filter((check) => !check.ok).map((check) => describeHealthCheck(check, t))
+          const needsUpgrade = detail?.health?.checks.some((check) => check.upgradeRequired)
+          const pendingRestore = detail?.health?.checks.some((check) => check.detail === 'STORE_RESTORE_PENDING')
+          const failedChecks = detail?.health?.checks.filter((check) => !check.ok && !check.upgradeRequired && check.detail !== 'STORE_RESTORE_PENDING').map((check) => describeHealthCheck(check, t))
           return <li key={project.id} className={styles.project} data-archived={Boolean(project.archivedAt)} data-drop-position={dropTarget?.projectId === project.id ? dropTarget.position : undefined} onDragOver={(event) => {
             if (busy || project.archivedAt || !draggingProjectId || draggingProjectId === project.id) return
             event.preventDefault()
@@ -198,6 +200,8 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
                 <span>{detail?.summary ? t('{segments} 段 · {assets} 批次', { segments: detail.summary.totalSegments, assets: detail.summary.assetCount }) : detail?.summaryError ? t('计数不可用') : t('计数加载中…')}</span>
                 {project.workspaceId && <span className={styles.projectWorkspace} title={workspace?.path}>{workspace ? `${t('工作区')} · ${workspace.title}` : t('工作区不可用')}</span>}
               </div>
+              {needsUpgrade && <span className={styles.warning}>{t(project.archivedAt ? '旧版本归档项目：请使用只读查看，部分数据可能无法查看' : '需要升级：打开可写项目时会先备份')}</span>}
+              {pendingRestore && <span className={styles.warning}>{t(project.archivedAt ? '恢复未完成：已归档项目请保留现场并人工处理' : '恢复未完成：打开项目后会完成中断恢复')}</span>}
               {failedChecks && failedChecks.length > 0 && <span className={styles.warning}>{t('需要修复')} · {failedChecks.join('；')}</span>}
               {detail?.healthError && <span className={styles.warning}>{t('健康检查不可用')} · {detail.healthError}</span>}
               {!project.workspaceId && <span className={styles.warning}>{t('需关联工作区')}</span>}
@@ -209,11 +213,11 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
               ]} onSelect={(id) => { setProjectMenuId(undefined); void reorder(project.id, id === 'up' ? -1 : 1) }} />}
               {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("工作区已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选工作区")}</Button>}
               <Button variant="outline" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
-              <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t("进入工作会话")}</Button>
+              <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t('新建 LA 会话')}</Button>
             </div>
           </li>
         })}</ul>}
-        <ProjectSessions sessions={sessions} projects={projects} onOpen={onOpenSession} />
+        <ProjectSessions sessions={sessions} projects={projects} workspaceId={workspaceId || undefined} onOpen={onOpenSession} />
 
       </section>
       <Modal open={dialog === 'create'} onClose={() => { if (!busy) setDialog(undefined) }} title={t('新建项目')} closeLabel={t('关闭')} className={styles.modal} contentClassName={styles.dialog}>

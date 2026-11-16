@@ -102,7 +102,7 @@ export type ContextAnchorLocator = (
   | { kind: 'sheet'; sheet: string; row?: number; cell?: string; rowKind?: 'header' | 'data' | 'skipped' }
   | { kind: 'page'; page: number }
   | { kind: 'paragraph'; index: number }
-  | { kind: 'image'; mediaId: string; sheet?: string; row?: number; cell?: string; page?: number }
+  | { kind: 'image'; mediaId: string; sheet?: string; row?: number; rowEnd?: number; cell?: string; page?: number }
 ) & {
   /** text_extract 中正文的 UTF-16 半开区间，不包含系统定位前缀。 */
   textRange?: { start: number; end: number }

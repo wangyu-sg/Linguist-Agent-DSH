@@ -147,6 +147,7 @@ interface ParsedSdlSegment {
 interface ParsedSdlUnit {
   /** Raw trans-unit markup in the template (export splice target). */
   full: string
+  id?: string
   /** True when segments came from `<seg-source><mrk mtype="seg">` elements. */
   segmented: boolean
   segs: ParsedSdlSegment[]
@@ -240,7 +241,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
     const text = this.decode(bytes, filename)
     const { units, warnings } = this.parseTemplate(text, filename)
     const segments: ImportedCatSegment[] = []
-    for (const unit of units) {
+    for (const [unitIndex, unit] of units.entries()) {
       for (const seg of unit.segs) {
         segments.push({
           ordinal: seg.ordinal,
@@ -256,14 +257,11 @@ export class SdlXliffAdapter implements CatFormatAdapter {
           locked: seg.locked,
           revision: 0,
           sourceHash: fnv1a64(seg.sourceText),
-          ...(seg.note !== undefined || seg.origin !== undefined
-            ? {
-                context: {
-                  ...(seg.note !== undefined ? { note: seg.note } : {}),
-                  ...(seg.origin !== undefined ? { origin: seg.origin } : {}),
-                },
-              }
-            : {}),
+          context: {
+            ...(seg.note !== undefined ? { note: seg.note } : {}),
+            ...(seg.origin !== undefined ? { origin: seg.origin } : {}),
+            meta: { sdlTransUnitOrdinal: String(unitIndex), ...(unit.id !== undefined ? { sdlTransUnitId: unit.id } : {}) },
+          },
         })
       }
     }
@@ -530,7 +528,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
         const inner = tuMatch[3] ?? ''
         const note = readUnitContext(inner)
         const tuLocked = fileLocked || translateNo(attrs)
-        const unit: ParsedSdlUnit = { full: tuMatch[0], segmented: false, segs: [] }
+        const unit: ParsedSdlUnit = { full: tuMatch[0], ...(attrs.id ? { id: attrs.id } : {}), segmented: false, segs: [] }
 
         const segSource = findDirectChild(inner, 'seg-source')
         const sourceMrks = extractSegMrks(segSource?.inner)

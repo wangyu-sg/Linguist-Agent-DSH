@@ -108,6 +108,7 @@ import {
   LOCKED_ALIASES,
   LOCKED_TRUTHY,
   normalizeDelimitedHeader,
+  rowContextFields,
   SOURCE_ALIASES,
   TARGET_ALIASES,
   type CsvColumnMapping,
@@ -294,6 +295,7 @@ interface ParsedSheetRow {
   target: string
   locked: boolean
   note: string | undefined
+  fields: Record<string, string>
   sheetRow: SheetRow
   targetCell: SheetCell | undefined
 }
@@ -306,6 +308,7 @@ interface ParsedSheet {
 
 interface ParsedWorkbook {
   zip: JSZip
+  sheetName: string
   sheetPath: string
   /** Worksheet XML as UTF-8 text, BOM stripped (re-attached on export). */
   sheetText: string
@@ -670,7 +673,11 @@ export class XlsxAdapter implements CatFormatAdapter {
       locked: row.locked,
       revision: 0,
       sourceHash: fnv1a64(row.source),
-      ...(row.note !== undefined ? { context: { note: row.note } } : {}),
+      context: {
+        ...(row.note === undefined ? {} : { note: row.note }),
+        origin: `${filename} / ${workbook.sheetName}!${row.sheetRow.rowNumber}`,
+        meta: { ...row.fields, sourceSheet: workbook.sheetName, sourceRow: row.sheetRow.rowNumber },
+      },
     }))
     return {
       asset: {
@@ -856,7 +863,7 @@ export class XlsxAdapter implements CatFormatAdapter {
     if (sharedEntry !== null) {
       sharedStrings = readSharedStrings(await sharedEntry.async('uint8array'), this.id, filename)
     }
-    return { zip, sheetPath, sheetText, sheetHadBom, sharedStrings, warnings }
+    return { zip, sheetName, sheetPath, sheetText, sheetHadBom, sharedStrings, warnings }
   }
 
   /**
@@ -997,6 +1004,7 @@ export class XlsxAdapter implements CatFormatAdapter {
         target: targetRead.value,
         locked: LOCKED_TRUTHY.has(lockedRaw),
         note: noteRead.value !== '' ? noteRead.value : undefined,
+        fields: rowContextFields(header, column => read(column).value, [columns.key, columns.source, columns.target, columns.locked, columns.context]),
         sheetRow,
         targetCell: columns.target < 0 ? undefined : sheetRow.byColumn.get(columns.target),
       })

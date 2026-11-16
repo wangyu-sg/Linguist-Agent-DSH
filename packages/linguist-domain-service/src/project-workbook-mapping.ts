@@ -62,9 +62,10 @@ function headerSignature(sheet: XlsxWorkbookSheet): string {
 
 function localeAliases(locale: string): string[] {
   const language = locale.toLowerCase().split(/[-_]/)[0] ?? ''
-  if (language === 'en') return ['en', 'english']
-  if (language === 'zh') return ['zh', 'chinese', '中文']
-  return language === '' ? [] : [language]
+  const exact = normalizeDelimitedHeader(locale)
+  if (language === 'en') return [exact, 'en', 'english']
+  if (language === 'zh') return [exact, 'zh', 'chinese', '中文']
+  return language === '' ? [] : [exact, language]
 }
 
 export function suggestProjectWorkbookMapping(

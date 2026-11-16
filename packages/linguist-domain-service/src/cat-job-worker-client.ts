@@ -23,8 +23,9 @@ export type WorkerRequest =
   | { kind: 'consistency'; request: LinguistConsistencyWorkerRequest }
   | { kind: 'context-import'; request: ContextImportWorkerRequest }
   | { kind: 'context-prepare'; request: ImportContextDocInput }
+  | { kind: 'working-references'; request: { rootDir: string; projectId: string; taskId: string; segmentIds: string[] } }
 
-function workerEntry(): URL {
+export function workerEntry(): URL {
   const built = new URL('./cat-job-worker.js', import.meta.url)
   return existsSync(fileURLToPath(built)) ? built : new URL('./cat-job-worker.ts', import.meta.url)
 }

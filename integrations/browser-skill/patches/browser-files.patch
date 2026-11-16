@@ -8,8 +8,8 @@
 -DSH 0.2 checks these peer requirements before loading the plugin; versions outside
 -this range are not declared compatible. The range preserves the existing 0.1.x
 -baseline and admits 0.2.x without opting into future 0.3.x hosts.
-+This local adapted build requires DSH `0.2.2-rc.1` and is installed from its
-+provided tarball. Keep the coordinated bsk CLI and extension at `0.4.1`.
++This local adapted build uses SDK `0.2.2-rc.3` and accepts runtime `>=0.2.2-rc.3 <0.2.3-0` and is installed from its
++provided tarball. Keep the coordinated bsk CLI and extension at `0.4.2`.
 +DSH checks the exact host peer requirements before loading the plugin.
 +The unmodified marketplace package does not include the local file-transfer additions.
  
@@ -70,8 +70,8 @@
  {
    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
    "description": "DeepSeek Harness tool plugin that exposes BrowserSkill browser automation (bsk_* tools) to the model",
--  "version": "0.4.1",
-+  "version": "0.4.1-la-dsh.1",
+-  "version": "0.4.2",
++  "version": "0.4.2-la-dsh.2",
    "license": "MIT",
    "publishConfig": {
      "access": "public",
@@ -98,14 +98,14 @@
 -    "@deepseek-ai/schemastery": "^3.18.2",
 -    "react": "^18.2.0"
 +    "@deepseek-ai/cordis": "4.1.0",
-+    "@deepseek-ai/dsh-attachment": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-tool": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-attachment": ">=0.2.2-rc.3 <0.2.3-0",
++    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.2-rc.3 <0.2.3-0",
++    "@deepseek-ai/dsh-client-ui-tool": ">=0.2.2-rc.3 <0.2.3-0",
++    "@deepseek-ai/dsh-llm": ">=0.2.2-rc.3 <0.2.3-0",
++    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.3 <0.2.3-0",
 +    "@deepseek-ai/schemastery": "3.19.0",
 +    "react": "^18.2.0",
-+    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1"
++    "@deepseek-ai/dsh-client-ui-session": ">=0.2.2-rc.3 <0.2.3-0"
    },
    "peerDependenciesMeta": {
      "@deepseek-ai/dsh-attachment": {
@@ -144,32 +144,32 @@
 -    "@deepseek-ai/dsh-tools": "0.1.5-rc.3",
 -    "@deepseek-ai/schemastery": "3.18.2",
 +    "@deepseek-ai/cordis": "4.1.0",
-+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-attachment": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-store": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-chat": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-ui-tool": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-scope": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-session": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-skill": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-tool-skill": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-agent": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-attachment": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-store": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-chat": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-conversation": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-ui-tool": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-scope": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-session": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-skill": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-tool-skill": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
 +    "@deepseek-ai/schemastery": "3.19.0",
      "@remixicon/react": "^4.9.0",
      "@tailwindcss/cli": "^4.3.3",
      "@testing-library/react": "^16.1.0",
-@@ -125,12 +130,48 @@
+@@ -125,12 +130,52 @@
      "lightningcss": "^1.30.0",
      "postcss": "^8.5.0",
      "postcss-prefix-selector": "^2.1.1",
@@ -182,45 +182,48 @@
      "tsdown": "^0.22.14",
      "typescript": "^5.8.0",
 -    "vitest": "^4.1.6"
--  }
 +    "vitest": "^4.1.6",
 +    "@deepseek-ai/cosmokit": "1.9.0",
-+    "@deepseek-ai/dsh-agent-default-model": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-connection": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-client-file-upload": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-commands": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-credentials": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-file-reference": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-fs": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-home-paths": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-native-command": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-sandbox": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-session-query": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-session-title": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-settings": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-subagent": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-typert-registry": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-user-approval": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-util-time": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-workspace": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-tool-todo": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-storage": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-storage-domain": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-agent-default-model": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-connection": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-client-file-upload": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-commands": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-credentials": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-file-reference": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-fs": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-home-paths": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-native-command": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-sandbox": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-session-query": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-session-title": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-settings": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-subagent": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-typert-registry": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-user-approval": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-util-time": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-workspace": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-tool-todo": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-storage": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-storage-domain": "0.2.2-rc.3",
 +    "@deepseek-ai/cordis-plugin-include": "1.1.0",
-+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-app-boot": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-compaction": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-sandbox-policy": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-working-directory": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-launch-environment": "0.2.2-rc.1",
-+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
++    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-app-boot": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-compaction": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-sandbox-policy": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-working-directory": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-launch-environment": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.3",
 +    "@deepseek-ai/cordis-plugin-group": "1.1.0",
-+    "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.1"
++    "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-error": "0.2.2-rc.3"
 +  },
-+  "private": true
++  "private": true,
++  "engines": {
++    "dsh": ">=0.2.2-rc.3 <0.2.3-0"
+   }
  }
 --- a/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
 +++ b/packages/dsh-plugin-browserskill/scripts/build-client-css.mjs
@@ -244,7 +247,7 @@
  | Login/CAPTCHA/OTP/consent/payment confirmation, disabled help, failed operations, or interrupted cleanup | [Human help and recovery](references/help-and-recovery.md) |
 --- a/packages/dsh-plugin-browserskill/skill/references/cooperation.md
 +++ b/packages/dsh-plugin-browserskill/skill/references/cooperation.md
-@@ -101,9 +101,10 @@
+@@ -106,9 +106,10 @@
  `awaitPromise` and `returnByValue` default to true. Scripts can have arbitrary or deferred effects
  and cannot be rolled back after dispatch. Inspect application evidence after an unknown result.
  
@@ -258,7 +261,7 @@
  Human intervention revokes further input; once a browser download ID is uniquely attributed,
  receipt collection continues within its original deadline. Keep that result and reconcile.
  Explicit task stop, tab closure or cancellation still releases only owned resources.
---- a/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
+--- /dev/null
 +++ b/packages/dsh-plugin-browserskill/skill/references/file-transfers.md
 @@ -0,0 +1,21 @@
 +# Browser file transfers
@@ -443,7 +446,7 @@
    if (!result.ok) {
      throw new Error(
        `screenshot toolview: readAttachment failed: ${result.error.code}: ${result.error.message}`,
---- a/packages/dsh-plugin-browserskill/src/file-tools.ts
+--- /dev/null
 +++ b/packages/dsh-plugin-browserskill/src/file-tools.ts
 @@ -0,0 +1,364 @@
 +/** BrowserSkill file transfers through the existing session, runner and queues. */
@@ -1001,7 +1004,7 @@
    /** Optional durable start journal directory (isolated by host/profile when configured). */
    sessionStateDirectory?: string;
    defaultTimeoutMs: number;
-@@ -1250,11 +1254,17 @@
+@@ -1274,11 +1278,17 @@
      commandLine: (args) => cmdline(deps, args),
      presentTerminalResult,
    });
@@ -1108,7 +1111,7 @@
  import { registerBrowserTools } from "../src/browser-tools";
  import { ObservationService } from "../src/observation";
  import { KeyedExecutor } from "../src/queue";
---- a/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
+--- /dev/null
 +++ b/packages/dsh-plugin-browserskill/tests/file-tools.test.ts
 @@ -0,0 +1,200 @@
 +import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -1311,7 +1314,7 @@
 +  else expect(await result).toMatchObject({ status: "failed", message: expect.stringContaining("file path must be non-empty") });
 +  expect(calls).toHaveLength(0);
 +});
---- a/packages/dsh-plugin-browserskill/tests/helpers/browser-fixture.ts
+--- /dev/null
 +++ b/packages/dsh-plugin-browserskill/tests/helpers/browser-fixture.ts
 @@ -0,0 +1,52 @@
 +// Browser fixture from upstream apps/extension/src/video/browser-fixture.ts.
@@ -1438,7 +1441,7 @@
    };
 --- a/packages/dsh-plugin-browserskill/tests/host-compatibility.test.ts
 +++ b/packages/dsh-plugin-browserskill/tests/host-compatibility.test.ts
-@@ -18,12 +18,7 @@
+@@ -18,13 +18,8 @@
  
    describe.each(dshPeers)("%s (%s)", (_name, range) => {
      it.each([
@@ -1448,16 +1451,18 @@
 -      "0.2.0-rc.1",
 -      "0.2.0",
 -      "0.2.1",
-+      "0.2.2-rc.1",
-     ])("admits supported host %s", (version) => {
+-    ])("admits supported host %s", (version) => {
++      "0.2.2-rc.3", "0.2.2-rc.4", "0.2.2",
++    ])("admits declared host %s", (version) => {
        expect(satisfies(version, range, { includePrerelease: true })).toBe(true);
      });
+ 
 @@ -32,6 +27,8 @@
        "0.1.0",
        "0.1.5-rc.2",
        "0.2.0-rc.0",
 +      "0.2.1-rc.3",
-+      "0.2.2",
++      "0.2.2-rc.2", "0.2.3-rc.1", "0.2.3",
        "0.3.0-rc.1",
        "0.3.0",
        "1.0.0",
@@ -1896,7 +1901,7 @@
      const { tools } = setup({});
      expect([...tools.keys()].sort()).toEqual(Object.keys(EXPECTED_ACTIONS).sort());
      for (const [name, actions] of Object.entries(EXPECTED_ACTIONS)) {
-@@ -3152,7 +3151,7 @@
+@@ -3183,7 +3182,7 @@
    });
  });
  
@@ -1905,7 +1910,7 @@
    it.each([
      {
        action: "evaluate",
-@@ -3170,53 +3169,6 @@
+@@ -3201,53 +3200,6 @@
          "false",
        ],
      },
@@ -1959,7 +1964,7 @@
    ])("forwards literal arguments and the observed context for $action", async ({
      action,
      args,
-@@ -3240,8 +3192,6 @@
+@@ -3271,8 +3223,6 @@
    });
    it.each([
      { action: "evaluate", expression: "1+1" },
@@ -1968,7 +1973,7 @@
    ])("rejects an unowned session before invoking $action", async (args) => {
      const { tools, calls } = setup({});
      await expect(
-@@ -3251,9 +3201,6 @@
+@@ -3282,9 +3232,6 @@
    });
    it.each([
      { action: "evaluate", expression: " " },
@@ -1980,7 +1985,32 @@
      await startSession(tools);
 --- a/packages/dsh-plugin-browserskill/tsdown.config.ts
 +++ b/packages/dsh-plugin-browserskill/tsdown.config.ts
-@@ -93,7 +93,7 @@
+@@ -1,5 +1,5 @@
+ import { readFile } from "node:fs/promises";
+-import { basename, dirname, resolve as resolvePath } from "node:path";
++import { basename, dirname, relative, resolve as resolvePath } from "node:path";
+ import { transform } from "lightningcss";
+ import { defineConfig, type UserConfig } from "tsdown";
+ import pkg from "./package.json" with { type: "json" };
+@@ -78,13 +78,14 @@
+         // and tokens, whose selectors must survive untouched.
+         if (!source.endsWith(".module.css") && !source.endsWith(".nomodule.css")) return null;
+         const abs = importer !== undefined ? resolvePath(dirname(importer), source) : source;
+-        return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX;
++        return CSS_VIRTUAL_PREFIX + relative(process.cwd(), abs) + CSS_VIRTUAL_SUFFIX;
+       },
+       async load(virtualId: string) {
+         if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null;
+         const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length);
+-        this.addWatchFile(fileId);
+-        const source = await readFile(fileId);
++        const absoluteFile = resolvePath(fileId);
++        this.addWatchFile(absoluteFile);
++        const source = await readFile(absoluteFile);
+         const isModule = fileId.endsWith(".module.css");
+         const { code, exports: cssExports } = transform({
+           filename: fileId,
+@@ -93,7 +94,7 @@
            minify: true,
          });
          const classMap: Record<string, string> = {};
@@ -1996,14 +2026,14 @@
  # The published primitives entry imports packages listed only as devDependencies upstream.
  packageExtensions:
 -  "@deepseek-ai/dsh-client-ui-primitives@0.1.5-rc.3":
-+  "@deepseek-ai/dsh-client-ui-primitives@0.2.2-rc.1":
++  "@deepseek-ai/dsh-client-ui-primitives@0.2.2-rc.3":
      dependencies:
 -      "@shikijs/langs": "^4.3.1"
 +      "diff": "9.0.0"
 +      "simple-icons": "16.31.0"
-+      "@deepseek-ai/dsh-util-code-language": "0.2.2-rc.1"
-+      "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1"
-+      "@deepseek-ai/dsh-client-store": "0.2.2-rc.1"
++      "@deepseek-ai/dsh-util-code-language": "0.2.2-rc.3"
++      "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.3"
++      "@deepseek-ai/dsh-client-store": "0.2.2-rc.3"
 +      "@shikijs/langs": "^4.4.3"
        "anser": "^2.3.5"
        "clsx": "^2.0.0"
@@ -2012,7 +2042,7 @@
      peerDependencies:
        react: "^18.2.0"
        react-dom: "^18.2.0"
-+  "@deepseek-ai/dsh-client-store@0.2.2-rc.1":
++  "@deepseek-ai/dsh-client-store@0.2.2-rc.3":
 +    dependencies:
 +      zustand: "4.4.7"
 +      immer: "10.1.1"

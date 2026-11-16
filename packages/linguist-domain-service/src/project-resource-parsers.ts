@@ -177,7 +177,7 @@ export function parseTermReference(
 }
 
 async function mappedXlsxRows(input: ImportReferenceInput): Promise<{
-  rows: Array<{ source: string; target: string; rowNo: number }>
+  rows: Array<{ source: string; target: string; rowNo: number; note?: string }>
   warnings: string[]
 }> {
   const mapping = input.xlsxMapping
@@ -194,6 +194,10 @@ async function mappedXlsxRows(input: ImportReferenceInput): Promise<{
   const findColumn = (name: string): number => {
     const normalized = normalizeDelimitedHeader(name)
     const matches = header.cells.filter((cell) => normalizeDelimitedHeader(cell.value) === normalized)
+    if (matches.length === 0 && /^[A-Z]{1,3}$/u.test(name)) {
+      const column = header.cells.find((cell) => cell.ref.replace(/\d+$/u, '') === name)
+      if (column) return column.col
+    }
     if (matches.length !== 1) {
       throw new FormatParseError('xlsx_reference', input.filename, `列 ${JSON.stringify(name)} 不存在或不唯一`)
     }
@@ -204,7 +208,13 @@ async function mappedXlsxRows(input: ImportReferenceInput): Promise<{
   const rows = sheet.rows.flatMap((row) => {
     const source = row.cells.find((cell) => cell.col === sourceColumn)?.value.trim() ?? ''
     const target = row.cells.find((cell) => cell.col === targetColumn)?.value.trim() ?? ''
-    return source === '' || target === '' ? [] : [{ source, target, rowNo: row.rowNo }]
+    if (source === '' || target === '') return []
+    const extra = row.cells.flatMap(cell => {
+      if (cell.col === sourceColumn || cell.col === targetColumn || !cell.value.trim()) return []
+      const label = header.cells.find(item => item.col === cell.col)?.value.trim() || `Column ${cell.col}`
+      return [`${label}: ${cell.value.trim()}`]
+    })
+    return [{ source, target, rowNo: row.rowNo, ...(extra.length ? { note: extra.join(' | ') } : {}) }]
   })
   if (rows.length === 0) {
     throw new FormatParseError('xlsx_reference', input.filename, '映射列中没有完整 source/target 数据行')
@@ -240,7 +250,7 @@ async function parseXlsxTermReference(
       translation: row.target,
       status: 'allowed',
       caseSensitive: false,
-      note: `XLSX row ${row.rowNo}`,
+      note: [`XLSX row ${row.rowNo}`, row.note].filter(Boolean).join(' | '),
     })),
     warnings: parsed.warnings,
   }

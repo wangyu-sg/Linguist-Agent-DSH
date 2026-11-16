@@ -4,7 +4,12 @@ export interface EditorDiffPart { kind: 'equal' | 'remove' | 'insert'; text: str
 
 /** Tag-atomic token diff: whitespace remains significant and raw strings always round-trip. */
 export function editorDiffParts(before: string, after: string, tagProfile?: LinguistTagProfileInfo, targetLocale?: string): EditorDiffPart[] {
-  const tokens = (text: string) => tokenizeInlineText(text, { tagProfile, targetLocale }).flatMap(token => token.kind === 'tag' ? [token.raw] : token.raw.match(/\s|[\p{L}\p{M}\p{N}_]+|[^\s\p{L}\p{M}\p{N}_]/gu) ?? [])
+  const tokens = (text: string) => tokenizeInlineText(text, { tagProfile, targetLocale }).flatMap(token => {
+    if (token.kind === 'tag') return [token.raw]
+    // Keep Han characters separate so an edit inside a sentence retains its unchanged text.
+    return token.raw.split(/(\p{Script=Han}\p{M}*)/u)
+      .flatMap(part => part.match(/\s|[\p{L}\p{M}\p{N}_]+|[^\s\p{L}\p{M}\p{N}_]/gu) ?? [])
+  })
   const left = tokens(before), right = tokens(after)
   const parts: EditorDiffPart[] = []
   const add = (kind: EditorDiffPart['kind'], text: string) => {

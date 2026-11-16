@@ -8,6 +8,7 @@ import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/t
 import { isAbsoluteWorkspacePath, relativizeToCwd, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -36,6 +37,7 @@ import { SessionCopyPage, type SessionCopyResult } from './SessionCopyPage'
 import { WorkingCopyPage } from './WorkingCopyPage'
 import { SessionSetup } from './SessionSetup'
 import { WorkspaceDirectoryFlow } from './WorkspaceDirectoryFlow'
+import { SettingsPage } from './SettingsPage'
 import { useBinding } from './use-binding'
 import { LocaleProvider, registerLinguistLocale, useT } from './ui-locale'
 import styles from './Native.module.css'
@@ -103,7 +105,7 @@ function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
 function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession, onNewTask }: { sessionId: string; preset: string | null | undefined; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
   const t = useT()
   const { binding, error } = useBinding(sessionId, preset)
-  const [projectName, setProjectName] = useState('')
+  const [projectName, setProjectName] = useState<{ projectId: string; name: string }>()
   const [projectError, setProjectError] = useState('')
   const [actionError, setActionError] = useState('')
   const [roleBusy, setRoleBusy] = useState(false)
@@ -118,15 +120,19 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
     const refreshName = () => {
       const current = ++request
       required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId: binding.projectId })
-        .then((summary) => { if (live && current === request) { setProjectName(summary.project.name); setProjectError('') } })
+        .then((summary) => { if (live && current === request) { setProjectName({ projectId: binding.projectId!, name: summary.project.name }); setProjectError('') } })
         .catch((cause: unknown) => { if (live && current === request) setProjectError(String(cause)) })
     }
     refreshName()
     const unsubscribe = subscribeProject(binding.projectId, 0, (event) => { if (event.kind === 'project-updated') refreshName() }, refreshName)
     return () => { live = false; unsubscribe() }
   }, [binding?.projectId])
-  if (error) return createElement('span', { className: styles.error, title: error }, t('Linguist 绑定读取失败'))
-  if (!binding) return detached ? createElement('span', { className: styles.badge, role: 'status' }, t('Linguist 绑定已解除；历史 CAT 证据保留。'), detached.cancelledScheduleIds.length ? ` ${t('已取消专用定时任务 {count} 项。', { count: detached.cancelledScheduleIds.length })}` : '') : null
+  if (error) return createElement(Tooltip, { label: error, portal: true, openOnClick: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: `${styles.error} ${styles.headerMessage}`, tabIndex: 0, role: 'alert', 'aria-label': `${t('Linguist 绑定读取失败')}：${error}` }, t('Linguist 绑定读取失败')) })
+  if (!binding) {
+    if (!detached) return null
+    const message = t('Linguist 绑定已解除；历史 CAT 证据保留。') + (detached.cancelledScheduleIds.length ? ` ${t('已取消专用定时任务 {count} 项。', { count: detached.cancelledScheduleIds.length })}` : '')
+    return createElement(Tooltip, { label: message, portal: true, openOnClick: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: styles.headerMessage, role: 'status', tabIndex: 0 }, message) })
+  }
   const roleLabel = t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])
   const changeRole = async (role: Role) => {
     if (role === binding.role || roleBusy) return
@@ -154,18 +160,40 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
     } catch (cause) { setActionError(String(cause)) }
     finally { setDetachBusy(false) }
   }
-  const identity = `${roleLabel} · ${t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])}${binding.projectId ? ` · ${projectName || binding.projectId.slice(0, 12)}` : ''}`
+  const modeLabel = t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])
+  const projectLabel = binding.projectId && projectName?.projectId === binding.projectId ? projectName.name : binding.projectId?.slice(0, 12)
+  const identity = `${roleLabel} · ${modeLabel}${projectLabel ? ` · ${projectLabel}` : ''}`
+  const openAction = binding.projectId && binding.workMode === 'cat'
+    ? { label: t('打开 CAT'), description: t('打开 Linguist CAT 工作台'), run: () => openCat(sessionId, binding.projectId!) }
+    : binding.workMode === 'working-copy'
+      ? { label: t('打开工作副本'), description: t('打开工作副本'), run: () => openWorkingCopy(sessionId) }
+      : binding.workMode === 'browser'
+        ? { label: t('打开浏览器'), description: t('打开浏览器'), run: () => openBrowser(sessionId) }
+        : null
+  const runOpen = () => {
+    if (openAction === null) return
+    try { openAction.run(); setActionError('') } catch (cause) { setActionError(String(cause)) }
+  }
   return createElement('span', { className: styles.badge },
-    createElement(Tooltip, { label: identity, portal: true, side: 'bottom', children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: styles.identity, tabIndex: 0 }, identity) }),
-    binding.projectId && binding.workMode === 'cat'
-      ? createElement(Button, { size: 'sm', variant: 'outline', onClick: () => openCat(sessionId, binding.projectId!), 'aria-label': t('打开 Linguist CAT 工作台') }, t('打开 CAT'))
+    createElement(Tooltip, { label: identity, portal: true, side: 'bottom', children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: styles.identity, tabIndex: 0, 'aria-label': identity },
+      `${roleLabel} · ${modeLabel}`,
+      projectLabel ? createElement('span', { className: styles.identityProject }, ` · ${projectLabel}`) : null,
+    ) }),
+    openAction !== null
+      ? createElement('span', { className: styles.badgeOpen }, createElement(Button, { size: 'sm', variant: 'outline', onClick: runOpen, 'aria-label': openAction.description }, openAction.label))
       : null,
-    binding.workMode === 'working-copy' ? createElement(Button, { size: 'sm', variant: 'outline', onClick: () => { try { openWorkingCopy(sessionId); setActionError('') } catch (cause) { setActionError(String(cause)) } } }, t('打开工作副本')) : null,
-    binding.workMode === 'browser' ? createElement(Button, { size: 'sm', variant: 'outline', onClick: () => { try { openBrowser(sessionId); setActionError('') } catch (cause) { setActionError(String(cause)) } } }, t('打开浏览器')) : null,
     createElement(Menu, {
       open: menuOpen, portal: true, align: 'end', autoFocus: true,
-      anchor: createElement(Button, { size: 'sm', variant: 'ghost', 'aria-label': t('Linguist 操作'), 'aria-expanded': menuOpen, onClick: () => setMenuOpen(!menuOpen) }, '···'),
+      anchor: createElement(Tooltip, { label: `${t('Linguist 操作')} · ${identity}`, portal: true, side: 'bottom', children: createElement(Button, {
+        size: 'sm', variant: 'ghost', className: styles.badgeMenu, 'aria-label': `${t('Linguist 操作')}：${identity}`,
+        'aria-haspopup': 'menu', 'aria-expanded': menuOpen, onClick: () => setMenuOpen(!menuOpen),
+      },
+      createElement('span', { className: styles.badgeEllipsis, 'aria-hidden': true }, '···'),
+      createElement('span', { className: styles.badgeIcon, 'aria-hidden': true }, createElement(IconGlobeOutlineRegular, { size: 16 })),
+      ) as React.ReactElement }),
       items: [
+        { type: 'label', id: 'identity', text: identity },
+        ...(openAction !== null ? [{ id: 'open', label: openAction.label }] : []),
         ...(binding.projectId && binding.workMode === 'cat' ? [{ id: 'new-general', label: t('新建项目通用会话'), disabled: roleBusy }] : []),
         ...(binding.projectId ? [{ id: 'continue', label: t('继续新任务'), disabled: roleBusy }] : []),
         ...(binding.projectId ? [{ id: 'copy', label: t('复制到项目') }] : []),
@@ -174,7 +202,7 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
         { id: 'detach', label: t('解除 Linguist 绑定'), danger: true },
       ],
       onClose: () => setMenuOpen(false),
-      onSelect: id => { setMenuOpen(false); if (id === 'new-general') void newTask('general'); else if (id === 'continue') void newTask('continue'); else if (id === 'copy') openCopy(sessionId); else if (id === 'detach') setDetachOpen(true); else if (id.startsWith('role:')) void changeRole(id.slice(5) as Role) },
+      onSelect: id => { setMenuOpen(false); if (id === 'open') runOpen(); else if (id === 'new-general') void newTask('general'); else if (id === 'continue') void newTask('continue'); else if (id === 'copy') openCopy(sessionId); else if (id === 'detach') setDetachOpen(true); else if (id.startsWith('role:')) void changeRole(id.slice(5) as Role) },
     }),
     createElement(Modal, { open: detachOpen, onClose: () => setDetachOpen(false), title: t('解除 Linguist 绑定'), closeLabel: t('关闭'),
       description: t('解除后此 Session 成为普通 Agent，会取消活跃的 Linguist 专用定时任务；历史专业证据保留。'),
@@ -182,8 +210,8 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
         createElement(Button, { variant: 'ghost', size: 'sm', disabled: detachBusy, onClick: () => setDetachOpen(false) }, t('取消')),
         createElement(Button, { variant: 'primary', size: 'sm', disabled: detachBusy, onClick: () => void detach() }, t('确认解除'))),
     }, actionError ? createElement('p', { className: styles.error, role: 'alert' }, actionError) : null),
-    projectError ? createElement(Tooltip, { label: projectError, portal: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: styles.error, tabIndex: 0 }, t('项目名称读取失败')) }) : null,
-    actionError && !detachOpen ? createElement('span', { className: styles.error, role: 'alert' }, actionError) : null,
+    projectError ? createElement(Tooltip, { label: projectError, portal: true, openOnClick: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: `${styles.error} ${styles.headerMessage}`, tabIndex: 0, 'aria-label': `${t('项目名称读取失败')}：${projectError}` }, t('项目名称读取失败')) }) : null,
+    actionError && !detachOpen ? createElement(Tooltip, { label: actionError, portal: true, openOnClick: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: `${styles.error} ${styles.headerMessage}`, role: 'alert', tabIndex: 0 }, actionError) }) : null,
   )
 }
 
@@ -328,7 +356,7 @@ export function apply(ctx: Context): void {
     const opened = await required<LinguistProjectOpenResult & { project: { workspaceId?: string } }>('linguistProjectsOpen', { projectId })
     if (navigation.aborted) return
     if (opened.project.id !== projectId || opened.health.projectId !== projectId) throw new Error(t('项目身份校验失败'))
-    if (!opened.health.healthy) throw new Error(t('需要修复'))
+    if (!opened.health.healthy) throw new Error(t(opened.project.archivedAt !== undefined && opened.health.checks.some(check => check.upgradeRequired) && opened.health.checks.every(check => check.ok || check.upgradeRequired) ? '旧版本归档项目：请使用只读查看，部分数据可能无法查看' : '需要修复'))
     const workspace = ctx.workspaces.list.getSnapshot().items.find(item => item.workspaceId === opened.project.workspaceId)
     if (!workspace) throw new Error(t('请选择工作区，或先为项目建立关联。'))
     let pending = pendingProjectSessions.get(projectId)
@@ -378,6 +406,11 @@ export function apply(ctx: Context): void {
       }, onOpenProject: openProject,
     }))))
   }
+  ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'linguist-settings', order: 70, label: () => 'Linguist' }, ({ close }) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SettingsPage, {
+    onOpenPlugins: () => { close(); ctx.layout.selectPanel(PLUGINS_PANEL_ID) },
+    onOpenProject: async (id, dock) => { await openProject(id, dock); close() }, capabilities: capabilities(),
+  }))))
+  ctx.slots.inject('settings.section.icon', () => ctx.slots.register({ name: 'settings.section.icon', id: 'linguist-settings' }, ({ size }) => createElement(IconGlobeOutlineRegular, { size })))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-session-setup', order: 1 }, props => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionSetup, {
     ...props, onEnter: binding => enter({ ...binding, workspaceId: binding.workspaceId as WorkspaceId }), onOpenProject: projectId => openCat(String(props.sessionId), projectId),
   }))))

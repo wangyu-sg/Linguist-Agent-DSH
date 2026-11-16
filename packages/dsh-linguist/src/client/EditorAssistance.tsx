@@ -13,6 +13,7 @@ import { PreviewView, type PreviewRequest } from './PreviewView'
 import { editorDiffParts } from './editor-diff'
 import { TERM_STATUS_LABELS } from './workflow-ui'
 import { useT } from './ui-locale'
+import { RelatedSegments } from './RelatedSegments'
 import styles from './EditorAssistance.module.css'
 
 export interface EditorViewOptions { invisibles: boolean; terms: boolean; critical: boolean; spelling: boolean; differences: boolean; context: boolean }
@@ -22,19 +23,25 @@ export function useEditorViewOptions(): [EditorViewOptions, (patch: Partial<Edit
   const [error, setError] = React.useState('')
   const [options, setOptions] = React.useState<EditorViewOptions>(defaultEditorViews)
   React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const saved = JSON.parse(raw)
-        const valid = Object.fromEntries(Object.entries(defaultEditorViews).map(([key, fallback]) => [key, typeof saved[key] === 'boolean' ? saved[key] : fallback])) as unknown as EditorViewOptions
-        setOptions(valid)
-      }
-    } catch (cause) { setError(String(cause)) }
+    const load = () => {
+      try {
+        const raw = localStorage.getItem(storageKey)
+        if (raw) {
+          const saved = JSON.parse(raw)
+          const valid = Object.fromEntries(Object.entries(defaultEditorViews).map(([key, fallback]) => [key, typeof saved[key] === 'boolean' ? saved[key] : fallback])) as unknown as EditorViewOptions
+          setOptions(valid)
+        }
+      } catch (cause) { setError(String(cause)) }
+    }
+    load()
+    window.addEventListener(storageKey, load)
+    window.addEventListener('storage', load)
+    return () => { window.removeEventListener(storageKey, load); window.removeEventListener('storage', load) }
   }, [])
   const update = (patch: Partial<EditorViewOptions>) => {
     const next = { ...options, ...patch }
     setOptions(next)
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); setError('') }
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); window.dispatchEvent(new Event(storageKey)); setError('') }
     catch (cause) { setError(String(cause)) }
   }
   return [options, update, error]
@@ -230,6 +237,7 @@ function ActiveSegmentAssistance({ projectId, mutation, segment, target, baseTar
     {shown.length > 0 && <details><summary>{t('查看本句提示')} · {shown.length}</summary><div className={styles.issueList}>{shown.map((item, index) => <Button key={item.id} variant="ghost" size="sm" aria-pressed={issueIndex === index} onClick={() => locate(item, index)}>{'messageKey' in item ? t(item.messageKey, item.values) : item.message}</Button>)}</div></details>}
     {termsTruncated && <p role="note">{t('术语匹配超过 200 项，仅显示前 200 项。')}</p>}
     <details><summary>{t('长度与计数口径')}</summary><p>{t('码点')} {analysis.length.target.codePoints} · {t('字素')} {analysis.length.target.graphemes} · UTF-8 {analysis.length.target.utf8Bytes} B · {t('行数')} {analysis.length.target.lines}</p>{analysis.length.constraints.length === 0 && <p>{t('没有可执行的显式长度限制。可在资料 → 技术约束中设置带单位的限制。')}</p>}{analysis.length.constraints.map(item => <p key={item.id}>{lengthLabel(item)}</p>)}{analysis.length.invalidConstraints.map(item => <p key={item.id} role="note">{t('长度约束未应用')}：{t(item.reason)}</p>)}<small>{t('计数不含标签代码和动态变量；ICU 与变量的最终显示长度、游戏内排版需另行核实。')}</small></details>
+    <RelatedSegments projectId={projectId} segmentId={segment.id} mutation={mutation} onNavigate={onNavigate} />
     <div className={styles.tools}><Button variant="ghost" size="sm" onClick={() => setConcordanceOpen(value => !value)}>{t('选词查用例')}</Button>{options.spelling && <Button variant="ghost" size="sm" onClick={() => setDictionaryOpen(value => !value)}>{t('项目词典')}</Button>}</div>
     {concordanceOpen && <Concordance projectId={projectId} assetId={segment.assetId} selectedText={selectedText} onSelectedText={onSelectedText} onNavigate={onNavigate} showInvisibles={options.invisibles} tagProfile={tagProfile} targetLocale={segment.targetLocale} />}
     {options.spelling && spellingError && <p role="alert">{spellingError}<Button variant="ghost" size="sm" onClick={onDictionaryChanged}>{t('重试')}</Button></p>}

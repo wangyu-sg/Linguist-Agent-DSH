@@ -5,16 +5,21 @@ import type { LinguistRole, SessionBinding } from './bindings'
 export interface LinguistDelegationRequest {
   role?: Exclude<LinguistRole, 'general'>
   scope?: { assetIds?: readonly string[]; segmentIds?: readonly string[] }
+  fileMode?: 'working-copy' | 'browser'
 }
 
-/** Freeze only IDs owned by the parent's CAT project before DSH starts a child. */
+/** Bind the actual task role; CAT scopes additionally retain their segment identities. */
 export function freezeLinguistDelegation(
   service: LinguistProjectService,
   parent: SessionBinding,
   request: LinguistDelegationRequest,
 ): SessionBinding {
-  if (!parent.projectId || parent.workMode !== 'cat') throw new Error('Linguist delegation requires a CAT project Session')
-  if (parent.role !== 'general') throw new Error('Only a General Session can delegate a Linguist CAT role')
+  if (parent.role !== 'general') throw new Error('Only a General Session can delegate a Linguist role')
+  if (request.fileMode || !parent.projectId || (parent.workMode !== 'cat' && !request.scope)) {
+    const { delegatedScope: _scope, reviewSnapshot: _snapshot, ...binding } = parent
+    return { ...binding, role: request.role ?? parent.role, workMode: request.fileMode ?? parent.workMode }
+  }
+  if (!parent.projectId) throw new Error('CAT scope requires a project')
   const db = service.openProject(parent.projectId)
   const assetIds = [...new Set(request.scope?.assetIds ?? [])]
   const selected = [...new Set(request.scope?.segmentIds ?? [])]

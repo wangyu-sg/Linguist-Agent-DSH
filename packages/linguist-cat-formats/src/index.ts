@@ -114,6 +114,6 @@ export {
   type XlsxWorkbookVerificationReport,
 } from './workbook'
 
-export { extractXlsxContext } from './context-extraction'
+export { extractXlsxContext, extractPptxContext } from './context-extraction'
 
 export type { XmlLocalePairOptions } from './xml-parser'

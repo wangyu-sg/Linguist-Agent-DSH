@@ -26,6 +26,8 @@ export const STORE_ERROR_CODES = {
   STORE_READ_ONLY: 'STORE_READ_ONLY',
   /** SQLITE_BUSY surfaced after the busy timeout. */
   STORE_BUSY: 'STORE_BUSY',
+  /** A restore was interrupted and must be recovered before read-only access. */
+  STORE_RESTORE_PENDING: 'STORE_RESTORE_PENDING',
   /** createProject was called for a project that already exists. */
   STORE_PROJECT_EXISTS: 'STORE_PROJECT_EXISTS',
   /** Active project reorder input is stale or is not an exact permutation. */
@@ -136,6 +138,14 @@ export class StoreBusyError extends StoreError {
   constructor(readonly operation: string) {
     super(`Database is busy (SQLITE_BUSY after busy_timeout) during: ${operation}.`)
     this.name = 'StoreBusyError'
+  }
+}
+
+export class StoreRestorePendingError extends StoreError {
+  readonly code = STORE_ERROR_CODES.STORE_RESTORE_PENDING
+  constructor() {
+    super('Project restore is incomplete; an active project must be opened writable to finish recovery.')
+    this.name = 'StoreRestorePendingError'
   }
 }
 

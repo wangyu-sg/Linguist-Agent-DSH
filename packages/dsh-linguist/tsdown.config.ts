@@ -59,7 +59,7 @@ export default defineConfig([
     name: `${pkg.name}/host`,
     entry: { index: 'src/index.ts' },
     outDir: 'lib', format: 'esm', dts: false, clean: false,
-    copy: ['../linguist-domain-service/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
+    copy: ['../linguist-domain-service/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', '../linguist-domain-service/src/semantic-review.py'],
     external: [/^@deepseek-ai\//],
     noExternal: [/^@linguist\//, /^file-type$/, /^pdfjs-dist\//],
     outputOptions: { entryFileNames: 'index.mjs' },

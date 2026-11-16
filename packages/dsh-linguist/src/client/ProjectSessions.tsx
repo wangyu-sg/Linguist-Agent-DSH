@@ -6,7 +6,7 @@ import { getBinding, type LinguistBinding } from './api'
 import { useT } from './ui-locale'
 import styles from './ProjectsPage.module.css'
 
-export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISessions; projects: readonly LinguistProjectInfo[]; onOpen: (binding: LinguistBinding) => Promise<void> }): React.ReactElement {
+export function ProjectSessions({ sessions, projects, workspaceId, onOpen }: { sessions: ISessions; projects: readonly LinguistProjectInfo[]; workspaceId?: string; onOpen: (binding: LinguistBinding) => Promise<void> }): React.ReactElement {
   const t = useT()
   const sessionSource = sessions.list
   const subscribe = React.useCallback((listener: () => void) => sessionSource.subscribe(listener), [sessionSource])
@@ -35,6 +35,7 @@ export function ProjectSessions({ sessions, projects, onOpen }: { sessions: ISes
 
   const groups = new Map<string, LinguistBinding[]>()
   for (const binding of bindings) {
+    if (workspaceId && binding.workspaceId !== workspaceId) continue
     const group = groups.get(binding.projectId!) ?? []
     group.push(binding)
     groups.set(binding.projectId!, group)

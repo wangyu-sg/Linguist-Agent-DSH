@@ -34,6 +34,7 @@ import { segmentFromRow, type SegmentRow, type SegmentRevisionRow, segmentRevisi
 
 export interface SegmentQuery {
   assetId?: string
+  segmentIds?: readonly string[]
   status?: SegmentStatus
   currentStageState?: CurrentStageState
   /** Case-insensitive substring matched against source OR target. */
@@ -71,13 +72,17 @@ function likePattern(search: string): string {
 
 /** Shared WHERE construction for query()/count() — the two must never drift. */
 function buildSegmentWhere(
-  filter: Pick<SegmentQuery, 'assetId' | 'status' | 'currentStageState' | 'search'>,
+  filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'>,
 ): { where: string; params: unknown[] } {
   const clauses: string[] = []
   const params: unknown[] = []
   if (filter.assetId !== undefined) {
     clauses.push('asset_id = ?')
     params.push(filter.assetId)
+  }
+  if (filter.segmentIds !== undefined) {
+    clauses.push('id IN (SELECT value FROM json_each(?))')
+    params.push(JSON.stringify(filter.segmentIds))
   }
   if (filter.status !== undefined) {
     clauses.push('status = ?')
@@ -141,7 +146,7 @@ export class SegmentsRepository {
    * paged readers report total/hasMore without fetching every row (PB-041).
    */
   count(
-    filter: Pick<SegmentQuery, 'assetId' | 'status' | 'currentStageState' | 'search'> = {},
+    filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
   ): number {
     const { where, params } = buildSegmentWhere(filter)
     const row = this.db.db
@@ -152,7 +157,7 @@ export class SegmentsRepository {
 
   /** Filtered ID index in the same deterministic order as query(); used as stable virtual row keys. */
   queryIds(
-    filter: Pick<SegmentQuery, 'assetId' | 'status' | 'currentStageState' | 'search'> = {},
+    filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
   ): string[] {
     const { where, params } = buildSegmentWhere(filter)
     const rows = this.db.db

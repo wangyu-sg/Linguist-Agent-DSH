@@ -43,7 +43,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
     sessions: { create: () => new Promise(resolve => { completeCreate = resolve }), refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds }) } },
     remote: { agentPresets: { select: async (id, preset) => { assert.equal(preset, 'linguist'); return { ok: true, value: preset } } }, skills: { list: async ({ sessionId }, signal) => { assert.equal(sessionId, 'synthetic-A'); assert(signal instanceof AbortSignal); return skillResult } } },
   }
-  const components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'use-binding']
+  const components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'SettingsPage', 'use-binding']
   const exports = {}
   const source = readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -63,6 +63,8 @@ test('native navigation cancels pending LA opens and late session creation', asy
     throw new Error(`Unexpected Client import: ${name}`)
   } })
   exports.apply(ctx)
+  assert.ok(registrations.has('settings.section'))
+  assert.ok(registrations.has('settings.section.icon'))
   const { onOpenSession, onEnter, onPickDirectory, capabilities } = registrations.get('main')().child.props
   assert.equal(await capabilities.props.loadSkills('synthetic-A', new AbortController().signal), skills)
   skillResult = { ok: false, error: { message: 'Native catalog unavailable' } }
@@ -186,7 +188,7 @@ test('opening a project reuses native CAT history, lazily ensures one Session, a
     async bindSession(value, workspaceId) { binds.push(value); const binding = { ...value, workspaceId }; bindings.set(value.sessionId, binding); return binding },
     async required(operation, input) { assert.equal(operation, 'linguistProjectsOpen'); return await (projectResult ?? { project: { id: input.projectId, workspaceId: workspace.workspaceId }, health: { projectId: input.projectId, healthy: true } }) },
   }
-  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'use-binding']
+  const exports = {}, components = ['CatWorkbench', 'BatchPreview', 'PreviewView', 'ComposerContextChips', 'ProjectsPage', 'ProjectCapabilities', 'SessionCopyPage', 'WorkingCopyPage', 'SessionSetup', 'WorkspaceDirectoryFlow', 'SettingsPage', 'use-binding']
   const code = ts.transpileModule(readFileSync(new URL('../../packages/dsh-linguist/src/client/index.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   runInNewContext(code, { exports, setTimeout, clearTimeout, require: name => {
     if (name === 'react') return { createElement: (_type, props, child) => ({ props, child }) }

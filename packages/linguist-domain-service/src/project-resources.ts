@@ -150,7 +150,7 @@ export class ProjectResources {
                 ...entry,
                 sourceId: tmSource!.id,
               })))
-              : db.termEntries.importMany(parsed.entries as TermEntryImportInput[]),
+              : db.termEntries.importMany(parsed.entries as TermEntryImportInput[], reference.id),
           }
         }))
       } catch (error) {

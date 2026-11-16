@@ -1,5 +1,7 @@
 import { sha256Hex } from './hash'
 import { scanTagTokens } from './tag-families'
+import { prepareTmScoringSource, scoreTmSource, tmCanReachScore, tmScoreUpperBound, type TmScoringSource } from './tm-scoring'
+import { adaptTmTarget, type TmAdaptation } from './tm-adaptation'
 
 /** The only match classes emitted by Segment Match. Concordance is separate. */
 export type TmSegmentMatchClass =
@@ -13,6 +15,8 @@ export type TmContextState = 'match' | 'mismatch' | 'unknown'
 export type TmReuseSafety = 'compatible' | 'review' | 'incompatible'
 
 export interface TmMatchContext {
+  taskId?: string
+  segmentId?: string
   contextKey?: string
   previousSource?: string
   nextSource?: string
@@ -29,14 +33,16 @@ export interface TmMatchCandidate {
   nextSourceHash?: string
   originalTuid?: string
   metadata?: Record<string, string | string[]>
+  localMetadata?: Record<string, string | string[]>
   sourceInline?: string
   targetInline?: string
 }
 
 export interface TmMatchDiagnostics extends Pick<TmMatchCandidate,
-  'originalTuid' | 'metadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
+  'originalTuid' | 'metadata' | 'localMetadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
   unitId: string
   matchClass: TmSegmentMatchClass
+  baseScore: number
   displayScore: number
   matchedSource: string
   target: string
@@ -44,6 +50,8 @@ export interface TmMatchDiagnostics extends Pick<TmMatchCandidate,
   sourcePriority: number
   provenanceCount: number
   variantCount: number
+  sameTask: boolean
+  sameSegment: boolean
   context: {
     structural: TmContextState
     textFlow: TmContextState
@@ -53,27 +61,31 @@ export interface TmMatchDiagnostics extends Pick<TmMatchCandidate,
     reasons: string[]
   }
   differences: string[]
+  adaptation?: TmAdaptation
 }
 
 export interface TmMatcherOptions {
   context?: TmMatchContext
   minimumScore?: number
+  /** Automatic context may expose a low-scoring placeable candidate without changing its score. */
+  includeAdaptable?: boolean
 }
 
 export interface TmAgentEvidence extends Pick<TmMatchDiagnostics,
-  'originalTuid' | 'metadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline'> {
+  'originalTuid' | 'metadata' | 'localMetadata' | 'contextKey' | 'previousSourceHash' | 'nextSourceHash' | 'sourceInline' | 'targetInline' | 'adaptation'> {
   unitId: string
   matchClass: TmSegmentMatchClass
   score: number
+  baseScore: number
   matchedSource: string
   target: string
   sourceLabel: string
   safety: 'compatible' | 'review'
   reasons: string[]
   ambiguous: boolean
+  sameTask: boolean
+  sameSegment: boolean
 }
-
-const WORD_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'word' })
 
 function normalizeTmText(value: string): string {
   return value
@@ -84,53 +96,8 @@ function normalizeTmText(value: string): string {
     .toLocaleLowerCase()
 }
 
-function tokenize(value: string): string[] {
-  return Array.from(WORD_SEGMENTER.segment(value), (part) => part.segment.trim())
-    .filter((token) => token !== '')
-}
-
 function isCjk(value: string): boolean {
   return /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/u.test(value)
-}
-
-function characterNgrams(characters: readonly string[]): Map<string, number> {
-  const grams = new Map<string, number>()
-  const size = characters.length > 1 ? 2 : 1
-  for (let index = 0; index + size <= characters.length; index += 1) {
-    const gram = characters.slice(index, index + size).join('')
-    grams.set(gram, (grams.get(gram) ?? 0) + 1)
-  }
-  return grams
-}
-
-function multisetDice(left: Map<string, number>, right: Map<string, number>, leftTotal: number, rightTotal: number): number {
-  let overlap = 0
-  for (const [gram, count] of left) overlap += Math.min(count, right.get(gram) ?? 0)
-  return leftTotal === 0 && rightTotal === 0
-    ? 1
-    : (2 * overlap) / (leftTotal + rightTotal)
-}
-
-function levenshteinSimilarity(left: readonly string[], right: readonly string[]): number {
-  if (left.length === 0 && right.length === 0) return 1
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
-  for (let row = 1; row <= left.length; row += 1) {
-    let diagonal = previous[0]!
-    previous[0] = row
-    for (let column = 1; column <= right.length; column += 1) {
-      const above = previous[column]!
-      previous[column] = left[row - 1] === right[column - 1]
-        ? diagonal
-        : 1 + Math.min(diagonal, above, previous[column - 1]!)
-      diagonal = above
-    }
-  }
-  return 1 - previous[right.length]! / Math.max(left.length, right.length)
-}
-
-function lengthPenalty(a: number, b: number): number {
-  if (a === 0 && b === 0) return 1
-  return Math.min(a, b) / Math.max(a, b)
 }
 
 const PLAIN_PLACEABLE_PATTERN = /\b\d+(?:[.,]\d+)?%?|https?:\/\/[^\s]+|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/giu
@@ -160,12 +127,10 @@ function punctuationMasked(masked: string): string {
 interface PreparedSourceFeatures {
   source: string
   normalized: string
-  tokens: string[]
-  grams: Map<string, number>
-  gramCount: number
+  wordCount: number
+  scoring: TmScoringSource
   characterCount: number
   masked: string
-  rawMasked: string
   punctuationMasked: string
   placeableCount: number
   placeableKey: string
@@ -178,10 +143,10 @@ function prepareSource(source: string): PreparedSourceFeatures {
   const rawMasked = placeableMasked(source, rawTags)
   const placeables = extractPlaceables(source, rawTags)
   const characters = Array.from(normalized)
+  const scoring = prepareTmScoringSource(source)
   return {
-    source, normalized, tokens: tokenize(normalized), grams: characterNgrams(characters),
-    gramCount: characters.length > 1 ? characters.length - 1 : characters.length,
-    characterCount: characters.length, masked: placeableMasked(normalized, normalizedTags), rawMasked,
+    source, normalized, scoring, wordCount: scoring.tokens.filter(token => token.kind === 'word' || token.kind === 'number').length,
+    characterCount: characters.length, masked: placeableMasked(normalized, normalizedTags),
     punctuationMasked: punctuationMasked(rawMasked), placeableCount: placeables.length, placeableKey: placeables.join('\u0000'),
   }
 }
@@ -212,22 +177,6 @@ function structuralSafety(left: PreparedSourceFeatures, right: PreparedSourceFea
   return { safety: 'compatible', reasons: [] }
 }
 
-function differences(query: PreparedSourceFeatures, candidate: PreparedSourceFeatures): string[] {
-  const result: string[] = []
-  if (query.source !== candidate.source) {
-    if (query.normalized === candidate.normalized) {
-      if (query.source.replace(/\s+/gu, ' ') !== candidate.source.replace(/\s+/gu, ' ')) result.push('空白差异')
-      if (query.source.toLocaleLowerCase() === candidate.source.toLocaleLowerCase()) result.push('大小写差异')
-      if (result.length === 0) result.push('标点或格式差异')
-    } else if (query.rawMasked === candidate.rawMasked) {
-      result.push('可识别 Placeable 差异')
-    } else {
-      result.push('词汇或词序差异')
-    }
-  }
-  return result
-}
-
 function contextState(expectedHash: string | undefined, actualHash: string | undefined): TmContextState {
   if (expectedHash === undefined || actualHash === undefined) return 'unknown'
   return expectedHash === actualHash ? 'match' : 'mismatch'
@@ -246,27 +195,36 @@ function isShortSegment(features: PreparedSourceFeatures): boolean {
   if (normalized === '') return true
   if (/^\d+$/u.test(normalized)) return true
   if (isCjk(normalized)) return features.characterCount <= 6
-  return features.tokens.length <= 2
+  return features.wordCount <= 2
 }
 
 function compareDiagnostics(left: TmMatchDiagnostics, right: TmMatchDiagnostics): number {
+  const lastUsed = (match: TmMatchDiagnostics) => {
+    const value = match.localMetadata?.la_last_used_at ?? match.metadata?.['sdltm:last_used_date']
+    return typeof value === 'string' ? Date.parse(value) || 0 : 0
+  }
   return right.displayScore - left.displayScore
+    || lastUsed(right) - lastUsed(left)
     || right.sourcePriority - left.sourcePriority
     || left.unitId.localeCompare(right.unitId)
 }
 
-function ambiguityGroups(matches: TmMatchDiagnostics[]): void {
-  for (const sourceMatches of Map.groupBy(
-    matches,
-    (match) => normalizeTmText(match.matchedSource),
-  ).values()) {
-    const targetGroups = Map.groupBy(sourceMatches, (match) => normalizeTmText(match.target))
-    for (const targetMatches of targetGroups.values()) {
-      for (const match of targetMatches) {
-        match.provenanceCount = targetMatches.length
-        match.variantCount = targetGroups.size
-      }
-    }
+function ambiguityGroups(matches: TmMatchDiagnostics[], candidates: readonly TmMatchCandidate[]): void {
+  const sources = new Set(matches.map(match => normalizeTmText(match.matchedSource)))
+  const variants = new Map<string, Map<string, number>>()
+  for (const candidate of candidates) {
+    const source = prepareCandidate(candidate).normalized
+    if (!sources.has(source)) continue
+    const targets = variants.get(source) ?? new Map<string, number>()
+    const target = normalizeTmText(candidate.target)
+    targets.set(target, (targets.get(target) ?? 0) + 1)
+    variants.set(source, targets)
+  }
+  for (const match of matches) {
+    const targets = variants.get(normalizeTmText(match.matchedSource))!
+    match.provenanceCount = targets.get(normalizeTmText(match.target))!
+    match.variantCount = targets.size
+    if (targets.size > 1) match.displayScore = Math.max(0, match.displayScore - 1)
   }
 }
 
@@ -281,9 +239,11 @@ export function matchTmCandidates(
   const previousHash = options.context?.previousSource === undefined ? undefined : tmSourceHash(options.context.previousSource)
   const nextHash = options.context?.nextSource === undefined ? undefined : tmSourceHash(options.context.nextSource)
   const matches: TmMatchDiagnostics[] = []
+  const scoringCache = new Map()
   for (const candidate of candidates) {
     const features = prepareCandidate(candidate)
     const rawExact = query === candidate.source
+    const near = queryFeatures.punctuationMasked === features.punctuationMasked || queryFeatures.masked === features.masked
     const structural = candidate.contextKey === undefined || options.context?.contextKey === undefined
       ? 'unknown'
       : candidate.contextKey === options.context.contextKey ? 'match' : 'mismatch'
@@ -297,6 +257,7 @@ export function matchTmCandidates(
         : 'mismatch'
     let matchClass: TmSegmentMatchClass
     let displayScore: number
+    let sourceDifferences: string[] = []
     if (rawExact && structural === 'match' && textFlow === 'match') {
       matchClass = 'double-context'
       displayScore = 102
@@ -306,35 +267,38 @@ export function matchTmCandidates(
     } else if (rawExact) {
       matchClass = 'exact'
       displayScore = 100
-    } else if (queryFeatures.punctuationMasked === features.punctuationMasked || queryFeatures.masked === features.masked) {
-      matchClass = 'near-exact'
-      displayScore = 97
     } else {
-      const penalty = lengthPenalty(queryFeatures.characterCount, features.characterCount)
-      const dice = multisetDice(queryFeatures.grams, features.grams, queryFeatures.gramCount, features.gramCount)
-      if (options.minimumScore !== undefined) {
-        const tokenCount = Math.max(queryFeatures.tokens.length, features.tokens.length)
-        // Edit distance >= the token-count difference. Use the original arithmetic order at the boundary.
-        const tokenUpper = tokenCount === 0 ? 1 : 1 - Math.abs(queryFeatures.tokens.length - features.tokens.length) / tokenCount
-        const upperScore = Math.max(0, Math.min(94, (0.65 * tokenUpper + 0.35 * dice) * penalty * 100))
-        if (upperScore < options.minimumScore) continue
-      }
-      const lexicalScore = 0.65 * levenshteinSimilarity(queryFeatures.tokens, features.tokens) + 0.35 * dice
-      displayScore = Math.max(0, Math.min(94, lexicalScore * penalty * 100))
-      matchClass = 'fuzzy'
+      if (options.minimumScore !== undefined && !(options.includeAdaptable && near)
+        && (tmScoreUpperBound(queryFeatures.scoring, features.scoring) < options.minimumScore
+          || !tmCanReachScore(queryFeatures.scoring, features.scoring, options.minimumScore, scoringCache))) continue
+      const scored = scoreTmSource(queryFeatures.scoring, features.scoring, scoringCache)
+      displayScore = scored.score
+      sourceDifferences = scored.differences
+      matchClass = near ? 'near-exact' : 'fuzzy'
     }
-    if (options.minimumScore !== undefined && displayScore < options.minimumScore) continue
+    if (options.minimumScore !== undefined && displayScore < options.minimumScore && !(options.includeAdaptable && near)) continue
+    const adaptation = adaptTmTarget(query, candidate.source, candidate.target)
+    if (options.minimumScore !== undefined && displayScore < options.minimumScore && !(options.includeAdaptable && near && adaptation)) continue
     const structure = structuralSafety(queryFeatures, features)
-    const safety = matchClass === 'fuzzy' || matchClass === 'near-exact' || structure.safety !== 'compatible'
+    const sameTask = options.context?.taskId !== undefined && Array.isArray(candidate.localMetadata?.la_task_ids)
+      && candidate.localMetadata.la_task_ids.includes(options.context.taskId)
+    const confirmations = candidate.localMetadata?.la_confirmations
+    const sameSegment = options.context?.segmentId !== undefined && Array.isArray(confirmations)
+      && confirmations.some(value => (JSON.parse(value) as { segmentId: string }).segmentId === options.context!.segmentId)
+    const safety = sameTask || sameSegment || matchClass === 'fuzzy' || matchClass === 'near-exact' || structure.safety !== 'compatible'
       ? 'review' : 'compatible'
     const safetyReasons = [
       ...structure.reasons,
+      ...(sameTask ? ['含本任务的阶段确认记录，不能作为独立历史定稿依据'] : []),
+      ...(sameSegment ? ['含同一句段的阶段确认记录，不能作为独立历史定稿依据'] : []),
+      ...(adaptation?.status === 'needs-review' ? ['自动适配无法可靠对齐，需结合上下文判断'] : []),
       ...(matchClass === 'near-exact' && structure.reasons.length === 0 ? ['Near Exact 默认需要人工审核'] : []),
       ...(matchClass === 'fuzzy' ? [shortQuery ? '短句模糊候选，仅供参考，需核对语义与上下文' : '模糊候选需核对变化后再使用'] : []),
     ]
     matches.push({
       unitId: candidate.unitId,
       matchClass,
+      baseScore: displayScore,
       displayScore: Math.round(displayScore * 100) / 100,
       matchedSource: candidate.source,
       target: candidate.target,
@@ -342,11 +306,15 @@ export function matchTmCandidates(
       sourcePriority: candidate.sourcePriority ?? 0,
       provenanceCount: 1,
       variantCount: 1,
+      sameTask,
+      sameSegment,
       context: { structural, textFlow },
       structure: { safety, reasons: [...safetyReasons] },
-      differences: differences(queryFeatures, features),
+      differences: sourceDifferences,
+      ...(adaptation === undefined ? {} : { adaptation }),
       ...(candidate.originalTuid === undefined ? {} : { originalTuid: candidate.originalTuid }),
       ...(candidate.metadata === undefined ? {} : { metadata: candidate.metadata }),
+      ...(candidate.localMetadata === undefined ? {} : { localMetadata: candidate.localMetadata }),
       ...(candidate.contextKey === undefined ? {} : { contextKey: candidate.contextKey }),
       ...(candidate.previousSourceHash === undefined ? {} : { previousSourceHash: candidate.previousSourceHash }),
       ...(candidate.nextSourceHash === undefined ? {} : { nextSourceHash: candidate.nextSourceHash }),
@@ -354,9 +322,11 @@ export function matchTmCandidates(
       ...(candidate.targetInline === undefined ? {} : { targetInline: candidate.targetInline }),
     })
   }
-  ambiguityGroups(matches)
-  matches.sort(compareDiagnostics)
-  return matches
+  ambiguityGroups(matches, candidates)
+  const filtered = options.minimumScore === undefined ? matches : matches.filter(match => match.displayScore >= options.minimumScore!
+    || (options.includeAdaptable && match.matchClass === 'near-exact' && match.adaptation !== undefined))
+  filtered.sort(compareDiagnostics)
+  return filtered
 }
 
 /** Convert diagnostics to the intentionally smaller Agent evidence contract. */
@@ -375,6 +345,7 @@ export function selectTmAgentEvidence(
       unitId: match.unitId,
       matchClass: match.matchClass,
       score: Math.round(match.displayScore),
+      baseScore: match.baseScore,
       matchedSource: match.matchedSource,
       target: match.target,
       sourceLabel: match.sourceLabel,
@@ -385,6 +356,10 @@ export function selectTmAgentEvidence(
         ...(match.variantCount <= 1 ? [] : ['同一原文存在多个不同译文变体，不能仅按分数选择。']),
       ],
       ambiguous: match.variantCount > 1,
+      sameTask: match.sameTask,
+      sameSegment: match.sameSegment,
+      ...(match.localMetadata === undefined ? {} : { localMetadata: match.localMetadata }),
+      ...(match.adaptation === undefined ? {} : { adaptation: match.adaptation }),
       ...(match.originalTuid === undefined ? {} : { originalTuid: match.originalTuid }),
       ...(match.metadata === undefined ? {} : { metadata: match.metadata }),
       ...(match.contextKey === undefined ? {} : { contextKey: match.contextKey }),

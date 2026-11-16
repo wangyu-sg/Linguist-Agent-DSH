@@ -90,7 +90,7 @@ export function createProposalTools(runtime: CatToolRuntime) {
   const applyTranslationsTool = defineTool({
     name: 'cat_apply_translations',
     label: 'CAT apply translations',
-    description: 'Submit finalized edits using snapshotIds returned with the complete Source/Target actually read. The software supplies each base revision and returns real committed versions. Optionally declare reviewedSegmentIds to save edits and record a complete explicitly reviewed group in the same call; blockedSegmentIds remain unresolved. Use edits=[] for review without changes. No manual revision copying or per-item unchanged records. Failed edits are never confirmed. mode=proposal stores suggestions only and cannot declare reviewed completion. Existing scope, lock, tag, CAS and evidence protections apply. Group work by language/context, independent of read pages. Report-only tasks must not write.',
+    description: 'Submit finalized edits using snapshotIds returned with the complete Source/Target actually read. The software supplies each base revision and returns real committed versions. Optionally declare reviewedSegmentIds to save edits and record a complete explicitly reviewed group in the same call; blockedSegmentIds remain unresolved. For an actually reused TM target, optionally include its tmUnitId in the same edit; it is counted only after a successful matching write. Use edits=[] for review without changes. No manual revision copying or per-item unchanged records. Failed edits are never confirmed. mode=proposal stores suggestions only and cannot declare reviewed completion. Existing scope, lock, tag, CAS and evidence protections apply. Group work by language/context, independent of read pages. Report-only tasks must not write.',
     promptSnippet: 'Save finalized work and explicitly reviewed coverage together, against immutable read snapshots',
     parameters: Type.Object({
       snapshotIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 }),
@@ -98,14 +98,15 @@ export function createProposalTools(runtime: CatToolRuntime) {
         segmentId: Type.String({ minLength: 1 }),
         target: Type.String({ minLength: 1 }),
         note: Type.Optional(Type.String({ maxLength: 2_000 })),
-      }), { maxItems: 200 }),
-      reviewedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 200 })),
-      blockedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 })),
+        tmUnitId: Type.Optional(Type.String({ minLength: 1, description: 'TM unit actually reused for this exact original or adapted target; counted only after successful application.' })),
+      })),
+      reviewedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+      blockedSegmentIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
       mode: Type.Optional(Type.Union([Type.Literal('apply'), Type.Literal('proposal')], { description: 'apply commits successful edits (default). proposal creates pending suggestions only, without accepting them or starting a professional Stage. Neither mode is appropriate for a chat-only/report-only request that disallows project writes.' })),
     }),
     async execute(toolCallId, params) {
-      if (params.edits.length > 200 || new Set(params.edits.map(edit => edit.segmentId)).size !== params.edits.length || (!params.edits.length && !params.reviewedSegmentIds?.length)) {
-        throw new LinguistCatInvalidArgumentError('edits', 'expected up to 200 unique edits or an explicit reviewed group')
+      if (new Set(params.edits.map(edit => edit.segmentId)).size !== params.edits.length || (!params.edits.length && !params.reviewedSegmentIds?.length)) {
+        throw new LinguistCatInvalidArgumentError('edits', 'expected unique edits or an explicit reviewed group')
       }
       const { project, db } = resolveBoundProject('cat_apply_translations', toolCallId)
       const mode = params.mode ?? 'apply'
@@ -114,6 +115,7 @@ export function createProposalTools(runtime: CatToolRuntime) {
       if (reviewed.length) validateReviewedGroup(reviewed, blocked)
       if (blocked.length && !reviewed.length) throw new LinguistCatInvalidArgumentError('blockedSegmentIds', 'requires reviewedSegmentIds')
       if (mode === 'proposal' && reviewed.length) throw new LinguistCatInvalidArgumentError('reviewedSegmentIds', 'pending suggestions do not complete professional review')
+      if (mode === 'proposal' && params.edits.some(edit => edit.tmUnitId !== undefined)) throw new LinguistCatInvalidArgumentError('tmUnitId', 'pending suggestions do not record completed TM reuse')
       const ids = [...new Set([...params.edits.map(edit => edit.segmentId), ...reviewed])]
       if (mode === 'apply') {
         runtime.prepareStage(ids)
@@ -155,6 +157,12 @@ export function createProposalTools(runtime: CatToolRuntime) {
           if (reviewed.length) dto.review = recordReviewedWork(runtime, db, versions.filter(version => reviewed.includes(version.segmentId)), blocked, dto.appliedItems, [
             ...dto.stale, ...dto.locked, ...dto.failed.map(item => item.segmentId),
           ])
+          for (const applied of dto.appliedItems ?? []) {
+            const edit = params.edits.find(item => item.segmentId === applied.segmentId)!
+            if (edit.tmUnitId === undefined) continue
+            const segment = before.get(applied.segmentId)!
+            db.tmUnits.recordReuse(edit.tmUnitId, segment, edit.target, { runId, segmentId: applied.segmentId, revision: applied.revision, actor: deps.sessionId ?? 'unknown' })
+          }
           const proposals = dto.proposalIds.flatMap((id) => {
             const proposal = db.proposals.getById(id)
             return proposal === undefined ? [] : [proposal]

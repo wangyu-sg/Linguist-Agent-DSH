@@ -1,19 +1,20 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { checkPluginDisplay } from './check-plugin-display.mjs'
 import { checkPluginDetail } from './check-plugin-detail.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const source = join(root, 'packages/dsh-linguist')
-const stage = join(root, 'artifacts/pack-stage')
-const artifacts = join(root, 'artifacts')
+const artifacts = process.argv[2] === undefined ? join(root, 'artifacts') : resolve(root, process.argv[2])
+const stage = join(artifacts, 'pack-stage')
 const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
 const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
 const tarball = join(artifacts, `linguist-dsh-plugin-${manifest.version}.tgz`)
 if (!process.env.npm_execpath) throw new Error('Run this script with pnpm pack:plugin')
+if (!existsSync(join(source, 'lib/semantic-review.py'))) throw new Error('Build the local semantic retrieval resource before packing')
 const browserSource = join(root, `integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
 const browserTarball = join(artifacts, `browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
 if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/client.cjs')) || !existsSync(join(source, 'lib/cat-job-worker.js')) || !existsSync(join(source, 'lib/integrity-scrub-worker.js')) || !existsSync(join(source, 'lib/pdf.worker.mjs'))) throw new Error('Build the complete plugin before packing')
@@ -27,6 +28,7 @@ delete manifest.scripts
 writeFileSync(join(stage, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 execFileSync(process.execPath, [process.env.npm_execpath, 'pack', '--out', tarball], { cwd: stage, stdio: 'inherit' })
 const entries = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).trim().split('\n')
+if (!entries.includes('package/lib/semantic-review.py')) throw new Error('Plugin tarball omits the local semantic retrieval resource')
 for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'package/lib/cat-job-worker.js', 'package/lib/integrity-scrub-worker.js', 'package/lib/pdf.worker.mjs', 'package/resources/linguist-roles/general.md', 'package/resources/linguist-roles/translator.md', 'package/resources/linguist-roles/reviewer.md', 'package/resources/linguist-roles/proofreader.md', 'package/resources/skills/phrase-platform-review-ops/SKILL.md', 'package/resources/skills/phrase-platform-review-ops/references/workspace-update.md', 'package/resources/professional-judgment/standard.v1.json', 'package/resources/professional-judgment/examples.v1.json', 'package/cordis.patch.yml', 'package/LICENSE']) {
   if (!entries.includes(required)) throw new Error(`Plugin tarball omits ${required}`)
 }

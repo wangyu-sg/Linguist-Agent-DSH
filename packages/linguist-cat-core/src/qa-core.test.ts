@@ -22,6 +22,15 @@ function segment(index: number, patch: Partial<Segment>): Segment {
 }
 
 describe('PB-070 deterministic QA Core', () => {
+  test('cross-segment dialogue spacing is advisory only within the same original unit', () => {
+    const context = { meta: { sdlTransUnitOrdinal: '1' } }
+    const label = segment(1, { source: '角色：', target: 'Hero:', sourceLocale: 'zh-CN', targetLocale: 'en-US', context })
+    const dialogue = segment(2, { source: '你好', target: 'Hello!', sourceLocale: 'zh-CN', targetLocale: 'en-US', context })
+    const candidate = runQa([label, dialogue]).find(item => item.code === QA_RULE_CODES.BOUNDARY_LABEL_SPACING)
+    expect(candidate?.disposition).toBe('needs_review')
+    expect(runQa([label, { ...dialogue, target: ' Hello!' }]).some(item => item.code === QA_RULE_CODES.BOUNDARY_LABEL_SPACING)).toBe(false)
+    expect(runQa([label, { ...dialogue, context: { meta: { sdlTransUnitOrdinal: '2' } } }]).some(item => item.code === QA_RULE_CODES.BOUNDARY_LABEL_SPACING)).toBe(false)
+  })
   test('covers the complete first-version rule catalog with stable severity', () => {
     const findings = runQa([
       segment(1, { source: 'Hello {name}', target: '你好' }),

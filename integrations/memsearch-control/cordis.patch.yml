@@ -1,0 +1,3 @@
+- insert:
+    - id: memsearch-control
+      name: '@local/memsearch-control'

@@ -6,7 +6,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import fileType from 'file-type'
 import type { LinguistCatToolsDeps } from '@linguist/cat-tools'
 import type { ProjectDatabase } from '@linguist/cat-store'
-import { runLinguistConsistencyWorker, runLinguistQaWorker, type ContextImageMetadata, type LinguistProjectService } from '@linguist/domain-service'
+import { prepareReviewMaterials, runLinguistConsistencyWorker, runLinguistQaWorker, type ContextImageMetadata, type LinguistProjectService } from '@linguist/domain-service'
 import type { ProjectDiscoveryScope } from '@linguist/domain-service/contracts'
 
 export interface CreateCatDepsInput {
@@ -14,6 +14,7 @@ export interface CreateCatDepsInput {
   service: LinguistProjectService
   projectId: string
   sessionId: string
+  taskId: string
   readSnapshots: NonNullable<LinguistCatToolsDeps['readSnapshots']>
   role: NonNullable<LinguistCatToolsDeps['linguistRole']>
   sessionCwd: string
@@ -52,8 +53,12 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
     resultProjectId: projectId,
     professionalJudgment: input.professional,
     sessionId: input.sessionId,
+    taskId: input.taskId,
     readSnapshots: input.readSnapshots,
     linguistRole: input.role,
+    prepareReviewMaterials: (segmentIds, signal) => prepareReviewMaterials(service, {
+      workspaceRoot: input.sessionCwd, taskId: input.taskId, projectId, segmentIds,
+    }, signal, (id, versions) => input.readSnapshots.set(id, { kind: 'snapshot', versions })),
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     onMutation: input.onMutation,
     prepareStage: input.prepareStage,

@@ -116,6 +116,7 @@ async function buildFromSource(temp) {
   for (const script of ["typecheck", "test", "build"]) {
     run(process.execPath, [pnpm, "--filter", "@wxg-prc-cpg/browser-skill-dsh-plugin", script], temp);
   }
+  assert(!(await readFile(join(temp, "packages/dsh-plugin-browserskill/lib/client.cjs"), "utf8")).includes(temp), "client bundle embeds the build directory");
   return join(temp, "packages/dsh-plugin-browserskill");
 }
 

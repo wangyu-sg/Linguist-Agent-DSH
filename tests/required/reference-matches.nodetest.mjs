@@ -61,6 +61,31 @@ const render = patch => expand(React.createElement(ReferenceMatches, props(patch
 const tmCard = root => select(root, node => node.props?.['data-reference-tm'] === tm.id)
 const termCard = root => select(root, node => node.props?.['data-reference-term'] === term.id)
 
+test('adapted TM candidate and replacements are visible and applied only on explicit action', () => {
+  const candidate = 'Prenez <b>12</b> potions, {player}.'
+  const applied = []
+  const adapted = { ...tm, adaptation: { status: 'adapted', candidate, replacements: [{ type: 'number', from: '10', to: '12' }] } }
+  const card = tmCard(render({ tm: [adapted], onApply: (...args) => applied.push(args) }))
+  assert.match(text(card), /适配候选/)
+  assert.match(text(card), /10.*12/)
+  assert(text(card).includes(candidate))
+  assert(text(card).includes('94%'))
+  assert.deepEqual(applied, [])
+  button(card, '使用适配候选').props.onClick()
+  assert.deepEqual(applied, [[candidate, 'replace', tm.id]])
+  const uncertain = tmCard(render({ tm: [{ ...tm, adaptation: { status: 'needs-review', replacements: [] } }] }))
+  assert.match(text(uncertain), /适配需判断/)
+  assert(!nodes(uncertain).some(node => node.type === 'button' && text(node) === '使用适配候选'))
+})
+
+test('term evidence exposes its source file and source note alongside the actual translation', () => {
+  const sourced = { ...term, sources: [{ id: 'synthetic-source', filename: 'synthetic-termbase.csv', sha256: 'a'.repeat(64), term: 'potions', translation: 'potions synthétiques', note: 'Inventory terminology' }] }
+  const card = termCard(render({ terms: [sourced] }))
+  assert.match(text(card), /potions synthétiques/)
+  assert.match(text(card), /synthetic-termbase\.csv/)
+  assert.match(text(card), /Inventory terminology/)
+})
+
 test('TM diff is baseline matchedSource → current segment.source; translation is never its comparison input', () => {
   const root = render(), card = tmCard(root)
   const comparison = select(card, node => node.props?.['data-source-comparison'] === 'tm-to-current')
@@ -86,9 +111,22 @@ test('TM target comparison projects exact baseline and live current text while a
   assert.equal(text(select(tmCard(root), node => node.props?.['data-tm-target'] === 'original')), tm.target)
   button(tmCard(root), '替换草稿').props.onClick()
   button(tmCard(root), '插入草稿').props.onClick()
-  assert.deepEqual(calls, [[tm.target, 'replace'], [tm.target, 'insert']])
+  assert.deepEqual(calls, [[tm.target, 'replace', tm.id], [tm.target, 'insert', tm.id]])
   const saved = render({ currentTarget: current, targetIsDraft: false })
   assert.match(text(saved), /译文比较：TM 译文 → 已保存译文/)
+})
+
+test('TM source diff isolates a deletion inside continuous Chinese text', () => {
+  const source = '07.17馆内展出白色纸鹤！'
+  const matchedSource = '07.17馆内展出蓝色蝴蝶和白色纸鹤！'
+  const card = tmCard(render({
+    segment: { ...segment, source, sourceLocale: 'zh-CN', targetLocale: 'en-US' },
+    tm: [{ ...tm, matchedSource }],
+  }))
+  const sourceDiff = select(card, node => node.props?.['data-source-comparison'])
+  assert.deepEqual(nodes(sourceDiff).filter(node => node.type === 'del').map(text), ['蓝色蝴蝶和'])
+  assert.equal(projection(sourceDiff, 'del'), source)
+  assert.equal(projection(sourceDiff, 'ins'), matchedSource)
 })
 
 test('target differences preserve full atomic tag code, exact whitespace and empty current targets', () => {
@@ -207,7 +245,7 @@ test('direct TM replace/insert and TB insert forward their original full targets
   button(tmCard(root), '替换草稿').props.onClick()
   button(tmCard(root), '插入草稿').props.onClick()
   button(termCard(root), '插入草稿').props.onClick()
-  assert.deepEqual(applied, [[tm.target, 'replace'], [tm.target, 'insert'], [term.translation, 'insert']])
+  assert.deepEqual(applied, [[tm.target, 'replace', tm.id], [tm.target, 'insert', tm.id], [term.translation, 'insert']])
   assert.equal(JSON.stringify({ segment, tm, term }), snapshot)
 })
 

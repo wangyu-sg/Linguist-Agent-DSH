@@ -206,8 +206,18 @@ export type LinguistConsistencyWorker = (
   onProgress?: (phase: 'started' | 'completed') => void,
 ) => Promise<LinguistConsistencyWorkerResult>
 
+export interface CatReviewMaterials {
+  snapshotId?: string
+  readingContent: string
+  continuationPaths: string[]
+  readingPath?: string
+  coverage: { loaded: number; expected: number; complete: boolean }
+}
+
 export interface LinguistCatToolsDeps {
   professionalJudgment?: ProfessionalResources
+  /** Internal working-file producer: return complete evidence instead of a model response page. */
+  contextOutput?: 'artifact'
   resolveProject: ResolveLinguistCatProject
   /**
    * 宿主会话绑定生成的项目 ID；仅用于成功结果的导航元数据，模型无对应入参。
@@ -225,10 +235,14 @@ export interface LinguistCatToolsDeps {
   modelId?: string
   /** Stored as Proposal provenance when present. */
   sessionId?: string
+  /** Shared parent task identity for sibling professional sessions. */
+  taskId?: string
   /** Native Session-backed complete reads, partial ranges and committed revisions. */
   readSnapshots?: CatReadStateStore
   /** 当前受信任 Linguist 岗位；cat_confirm_segments 由此推导 stage。 */
   linguistRole?: 'general' | 'translator' | 'reviewer' | 'proofreader'
+  /** Normal Reviewer input, prepared by the host over the complete selected scope. */
+  prepareReviewMaterials?: (segmentIds: string[], signal?: AbortSignal) => Promise<CatReviewMaterials>
   /** 宿主创建或恢复的冻结 Stage Evidence 执行；模型无对应入参。 */
   stageEvidenceRunId?: string
   /** 仅专业动作创建/恢复任务；scope/restart 来自现有读取工具的明确参数。 */
@@ -658,6 +672,8 @@ export interface SegmentTranslationContext {
   originalOrdinal: number
   key?: string
   origin?: string
+  /** Original fields and locators, without selecting a few known column names. */
+  metadata?: Record<string, string>
   textType?: string
   module?: string
   category?: string
@@ -674,6 +690,8 @@ export interface SegmentTranslationContext {
   requiredTerms: TermEntryMatch[]
   forbiddenTerms: TermEntryMatch[]
   preferredTerms: TermEntryMatch[]
+  /** 普通可用译名参考；保留 allowed 状态，不作为强制采用规则。 */
+  allowedTerms: TermEntryMatch[]
   conflicts: TermEntryMatch[]
   tm: TmAgentEvidence[]
   /** 引用本响应 shared.context；requiredness 属于当前句段的关联。 */

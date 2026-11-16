@@ -5,26 +5,20 @@ This directory adapts the pinned upstream DSH plugin in `BASELINE.json`. It adds
 owned sessions, runner, queue, cancellation, observation, and UI. There is no
 second browser-control path.
 
-The supported host baseline is DSH 0.2.2-rc.1 on macOS ARM64. Use the local
-0.4.1-la-dsh.2 plugin tarball, bsk 0.4.1 CLI/daemon, and extension 0.4.1 with
+The supported host baseline is DSH 0.2.2-rc.3 on macOS ARM64. Runtime peers and engines allow `>=0.2.2-rc.3 <0.2.3-0`; build SDKs remain pinned to rc.3. Future interface changes still require verification. Use the local
+0.4.2-la-dsh.2 plugin tarball, bsk 0.4.2 CLI/daemon, and extension 0.4.2 with
 protocol 1.8. The extension must show a connection to the configured daemon port
 before browser actions work. Install or update the tarball through the official
 DSH plugin manager, following its prompts to enable the plugin and reload if required.
 
-The 0.4.1-la-dsh.2 adaptation adds English/Chinese plugin-list titles and
-descriptions and an original PNG icon. All previously packed files except the
-package manifest remain byte-identical to 0.4.1-la-dsh.1; the manifest changes
-only its adaptation version and display-resource exports/files declarations.
-For this metadata-only update, keep the existing CLI, extension and plugin settings.
-The 0.4.1-la-dsh.1 runtime previously passed the pinned build, native
-installation/restart, and real Chrome checks against generated localhost pages
-for navigation, form editing, exact upload/download bytes, non-overwrite,
-interrupted-download cleanup and owned-session isolation. The new display
-resources are package-checked; their installed native rendering still requires
-user verification. Model-driven customer-platform tasks have not been verified
-in this upgrade.
+The adaptation retains English/Chinese display resources, the DSH screenshot
+and session binding fixes, and the file-transfer additions. The 0.4.2 update
+passes its pinned source build, typecheck, plugin tests, package and display
+checks. On the target macOS desktop it is installed and enabled, the matching
+Chrome extension is connected, and generated localhost navigation, upload,
+download, and repeat-request checks pass. No customer-platform test is implied.
 
-The runtime is based on official 0.4.1 and uses its `bsk_*` tool names.
+The runtime is based on official 0.4.2 and uses its `bsk_*` tool names.
 Reload `/browser-skill` in existing conversations to obtain the current tool instructions.
 The patch targets the DSH 0.2.2 attachment API and current-session UI binding, retains notification sources and terminal labels, and adds
 `bsk_files`, durable receipts, canonical request deduplication, configured
@@ -63,7 +57,7 @@ version and display metadata from `metadata/` before packing. It verifies the
 actual packed display resources and pinned tarball SHA and writes `dist/BUILD.json`.
 
 For a metadata-only change with the unchanged runtime, use the fixed existing
-0.4.1-la-dsh.1 tarball in `dist/`, pinned separately by `metadataBase` in
+0.4.2-la-dsh.0 tarball in `dist/`, pinned separately by `metadataBase` in
 BASELINE.json. This path uses Node/npm without an upstream rebuild or dependency
 installation:
 

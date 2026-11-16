@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CsvAdapter, FormatExportError, JsonAdapter, MqXliffAdapter } from '@linguist/cat-formats'
 import { CatStore } from './store'
 import { stageAssetExport } from './export-staging'
 import { readBackupManifest } from './backup'
 import { LINGUIST_APPLICATION_ID } from './database'
+import { RESTORE_TRANSACTION_FILE } from './restore'
 import { loadDatabaseSync } from './runtime'
 import { MIGRATIONS } from './schema'
 import { makeClock, makeEntropy, makeTempDir } from './testkit'
@@ -107,7 +108,7 @@ test('memoQ 交付：草稿保留原生状态，仅本轮确认按项目策略�
   }
 })
 
-test('openProject: creates a verifiable pre-migration backup before Schema 19 writes', () => {
+test('openProject: creates a verifiable pre-migration backup before schema updates', () => {
   const store = new CatStore({
     rootDir: makeTempDir(),
     entropy: makeEntropy('pre-migration-backup'),
@@ -137,6 +138,10 @@ test('openProject: creates a verifiable pre-migration backup before Schema 19 wr
     migration.backfill?.(legacy)
     record.run(migration.version, '2026-01-01T00:00:00.000Z', migration.description)
   }
+  legacy.prepare(`INSERT INTO term_entries (id, project_id, term, translation, status, case_sensitive, created_at)
+    VALUES (?, ?, ?, ?, 'allowed', 0, ?)`).run('synthetic-old-term', project.id, 'Old term', '旧术语', '2026-01-01T00:00:00.000Z')
+  legacy.prepare(`INSERT INTO tm_units (id, project_id, source, target, source_locale, target_locale, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run('synthetic-old-tm', project.id, 'Old source', '旧译文', 'en-US', 'zh-CN', '2026-01-01T00:00:00.000Z')
   legacy.exec(`
     PRAGMA application_id = ${LINGUIST_APPLICATION_ID};
     PRAGMA user_version = 18;
@@ -150,7 +155,7 @@ test('openProject: creates a verifiable pre-migration backup before Schema 19 wr
 
   const migrated = store.openProject(project.id)
   try {
-    assert.equal(migrated.schemaVersion, 19)
+    assert.equal(migrated.schemaVersion, 20)
   } finally {
     migrated.close()
   }
@@ -161,15 +166,72 @@ test('openProject: creates a verifiable pre-migration backup before Schema 19 wr
   const manifest = readBackupManifest(backupDir)
   assert.ok(manifest)
   assert.equal(manifest.schemaVersion, 18)
-  assert.deepEqual(manifest.migration, { fromSchema: 18, toSchema: 19 })
+  assert.deepEqual(manifest.migration, { fromSchema: 18, toSchema: 20 })
 
   const backupDb = store.openBackupDatabase(project.id, backup.name)
   try {
     assert.equal(backupDb.readOnly, true)
     assert.equal(backupDb.schemaVersion, 18)
+    assert.equal(backupDb.termEntries.get('synthetic-old-term')?.translation, '旧术语')
+    assert.equal(backupDb.tmUnits.listCandidates('en-US', 'zh-CN')[0]?.target, '旧译文')
   } finally {
     backupDb.close()
   }
+})
+
+test('an archived schema 19 project can search TM without upgrading the read-only database', () => {
+  const store = new CatStore({ rootDir: makeTempDir(), entropy: makeEntropy('readonly-v19'), now: makeClock() })
+  const project = store.createProject({ name: 'Synthetic archived', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+  const legacy = new (loadDatabaseSync())(store.index.projectDbPath(project.id))
+  legacy.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)')
+  const record = legacy.prepare('INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?)')
+  for (const migration of MIGRATIONS.filter(item => item.version <= 19)) {
+    if (migration.version === 19) legacy.prepare(`INSERT INTO tm_units (id, project_id, source, target, source_locale, target_locale, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run('synthetic-v19-tm', project.id, 'Open', '打开', 'en-US', 'zh-CN', '2026-01-01T00:00:00.000Z')
+    legacy.exec(migration.sql)
+    migration.backfill?.(legacy)
+    record.run(migration.version, '2026-01-01T00:00:00.000Z', migration.description)
+  }
+  legacy.exec(`PRAGMA application_id = ${LINGUIST_APPLICATION_ID}; PRAGMA user_version = 19`)
+  legacy.close()
+  store.index.recordDatabaseIdentity(project.id, { applicationId: LINGUIST_APPLICATION_ID, schemaVersion: 19, migrated: false })
+  store.archiveProject(project.id)
+  const beforeDb = readFileSync(store.index.projectDbPath(project.id))
+  const beforeManifest = readFileSync(store.index.projectMetaPath(project.id))
+  assert.equal(store.backupProject(project.id).manifest.schemaVersion, 19)
+  assert.deepEqual(readFileSync(store.index.projectDbPath(project.id)), beforeDb)
+  assert.deepEqual(readFileSync(store.index.projectMetaPath(project.id)), beforeManifest)
+  const archived = store.openProject(project.id, { readOnly: true })
+  try { assert.equal(archived.tmUnits.listCandidates('en-US', 'zh-CN')[0]?.target, '打开') }
+  finally { archived.close() }
+})
+
+test('read-only project access leaves an interrupted restore untouched until a writable open', () => {
+  const root = makeTempDir()
+  const store = new CatStore({ rootDir: root, entropy: makeEntropy('readonly-restore'), now: makeClock() })
+  const project = store.createProject({ name: 'Synthetic interrupted restore', sourceLocale: 'en', targetLocale: 'zh-CN' })
+  store.openProject(project.id).close()
+  const dir = store.index.projectDir(project.id), stamp = '2026-01-01T00-00-00-000Z'
+  const snapshot = join(dir, 'backups', `pre-restore-${stamp}`)
+  mkdirSync(snapshot, { recursive: true })
+  for (const name of ['cat.db', 'project.json', 'source', 'blobs']) cpSync(join(dir, name), join(snapshot, name), { recursive: true })
+  writeFileSync(join(snapshot, 'source', 'synthetic.txt'), 'before restore')
+  writeFileSync(join(dir, 'source', 'synthetic.txt'), 'during restore')
+  const journal = join(dir, 'backups', RESTORE_TRANSACTION_FILE)
+  writeFileSync(journal, JSON.stringify({ version: 1, projectId: project.id, backupName: `backup-${stamp}`, preRestoreName: `pre-restore-${stamp}`, stamp }))
+  try {
+    assert.throws(() => store.openProject(project.id, { readOnly: true }), { code: 'STORE_RESTORE_PENDING' })
+    assert.throws(() => store.archiveProject(project.id), { code: 'STORE_RESTORE_PENDING' })
+    assert.throws(() => store.backupProject(project.id), { code: 'STORE_RESTORE_PENDING' })
+    assert.equal(store.getProject(project.id).archivedAt, undefined)
+    assert.equal(readFileSync(join(dir, 'source', 'synthetic.txt'), 'utf8'), 'during restore')
+    assert.equal(existsSync(journal), true)
+    store.openProject(project.id).close()
+    assert.equal(readFileSync(join(dir, 'source', 'synthetic.txt'), 'utf8'), 'before restore')
+    assert.equal(existsSync(journal), false)
+    store.archiveProject(project.id)
+    store.openProject(project.id, { readOnly: true }).close()
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('Schema 19 repositories keep imported occurrences separately and honor source controls', () => {

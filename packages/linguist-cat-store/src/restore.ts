@@ -1,6 +1,6 @@
 /**
  * 整体恢复：验证备份 → 原子安全快照 → 持久事务 journal → 安装 → 迁移后复验。
- * 进程若在安装中退出，下次 openProject 会先按 journal 自动回滚。
+ * 进程若在安装中退出，下次可写 openProject 会先按 journal 自动回滚。
  */
 
 import {

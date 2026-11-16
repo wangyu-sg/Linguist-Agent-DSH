@@ -228,6 +228,28 @@ describe('XlsxAdapter detect', () => {
 })
 
 describe('XlsxAdapter import（表头映射/单元格类型/锁定/合成 key）', () => {
+  test('重复原文保留各自完整附加列和原始行号，原格式导出只更新译文', async () => {
+    const bytes = await simpleXlsx([
+      ['key', 'source', 'target', 'context', 'Description', 'RequestID', 'speaker'],
+      ['button', 'Continue', '继续', 'menu', 'Continue the mission', 'request-a', 'Narrator'],
+      [],
+      ['reply', 'Continue', '请继续', 'dialogue', 'Spoken response', 'request-b', 'Captain'],
+    ])
+    const adapter = new XlsxAdapter()
+    const imported = await importBytes(bytes, 'context.xlsx', adapter)
+    expect(imported.segments.map(segment => segment.context)).toEqual([
+      { note: 'menu', origin: 'context.xlsx / Sheet1!2', meta: { 'column:5:Description': 'Continue the mission', 'column:6:RequestID': 'request-a', 'column:7:speaker': 'Narrator', sourceSheet: 'Sheet1', sourceRow: '2' } },
+      { note: 'dialogue', origin: 'context.xlsx / Sheet1!4', meta: { 'column:5:Description': 'Spoken response', 'column:6:RequestID': 'request-b', 'column:7:speaker': 'Captain', sourceSheet: 'Sheet1', sourceRow: '4' } },
+    ])
+    const { asset, segments } = await boundSegments('context.xlsx', imported)
+    const unchanged = await adapter.export({ originalBytes: bytes, asset, segments })
+    expect(Buffer.from(unchanged).equals(Buffer.from(bytes))).toBe(true)
+    const changed = await adapter.export({ originalBytes: bytes, asset, segments: segments.map((segment, index) => index === 0 ? { ...segment, target: '继续任务' } : segment) })
+    const reimported = await importBytes(changed, 'context.xlsx', adapter)
+    expect(reimported.segments.map(segment => segment.context)).toEqual(imported.segments.map(segment => segment.context))
+    expect(reimported.segments.map(segment => segment.target)).toEqual(['继续任务', '请继续'])
+  })
+
   test('默认列映射：key/source/target/locked/context；空 target => untranslated；locked 行', async () => {
     const imported = await importBytes(await miniDialogueXlsx(), 'mini.xlsx')
     expect(imported.asset.formatId).toBe('xlsx_ooxml')

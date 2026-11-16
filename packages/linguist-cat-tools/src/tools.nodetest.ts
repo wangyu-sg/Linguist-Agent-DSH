@@ -175,13 +175,19 @@ async function readSnapshotIds(tools: LinguistCatTool[], segmentIds: readonly st
   const snapshots: string[] = []
   for (let offset = 0; offset < segmentIds.length; offset += 50) {
     const pageIds = segmentIds.slice(offset, offset + 50)
-    const page = (await invoke(toolByName(tools, 'cat_get_translation_context'), {
-      segmentIds: pageIds, readOnly: true, includeNeighbors: false,
-      tmLimitPerSegment: 0, termLimitPerSegment: 0, maxBytes: 32_000,
-    })).details as import('./types').CatGetTranslationContextResult
-    assert.deepEqual(page.contexts.map(item => item.segmentId), pageIds)
-    assert.ok(page.snapshotId)
-    snapshots.push(page.snapshotId)
+    const seen: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = (await invoke(toolByName(tools, 'cat_get_translation_context'), {
+        segmentIds: pageIds, readOnly: true, includeNeighbors: false,
+        tmLimitPerSegment: 0, termLimitPerSegment: 0, maxBytes: 32_000, cursor,
+      })).details as import('./types').CatGetTranslationContextResult
+      seen.push(...page.contexts.map(item => item.segmentId))
+      assert.ok(page.snapshotId)
+      snapshots.push(page.snapshotId)
+      cursor = page.nextCursor
+    } while (cursor)
+    assert.deepEqual(seen, pageIds)
   }
   return snapshots
 }
@@ -1406,6 +1412,26 @@ test('cat_list_batches: metadata page with stable ids and digests', async () => 
   }
 })
 
+test('delegated lists page only the frozen arbitrary segments and their batches', async () => {
+  const fixture = setup()
+  try {
+    const scoped = [fixture.segmentsA[1]!.id, fixture.segmentsA[4]!.id, fixture.segmentsB[2]!.id]
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture), delegatedScopeSegmentIds: scoped })
+    const list = toolByName(tools, 'cat_get_segments')
+    const pages = await Promise.all([0, 1, 2].map(async offset =>
+      (await invoke(list, { view: 'index', limit: 1, offset })).details as PagedResult<{ segmentId: string }>))
+    assert.deepEqual(new Set(pages.flatMap(page => page.items.map(item => item.segmentId))), new Set(scoped))
+    assert.deepEqual(pages.map(page => [page.total, page.hasMore]), [[3, true], [3, true], [3, false]])
+    const filtered = (await invoke(list, { batchId: fixture.assetA.id, search: 'source 4' })).details as PagedResult<{ segmentId: string }>
+    assert.deepEqual(filtered.items.map(item => item.segmentId), [fixture.segmentsA[4]!.id])
+    const batches = (await invoke(toolByName(tools, 'cat_list_batches'), {})).details as PagedResult<{ batchId: string; segmentCount: number }>
+    assert.deepEqual(new Map(batches.items.map(item => [item.batchId, item.segmentCount])), new Map([[fixture.assetA.id, 2], [fixture.assetB.id, 1]]))
+    const empty = createLinguistCatTools({ resolveProject: makeOkResolver(fixture), delegatedScopeSegmentIds: [] })
+    assert.equal(((await invoke(toolByName(empty, 'cat_get_segments'), {})).details as PagedResult<unknown>).total, 0)
+    assert.equal(((await invoke(toolByName(empty, 'cat_list_batches'), {})).details as PagedResult<unknown>).total, 0)
+  } finally { fixture.db.close() }
+})
+
 test('cat_list_batches: pagination edges (offset beyond total, clamp note)', async () => {
   const fixture = setup()
   try {
@@ -1905,7 +1931,7 @@ test('automatic TM evidence retains the full-scoring selection, ambiguity and pr
       sourceId: 'synthetic-tm-selection', occurrenceKey: String(index), originalTuid: `synthetic-tu-${index}`,
       metadata: { note: 'Synthetic provenance' },
     })))
-    const expected = selectTmAgentEvidence(matchTmCandidates(source, fixture.db.tmUnits.listCandidates('en', 'zh-CN')), 5)
+    const expected = selectTmAgentEvidence(matchTmCandidates(source, fixture.db.tmUnits.listCandidates('en', 'zh-CN'), { minimumScore: 85, includeAdaptable: true }), 5)
     assert.ok(expected.some(match => match.matchClass === 'fuzzy'))
     assert.ok(expected.some(match => match.ambiguous))
     const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
@@ -1921,8 +1947,9 @@ test('automatic TM evidence retains the full-scoring selection, ambiguity and pr
       source, target: `Synthetic variant ${index}`, sourceLocale: 'en', targetLocale: 'zh-CN',
       sourceId: 'synthetic-normalized-variants', occurrenceKey: String(index),
     })))
-    const taggedExpected = selectTmAgentEvidence(matchTmCandidates(taggedSource, fixture.db.tmUnits.listCandidates('en', 'zh-CN')), 5)
-    assert.ok(taggedExpected.some(match => match.ambiguous), 'low-score normalized variants still contribute ambiguity')
+    const taggedMatches = matchTmCandidates(taggedSource, fixture.db.tmUnits.listCandidates('en', 'zh-CN'))
+    assert.ok(taggedMatches.some(match => match.variantCount > 1), 'low-score normalized variants still contribute ambiguity')
+    const taggedExpected = selectTmAgentEvidence(matchTmCandidates(taggedSource, fixture.db.tmUnits.listCandidates('en', 'zh-CN'), { minimumScore: 85, includeAdaptable: true }), 5)
     const taggedResult = await invoke(toolByName(tools, 'cat_get_translation_context'), {
       segmentIds: [taggedSegment!.id], includeNeighbors: false, tmLimitPerSegment: 5,
     })
@@ -1950,7 +1977,7 @@ test('automatic TM cache reuses remaining-page matches while keeping current Tar
     const first = (await invoke(tool, params)).details as CatGetTranslationContextResult
     assert.ok(first.nextCursor)
     assert.ok(first.contexts.length > 0 && first.contexts.length < params.segmentIds.length)
-    const watched = fixture.segmentsA.at(-1)!.source.toLocaleLowerCase()
+    const watched = fixture.segmentsA.at(-1)!.source
     const before = counts.get(watched)
     await invoke(tool, { ...params, cursor: first.nextCursor })
     assert.equal(counts.get(watched), before, 'the remaining segment must not be scored again on the next page')
@@ -1982,8 +2009,8 @@ test('automatic TM cache refreshes Source, context, limit and changed TM sources
     const tool = toolByName(createLinguistCatTools({ resolveProject: makeOkResolver(fixture) }), 'cat_get_translation_context')
     const read = async (limit: number) => ((await invoke(tool, { segmentIds: [current.id],
       tmLimitPerSegment: limit, termLimitPerSegment: 0, readOnly: true })).details as CatGetTranslationContextResult).contexts[0]!
-    const watched = current.source.toLocaleLowerCase()
-    assert.equal((await read(1)).tm[0]!.score, 102)
+    const watched = current.source
+    assert.equal((await read(1)).tm[0]!.score, 101)
     const before = counts.get(watched)!
     await read(1)
     assert.equal(counts.get(watched), before)
@@ -1991,10 +2018,10 @@ test('automatic TM cache refreshes Source, context, limit and changed TM sources
     assert.equal(counts.get(watched), before + 1)
     fixture.db.catDb.db.prepare('UPDATE segments SET source = ? WHERE id IN (?, ?)')
       .run('Synthetic changed neighbor', previous.id, next.id)
-    assert.equal((await read(2)).tm[0]!.score, 101)
+    assert.equal((await read(2)).tm[0]!.score, 100)
     assert.equal(counts.get(watched), before + 2)
     fixture.db.catDb.db.prepare('UPDATE segments SET key = ? WHERE id = ?').run('synthetic-changed-key', current.id)
-    assert.equal((await read(2)).tm[0]!.score, 100)
+    assert.equal((await read(2)).tm[0]!.score, 99)
     assert.equal(counts.get(watched), before + 3)
     const changedSource = `${current.source}!`
     fixture.db.catDb.db.prepare('UPDATE segments SET source = ? WHERE id = ?').run(changedSource, current.id)

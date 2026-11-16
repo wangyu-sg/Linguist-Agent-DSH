@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import JSZip from 'jszip'
-import { extractXlsxContext } from './context-extraction'
+import { extractPptxContext, extractXlsxContext } from './context-extraction'
 
 const WORKBOOK_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -81,5 +81,19 @@ describe('Context Extraction', () => {
       && anchor.locator.row === 2
       && anchor.locator.cell === 'B2')).toBe(true)
     expect(extraction.warnings.some((warning) => warning.code === 'xlsx_workbook.nonvisible_sheet_scanned')).toBe(true)
+  })
+
+  test('PPTX 按幻灯片顺序保留内嵌图片和位置', async () => {
+    const zip = new JSZip()
+    zip.file('ppt/presentation.xml', `<p:presentation xmlns:p="urn:p" xmlns:r="${REL_NS}"><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId1"/></p:sldIdLst></p:presentation>`)
+    zip.file('ppt/_rels/presentation.xml.rels', `<Relationships><Relationship Id="rId1" Target="slides/slide1.xml"/><Relationship Id="rId2" Target="slides/slide2.xml"/></Relationships>`)
+    for (const index of [1, 2]) {
+      zip.file(`ppt/slides/slide${index}.xml`, `<p:sld xmlns:p="urn:p" xmlns:a="urn:a" xmlns:r="${REL_NS}"><a:blip r:embed="img"/></p:sld>`)
+      zip.file(`ppt/slides/_rels/slide${index}.xml.rels`, `<Relationships><Relationship Id="img" Target="../media/image${index}.png"/></Relationships>`)
+      zip.file(`ppt/media/image${index}.png`, new Uint8Array([137, 80, 78, 71, index]))
+    }
+    const result = await extractPptxContext(await zip.generateAsync({ type: 'uint8array' }), 'slides.pptx')
+    expect(result.media.map(image => image.filename)).toEqual(['image2.png', 'image1.png'])
+    expect(result.anchors.map(anchor => anchor.label)).toEqual(['Slide 1: image2.png', 'Slide 2: image1.png'])
   })
 })

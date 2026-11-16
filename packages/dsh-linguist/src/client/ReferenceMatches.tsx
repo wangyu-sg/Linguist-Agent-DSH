@@ -21,7 +21,7 @@ export interface ReferenceMatchesProps {
   currentTarget: string
   targetIsDraft: boolean
   readOnlyReason?: 'archived' | 'locked' | 'editor-closed'
-  onApply: (target: string, action: 'replace' | 'insert') => void
+  onApply: (target: string, action: 'replace' | 'insert', tmUnitId?: string) => void
   onOpenTerms: () => void
 }
 
@@ -39,7 +39,9 @@ export function ReferenceMatches({ segment, tagProfile, tm, terms, editorAvailab
   const reasonId = disabled ? `${id}-read-only` : undefined
   const hasSourceDiff = tm.some(item => item.matchedSource !== segment.source)
   const hasTargetDiff = tm.some(item => item.target !== currentTarget)
-  const apply = (target: string, action: 'replace' | 'insert') => { if (!disabled) onApply(target, action) }
+  const apply: ReferenceMatchesProps['onApply'] = (target, action, tmUnitId) => {
+    if (!disabled) tmUnitId === undefined ? onApply(target, action) : onApply(target, action, tmUnitId)
+  }
   return <div className={styles.matches}>
     {reason && <p id={reasonId} className={styles.readOnly} role="status">{t(reason === 'archived' ? '项目已归档，仅可查看参考内容。' : reason === 'locked' ? '当前句段已锁定，仅可查看参考内容。' : '先打开当前句段的译文编辑器，再插入参考内容。')}</p>}
     <section className={styles.section} aria-labelledby={`${id}-tm`} data-reference-section="tm">
@@ -79,6 +81,7 @@ function TmMatch({ item, segment, tagProfile, currentTarget, targetIsDraft, disa
   return <article className={styles.matchCard} data-reference-tm={item.id} data-match-class={item.matchClass}>
     <header className={styles.matchHeading}>
       <strong className={styles.score}>{Math.round(item.score)}%</strong>
+      {item.baseScore !== undefined && item.baseScore !== item.score && <span>{t('原始匹配分')} {item.baseScore}%</span>}
       <span className={styles.matchClass}>{t(matchClassLabels[item.matchClass])}</span>
       <span className={styles.safety} data-review={item.safety === 'review' || differs || undefined}>{t(item.safety === 'review' ? '需检查' : differs ? '核对差异' : '可复用')}</span>
     </header>
@@ -92,9 +95,16 @@ function TmMatch({ item, segment, tagProfile, currentTarget, targetIsDraft, disa
         : <p className={styles.text} lang={segment.targetLocale} data-tm-target><InlineTaggedText text={item.target} sourceText={item.matchedSource} tagProfile={tagProfile} targetLocale={segment.targetLocale} /></p>}
     </div>
     <div className={styles.actions}>
-      <Button type="button" variant="outline" size="sm" disabled={disabled} aria-describedby={reasonId} onClick={() => onApply(item.target, 'replace')}>{t('替换草稿')}</Button>
-      <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-describedby={reasonId} onClick={() => onApply(item.target, 'insert')}>{t('插入草稿')}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={disabled} aria-describedby={reasonId} onClick={() => onApply(item.target, 'replace', item.id)}>{t('替换草稿')}</Button>
+      <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-describedby={reasonId} onClick={() => onApply(item.target, 'insert', item.id)}>{t('插入草稿')}</Button>
     </div>
+    {item.adaptation?.candidate !== undefined && <div className={styles.textBlock}>
+      <span className={styles.fieldLabel}>{t('适配候选')}</span>
+      <p className={styles.text} lang={segment.targetLocale}><InlineTaggedText text={item.adaptation.candidate} sourceText={segment.source} tagProfile={tagProfile} targetLocale={segment.targetLocale} /></p>
+      <p>{item.adaptation.replacements.map(change => `${change.from} → ${change.to}`).join(' · ')}</p>
+      <Button type="button" variant="outline" size="sm" disabled={disabled} aria-describedby={reasonId} onClick={() => onApply(item.adaptation!.candidate!, 'replace', item.id)}>{t('使用适配候选')}</Button>
+    </div>}
+    {item.adaptation?.status === 'needs-review' && <p className={styles.warning}>{t('适配需判断')}</p>}
     <p className={styles.provenance}><span>{t('来源')}：</span>{item.sourceLabel}</p>
     <details className={styles.details}>
       <summary>{t(differs || targetDiffers ? '匹配详情与 TM 原始文本' : '匹配详情')}{item.warnings.length > 0 && <span className={styles.warningCount}>{t('{count} 条警告', { count: item.warnings.length })}</span>}</summary>
@@ -136,6 +146,7 @@ function TermMatch({ item, segment, tagProfile, disabled, reasonId, onApply }: M
           {item.module && <><dt>{t('模块')}</dt><dd>{item.module}</dd></>}
           {item.category && <><dt>{t('类别')}</dt><dd>{item.category}</dd></>}
         </dl>
+        {item.sources?.map((source, index) => <p key={`${source.id}:${index}`}><strong>{t('来源')}：</strong>{source.filename} · {source.term} → {source.translation}{source.note ? ` · ${source.note}` : ''}</p>)}
         {item.lowDiscrimination && <p className={styles.warning}>{t('短术语匹配，请结合上下文核对。')}</p>}
       </div>
     </details>

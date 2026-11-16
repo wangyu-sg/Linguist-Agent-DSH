@@ -168,6 +168,8 @@ import {
   toRootRelativePath,
   type LinguistProjectPaths,
 } from './paths'
+import { disposeWorkingCopyReferences } from './working-copy-references'
+import { ReviewCache } from './review-cache'
 
 export * from './project-service-types'
 
@@ -176,6 +178,7 @@ const ASSET_SOURCE_SPOT_CHECK_LIMIT = 20
 
 export class LinguistProjectService {
   readonly rootDir: string
+  readonly reviewCache: ReviewCache
   private readonly entropy?: EntropySource
   private readonly now: () => string
   private readonly applicationVersion: string
@@ -191,6 +194,7 @@ export class LinguistProjectService {
 
   constructor(options: LinguistProjectServiceOptions) {
     this.rootDir = options.rootDir
+    this.reviewCache = new ReviewCache(options.rootDir)
     this.now = options.now ?? (() => new Date().toISOString())
     this.applicationVersion = options.applicationVersion
     if (options.entropy !== undefined) this.entropy = options.entropy
@@ -466,6 +470,7 @@ export class LinguistProjectService {
 
   /** 关闭并移除缓存句柄；未缓存时为空操作。 */
   closeProject(projectId: string): void {
+    disposeWorkingCopyReferences(this, projectId)
     const handle = this.handles.get(projectId)
     if (handle !== undefined) {
       handle.db.close()
@@ -475,7 +480,9 @@ export class LinguistProjectService {
 
   /** 关闭全部缓存句柄（应用退出前调用）。 */
   closeAll(): void {
+    this.reviewCache.dispose()
     for (const projectId of this.handles.keys()) this.closeProject(projectId)
+    disposeWorkingCopyReferences(this)
   }
 
   /**
@@ -509,6 +516,7 @@ export class LinguistProjectService {
               id: 'schema_version',
               ok: false,
               scope: 'complete',
+              upgradeRequired: db.schemaVersion < SCHEMA_VERSION,
               detail: `schema v${db.schemaVersion} != expected v${SCHEMA_VERSION}`,
             },
       )
@@ -766,14 +774,17 @@ export class LinguistProjectService {
   /**
    * 项目摘要（PB-031；PB-033 扩展资产列表）：元数据 + 资产/段计数 + 资产
    * 元数据列表。计数经 store 仓库的 COUNT/GROUP BY（不加载段行）；资产列表
-   * 只读资产元数据行（listByProject，不碰段行 / source blob）。复用缓存
-   * 句柄（归档项目自动只读）；项目不存在抛 PROJECT_NOT_FOUND，degraded
-   * 模式抛 STORE_SQLITE_UNAVAILABLE（穿透）。
+   * 只读资产元数据行（listByProject，不碰段行 / source blob）。使用独立
+   * 只读句柄，不迁移项目或替换工作中的缓存句柄；项目不存在抛 PROJECT_NOT_FOUND，
+   * 项目数据库不可读时抛 PROJECT_UNHEALTHY。
    */
   getProjectSummary(projectId: string): LinguistProjectSummary {
     const project = this.getProject(projectId)
-    const db = this.openProject(projectId)
-    return { project, ...this.summarizeHandle(db) }
+    let db: ProjectDatabase
+    try { db = this.store.openProject(projectId, { readOnly: true }) }
+    catch (error) { throw new LinguistProjectUnhealthyError(projectId, errorCodeOf(error)) }
+    try { return { project, ...this.summarizeHandle(db) } }
+    finally { db.close() }
   }
 
   /**
@@ -1333,11 +1344,13 @@ export class LinguistProjectService {
     projectId: string,
     segmentId: string,
     expectedRevision: number,
+    taskId?: string,
   ): Segment {
     return this.quality.confirmCurrentStage(
       projectId,
       segmentId,
       expectedRevision,
+      taskId,
     )
   }
 
@@ -1356,8 +1369,9 @@ export class LinguistProjectService {
   confirmCurrentStageBulk(
     projectId: string,
     items: readonly StageMutationItem[],
+    taskId?: string,
   ): StageMutationBatchResult {
-    return this.quality.confirmCurrentStageBulk(projectId, items)
+    return this.quality.confirmCurrentStageBulk(projectId, items, taskId)
   }
 
   importAsset(

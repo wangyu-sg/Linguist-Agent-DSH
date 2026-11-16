@@ -208,6 +208,7 @@ export {
 
 export {
   QA_RULE_CODES,
+  hasMissingLabelSpace,
   runQa,
   type QaGlossaryConflict,
   type QaSegmentTerminology,

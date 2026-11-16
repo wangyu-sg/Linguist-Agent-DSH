@@ -113,7 +113,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       includeNeighbors: Type.Optional(Type.Boolean({ description: 'Include adjacent context when useful. Omitted=true behavior remains unchanged. This affects returned context, not the task scope.' })),
       neighborCount: Type.Optional(Type.Integer({ minimum: 0, maximum: 5, description: 'Number of adjacent segments on each side, 0-5. Keep unchanged when continuing a text cursor.' })),
       tmLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Maximum optional TM evidence per segment, 0-10; keep unchanged with a text cursor. A match is reference evidence, not automatic approval.' })),
-      termLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Advisory match limit, 0-10. Required/forbidden authority and conflicts remain available even at 0. Keep unchanged with a text cursor.' })),
+      termLimitPerSegment: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: 'Optional terminology match limit (allowed/advisory), 0-10. Allowed terms are reference translations, not hard adoption rules. Required/forbidden authority and conflicts remain available even at 0. Keep unchanged with a text cursor.' })),
       maxBytes: Type.Optional(Type.Integer({ minimum: 1_024, maximum: MAX_READ_RESULT_BYTES, description: `UTF-8 byte budget for the complete text result, 1024-${MAX_READ_RESULT_BYTES}. Default ${MAX_READ_RESULT_BYTES}. Oversized single-context content uses contextFragment and nextCursor; continue with the same request.` })),
       cursor: Type.Optional(Type.String({ description: 'The exact nextCursor from a prior text page. Reuse the same original segmentIds and matching options; For rulesOnly, use it only to continue a contextFragment. Never combine with restartStage=true.' })),
       stageScope: Type.Optional(Type.Union([Type.Literal('segments'), Type.Literal('batches'), Type.Literal('project')], { description: 'Execution task scope on the first read: segments freezes exactly these IDs; batches freezes every segment in each batch represented by these IDs; project freezes the entire bound project. Omit on continuation. Not permitted with readOnly=true; never broaden a selected subset to all batches to bypass the 50-ID read limit.' })),
@@ -218,7 +218,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           for (const [anchorId, requiredness] of grouped) {
             const anchor = anchorId === '' ? undefined : anchors.get(anchorId)
             const text = anchor?.text ?? (anchor === undefined ? doc.textExtract : undefined)
-            if (doc.kind !== 'image' && anchor?.mediaContextDocId === undefined && text !== undefined && text.length <= INLINE_CONTEXT_TEXT_MAX_CHARS) {
+            if (doc.kind !== 'image' && anchor?.mediaContextDocId === undefined && text !== undefined
+              && (deps.contextOutput === 'artifact' || text.length <= INLINE_CONTEXT_TEXT_MAX_CHARS)) {
               linkedContext.push({
                 docId: doc.id,
                 version,
@@ -229,7 +230,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
               })
               continue
             }
-            if (requiredness !== 'required') continue
+            if (deps.contextOutput !== 'artifact' && requiredness !== 'required') continue
             const media = anchor?.mediaContextDocId === undefined
               ? undefined
               : db.contextDocs.get(anchor.mediaContextDocId)
@@ -265,7 +266,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const termPolicyBySegment = new Map<string, SegmentTermPolicyEvaluation<TermEntryMatch>>()
       for (const segment of remainingSegments) {
         const evaluated = db.termEntries.evaluateSegment(segment)
-        termPolicyBySegment.set(segment.id as string, {
+        termPolicyBySegment.set(segment.id as string, deps.contextOutput === 'artifact' ? evaluated : {
           matches: [...evaluated.matches.filter(item => item.enforcement === 'hard' || item.match.conflict),
             ...evaluated.matches.filter(item => item.enforcement !== 'hard' && !item.match.conflict).slice(0, termLimit)],
         })
@@ -291,17 +292,24 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           }
           for (const segment of group) {
             const neighbors = neighborsBySegment.get(segment.id as string) ?? { previous: [], next: [] }
-            const key = JSON.stringify([segment.source, segment.key, neighbors.previous.at(-1)?.source, neighbors.next[0]?.source, tmLimit])
+            const key = JSON.stringify([segment.source, segment.key, neighbors.previous.at(-1)?.source, neighbors.next[0]?.source, tmLimit, deps.taskId, deps.contextOutput])
             let cached = cachedEvidence.get(segment.id as string)
             if (cached?.key !== key) {
               const diagnostics = matchTmCandidates(segment.source, candidates, {
+                minimumScore: 85,
+                includeAdaptable: true,
                 context: {
+                  segmentId: segment.id,
+                  ...(deps.taskId === undefined ? {} : { taskId: deps.taskId }),
                   ...(segment.key === undefined ? {} : { contextKey: segment.key }),
                   ...(neighbors.previous.at(-1) === undefined ? {} : { previousSource: neighbors.previous.at(-1)!.source }),
                   ...(neighbors.next[0] === undefined ? {} : { nextSource: neighbors.next[0]!.source }),
                 },
               })
-              cached = { key, tm: selectTmAgentEvidence(diagnostics, tmLimit) }
+              cached = { key, tm: deps.contextOutput === 'artifact'
+                ? [...selectTmAgentEvidence(diagnostics.filter(match => !match.sameTask && !match.sameSegment), 10),
+                  ...selectTmAgentEvidence(diagnostics.filter(match => match.sameTask || match.sameSegment), 2)]
+                : selectTmAgentEvidence(diagnostics, tmLimit) }
               cachedEvidence.set(segment.id as string, cached)
             }
             tmMatchesBySegment.set(segment.id as string, cached.tm)
@@ -323,6 +331,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         const termPolicy = termPolicyBySegment.get(segment.id as string)?.matches ?? []
         const termMatches = termPolicy.map((item) => item.match)
         const tm = tmMatchesBySegment.get(segment.id as string) ?? []
+        const tableFields = Object.fromEntries(Object.entries(segment.context?.meta ?? {}).filter(([key]) => key.startsWith('column:')))
         const tags = scanTagTokens(segment.source, {
           targetLocale: segment.targetLocale,
           ...(project.tagProfile !== undefined ? { profile: project.tagProfile } : {}),
@@ -352,6 +361,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           originalOrdinal: segment.ordinal + 1,
           ...(segment.key === undefined ? {} : { key: segment.key }),
           ...(segment.context?.origin === undefined ? {} : { origin: segment.context.origin }),
+          ...(Object.keys(tableFields).length === 0 ? {} : { metadata: tableFields }),
           ...Object.fromEntries(['textType', 'module', 'category'].flatMap(key => {
             const value = segment.context?.meta?.[key]
             return value === undefined ? [] : [[key, value]]
@@ -381,6 +391,9 @@ export function createReferenceTools(runtime: CatToolRuntime) {
             .map((item) => item.match),
           preferredTerms: termPolicy
             .filter((item) => item.enforcement === 'advisory')
+            .map((item) => item.match),
+          allowedTerms: termPolicy
+            .filter((item) => item.match.status === 'allowed')
             .map((item) => item.match),
           conflicts: termMatches.filter((term) => term.conflict),
           tm,
@@ -519,11 +532,18 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         }
         return result
       }
+      if (deps.contextOutput === 'artifact') {
+        // The background worker writes this to disk; the model reads coherent groups from that file.
+        projectRules = allRules
+        const result = page(contexts)
+        result.maxBytes = result.usedBytes
+        return toolResult(result, deps.resultProjectId)
+      }
       // LA-CONTEXT-002 最小核心：identity/revision/完整 source + current target/locked/placeholderSignature。
-      // 预算只裁次级字段，返回页的双语正文永不置空或截半截。
+      // 已选术语正文同样保留，超预算走既有分片；呈现参考不改变采用强制性。
       const minimalCore = (context: ResolvedTranslationContext, sharedWith: readonly ResolvedTranslationContext[] = []): ResolvedTranslationContext => ({
         ...context,
-        previous: [], next: [], preferredTerms: [],
+        previous: [], next: [],
         linkedContext: context.linkedContext.filter(link => sharedWith.some(other => other.linkedContext.some(included =>
           included.docId === link.docId && included.version === link.version && included.anchorId === link.anchorId && included.text === link.text))),
         warnings: [...context.warnings, 'Optional context fields were omitted to fit maxBytes; required references are listed separately.'],
@@ -673,7 +693,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           project.sourceLocale,
           project.targetLocale,
         )
-        segmentMatches = matchTmCandidates(query, candidates, { minimumScore: params.minimumScore ?? 75 })
+        segmentMatches = matchTmCandidates(query, candidates, { minimumScore: params.minimumScore ?? 75,
+          ...(deps.taskId === undefined ? {} : { context: { taskId: deps.taskId } }) })
       }
       const results: TmUnit[] | TmMatchDiagnostics[] = mode === 'segment'
         ? segmentMatches.slice(0, page.limit)

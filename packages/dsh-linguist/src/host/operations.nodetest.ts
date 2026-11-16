@@ -16,6 +16,29 @@ import { ManagedFiles } from './files'
 import { MutationBus } from './mutations'
 import { dispatchOperation, listWorkingCopies, type DispatchOperationInput } from './operations'
 
+test('human confirmation records the bound parent task and rejects a foreign session', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-stage-session-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const project = await service.createProject({ name: 'Synthetic', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    await service.importAsset(project.id, { bytes: Buffer.from('key,source,target\na,Open,打开\n'), filename: 'synthetic.csv' })
+    const db = service.openProject(project.id), segment = db.segments.query()[0]!
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = {
+      service, bindings: new BindingStore(root), files: new ManagedFiles(root), mutations: new MutationBus(),
+      workspaceRegistry: { get: () => undefined }, resolveSessionWorkspace: async () => { throw new Error('Unexpected Workspace lookup') },
+      assertProjectSession: async id => { if (id !== 'child') throw new Error('Unbound Session') },
+      sessionCopyHost: { sessionQuery: { observeSession: async (id: string) => ({ header: { id, origin: 'subagent', parentSession: 'parent' }, [Symbol.dispose]() {} }) } } as unknown as NonNullable<DispatchOperationInput['sessionCopyHost']>,
+    }
+    const payload = { projectId: project.id, segmentId: segment.id, expectedRevision: segment.revision }
+    await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistCatConfirmStage', payload: { ...payload, sessionId: 'foreign' } }), /Unbound Session/)
+    await dispatchOperation({ ...deps, operation: 'linguistCatConfirmStage', payload: { ...payload, sessionId: 'child' } })
+    const record = JSON.parse((db.tmUnits.listCandidates('en-US', 'zh-CN')[0]!.localMetadata!.la_confirmations as string[])[0]!)
+    assert.equal(record.taskId, 'parent')
+    assert.equal(record.actor, 'local-user')
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
 test('successful and duplicate ordinary imports release staging while keeping the original asset; cleanup failure is diagnosed and retried', async (context) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-staging-lifecycle-')))
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic-test' })

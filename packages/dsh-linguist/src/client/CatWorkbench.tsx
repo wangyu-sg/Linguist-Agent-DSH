@@ -369,8 +369,11 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
   const save = React.useCallback(async (segment: LinguistSegmentInfo, target: string): Promise<TargetSaveResult> => {
     try {
+      const draftAtom = editorState.drafts.get(segment.id)
+      const reference = draftAtom === undefined ? undefined : editorState.store.get(draftAtom)?.tmReference
       const result = await invoke<LinguistCatEditResult>('linguistCatEditSegment', {
         projectId, segmentId: segment.id, target, expectedRevision: segment.revision,
+        ...(reference?.target === target ? { tmUnitId: reference.unitId } : {}),
         propagateRepeated, excludedSegmentIds: protectedCatDraftSegmentIds(projectId).filter((id) => id !== segment.id),
       })
       if (!result.ok) {
@@ -384,7 +387,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       setNotice(result.data.repetition ? '' : t("译文已保存"))
       return 'saved'
     } catch (error) { setNotice(String(error)); return 'failed' }
-  }, [projectId, propagateRepeated, refreshSummary, updateRow])
+  }, [editorState, projectId, propagateRepeated, refreshSummary, updateRow])
 
   const undoRepetition = async (repetition: NonNullable<typeof repeatResult>) => {
     setRepeatUndoBusy(true)
@@ -407,7 +410,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       if (confirm && latest.currentStageState === 'confirmed') return
       if (!confirm && latest.currentStageState !== 'confirmed') return
       const next = await required<LinguistSegmentInfo>(confirm ? 'linguistCatConfirmStage' : 'linguistCatUnconfirmStage', {
-        projectId, segmentId: latest.id, expectedRevision: latest.revision,
+        projectId, sessionId, segmentId: latest.id, expectedRevision: latest.revision,
       })
       updateRow(next)
       setRowSignalRefresh((value) => value + 1)
@@ -442,7 +445,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         else setNotice(t('当前批次和筛选范围内没有下一个可编辑句段'))
       }
     } catch (error) { setNotice(String(error)) }
-  }, [projectId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage, assetId, stageFilter, search])
+  }, [projectId, sessionId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage, assetId, stageFilter, search])
 
   const confirmSelected = async () => {
     const ids = [...selectedIds]
@@ -452,7 +455,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       const contexts = await Promise.all(ids.map((segmentId) => invoke<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
       const items = contexts.flatMap((result) => result.ok ? [{ segmentId: result.data.segment.id, expectedRevision: result.data.segment.revision }] : [])
       if (items.length === 0) { setNotice(t("所选句段均无法读取，未执行阶段确认")); return }
-      const result = await required<LinguistCatConfirmStageBulkResult>('linguistCatConfirmStageBulk', { projectId, items })
+      const result = await required<LinguistCatConfirmStageBulkResult>('linguistCatConfirmStageBulk', { projectId, sessionId, items })
       result.succeeded.forEach(updateRow)
       const failed = new Set([...contexts.flatMap((entry, index) => entry.ok ? [] : [ids[index]!]), ...result.failed.map((entry) => entry.segmentId)])
       setSelectedIds(failed)
@@ -883,7 +886,7 @@ function evidenceCategory(reference: string): 'tm' | 'term' | 'style' | 'voice' 
 
 function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived, mutation, onOpenTerms, tagProfile }: { projectId: string; segmentId?: string; editorHandle?: TargetEditorHandle; draftAtom?: PrimitiveAtom<TargetEditorDraft | undefined>; archived: boolean; mutation: number; onOpenTerms: () => void; tagProfile: LinguistProjectInfo['tagProfile'] }): React.ReactElement {
   const t = useT()
-  const draft = useAtomValue(draftAtom ?? emptyDraftAtom)
+  const [draft, setDraft] = useAtom(draftAtom ?? emptyDraftAtom)
   const scope = `${projectId}\0${segmentId}`
   const [result, setResult] = React.useState<{ scope: string; data: LinguistCatContextResult }>()
   const data = result?.scope === scope ? result.data : undefined
@@ -928,10 +931,13 @@ function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived,
     try { await required('linguistAssetsSetContextDocSegmentLink', { projectId, docId, segmentId, linked }); setRefresh((value) => value + 1) }
     catch (cause) { setActionError(String(cause)) }
   }
-  const applyReference = (target: string, action: 'replace' | 'insert') => {
+  const applyReference = (target: string, action: 'replace' | 'insert', tmUnitId?: string) => {
     if (!editorHandle || archived || data?.segment.locked) return
     const applied = action === 'replace' ? editorHandle.replace(target) : editorHandle.insert(target)
-    if (applied) { editorHandle.focus(); setActionError('') }
+    if (applied) {
+      setDraft(current => current === undefined ? current : { ...current, tmReference: tmUnitId === undefined ? undefined : { unitId: tmUnitId, target } })
+      editorHandle.focus(); setActionError('')
+    }
     else setActionError(t('参考译文未写入草稿；请核对 Tag、锁和输入法状态。'))
   }
   const openEvidence = (category: Exclude<ReturnType<typeof evidenceCategory>, 'other'>) => {

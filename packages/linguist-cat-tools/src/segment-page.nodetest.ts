@@ -34,6 +34,7 @@ test('segment pages keep complete UTF-8 content and notes, return exact continua
     do {
       const result = await tool.execute(`page-${offset}`, { batchId: asset.id, offset, limit: 100 })
       const page = result.details!
+      assert.ok('items' in page)
       const text = result.content[0]!
       assert.equal(text.type, 'text')
       const bytes = Buffer.byteLength('text' in text ? text.text : '', 'utf8')
@@ -83,9 +84,11 @@ test('segment pages keep complete UTF-8 content and notes, return exact continua
     assert.equal(JSON.parse(payload).contexts[0].source, segments[3]!.source)
     assert.equal(JSON.parse(payload).contexts[0].currentTarget, segments[3]!.target)
     const index = (await tool.execute('index', { view: 'index', limit: 100 })).details!
+    assert.ok('items' in index)
     assert.deepEqual(index.items.map(item => item.segmentId), ids)
     for (const item of index.items) assert.ok(!('source' in item) && !('target' in item) && !('context' in item))
     const beyond = (await tool.execute('beyond', { offset: 1000 })).details!
+    assert.ok('items' in beyond)
     assert.deepEqual(beyond.items, [])
     assert.equal(beyond.nextOffset, null)
   } finally {

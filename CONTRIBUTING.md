@@ -2,7 +2,7 @@
 
 ## 当前依赖与命令
 
-准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 固定为 **0.2.2-rc.1**；本机检查平台为 macOS ARM64。
+准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 在开发依赖中固定为 **0.2.2-rc.3**；运行时 peer 与 `engines.dsh` 范围为 `>=0.2.2-rc.3 <0.2.3-0`。兼容范围不是未来接口兼容的验证结论，升级需检查实际用到的接口；本机检查平台为 macOS ARM64。
 
 不要用 DSH App 内受签名限制的 Node 运行 checkout 的第三方原生模块。普通 Node 可以加载声明依赖的预编译本机模块；SDK 间接依赖 koffi 已带平台二进制，维护配置不执行其额外源码构建。
 
@@ -16,9 +16,13 @@ pnpm build
 pnpm pack:plugin
 ```
 
+可用 `pnpm pack:plugin artifacts/<目录名>` 将安装包和打包清单写入独立目录，保留已有产物。
+
 检查使用当前源码、已声明的官方 SDK、Node 回归、Bun 格式回归和合成样本。失败立即报错；不读取旧源码快照、功能清单或人工安装回执。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.3.6.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker 和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据；Linguist 及配套 BrowserSkill 包均执行此检查。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+CAT、线上材料和工作副本共用的语义检索复用已安装的 MemSearch Python 环境及本地 `gpahal/bge-m3-onnx-int8`，通过离线子进程执行包内 `semantic-review.py`。正常回归使用合成进程／模型替身，不要求下载权重；使用安装了 `memsearch[onnx]` 且已有模型缓存的 Python 运行 `tests/semantic-review.integration.py`，可验证真实召回、缓存复用、模型变更失效和长原文覆盖。该集成检查不读取客户资料或调用付费模型。推理缓存独立于 CAT 正式库，不触发 CAT schema 变更；检索阈值只控制候选召回，不是语言质量或 TM 分数。全局开关保存于 LA 管理的 `review-preferences.json`，不改 DSH reserved profile；设置页复用官方 `settings.section` 插槽和现有项目设置面板。缓存清理只操作对应的语义 SQLite 文件及其日志。
+
+打包输出 `artifacts/linguist-dsh-plugin-1.5.3.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker、本地语义检索脚本和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据；Linguist 及配套 BrowserSkill 包均执行此检查。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
 LA 可以独立打包；本机若已有校验过的 BrowserSkill 适配包，额外复制到 artifacts，缺少它不会阻断 CAT 插件打包。浏览器模式仍需要安装 BrowserSkill；当前适配包、CLI 和扩展版本以 [BrowserSkill 集成说明](integrations/browser-skill/README.md) 为准。
 
@@ -33,6 +37,8 @@ Linguist 与 DSH 创造模式均挂载官方 `plugin_manager`，沿用宿主权�
 这条现有路径已用于 LA 更新。仓库构建与内部热应用是两个动作，不把单独修改源码误报为运行中插件已更新；通过原生工具管理 Desktop 安装，不用 CLI 改写其保留 profile。涉及正在执行的写入时，先停在已保存状态，再更新并读取当前版本继续。
 
 `cat_get_translation_context` 和 `cat_read_context_doc` 的完整 JSON 文本响应默认及最大预算均为 32,000 UTF-8 字节；较大的内容按真实 cursor 分页或分片。读取版本、成功写入后的版本与分片范围写入原生工具结果的私有 `meta.readSnapshots`；待确认的证据使用并列 `meta.evidence`，恢复后仍需完整正文进入真实模型请求并获得成功响应才落账。同一会话仅恢复自己的结果，排除分叉继承事件；不新建数据库结构，也不把当前 CAT 版本补成旧读取版本。
+
+自动上下文在 `allowedTerms` 呈现普通 TB 参考正文及原状态，`preferredTerms` 保留建议证据；两者共同沿用 `termLimitPerSegment` 可选限额。已选中的术语不在预算压缩时丢弃，超过预算走既有 JSON 分片。`requiredTerms`／`forbiddenTerms`、冲突保护和 QA／写入强制级别保持各自语义，不增加术语级回执。
 
 ## 代码入口
 
@@ -88,7 +94,7 @@ Excel 限额按各工作表使用区域的行数×列数合计，稀疏表也占
 
 此前复现的宿主缺陷：0.2.0-rc.2 的 Excel Worker 对缺少 `sheetFormatPr.defaultRowHeight` 的工作表直接计算 `undefined * 96 / 72`，返回 `NaN` 行高；数据与公式栏可读，网格为空。3×3 合成工作簿在实际 Desktop 和官方 Worker 均复现，仅补充 `defaultRowHeight="15"` 的同内容副本返回 20 像素行高并正常显示。当前宿主版本尚未复测此项；CAT 列映射与句段导入不受此显示缺陷影响。
 
-回退时在原生插件管理安装先前保存的包；本轮不改变 CAT 数据库结构。预览限额可恢复上述组件的默认配置。不要用恢复整个旧项目备份来回退提示或预览功能。
+预览限额可恢复上述组件的默认配置。术语来源关联使用 CAT schema 20；项目列表摘要使用独立只读句柄，不触发升级或替换工作中的句柄。以可写方式打开旧项目并升级前会先生成备份，旧插件不能直接打开升级后的数据库。不要用恢复整个旧项目备份来回退提示或预览功能。
 
 ## 本机安装与升级
 

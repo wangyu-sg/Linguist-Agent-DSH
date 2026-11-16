@@ -38,7 +38,7 @@ export interface SchemaMigration {
 }
 
 /** Current schema version this build understands. */
-export const SCHEMA_VERSION = 19
+export const SCHEMA_VERSION = 20
 
 const MIGRATION_1_SQL = `
 CREATE TABLE assets (
@@ -779,6 +779,19 @@ CREATE INDEX idx_tm_units_source
   ON tm_units(project_id, source_id, created_at, id);
 `
 
+const MIGRATION_20_SQL = `
+ALTER TABLE tm_units ADD COLUMN locally_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(locally_confirmed IN (0, 1));
+ALTER TABLE tm_units ADD COLUMN local_metadata_json TEXT;
+CREATE TABLE term_entry_sources (
+  term_id TEXT NOT NULL REFERENCES term_entries(id) ON DELETE CASCADE,
+  reference_id TEXT NOT NULL REFERENCES reference_imports(id) ON DELETE CASCADE,
+  source_term TEXT NOT NULL,
+  source_translation TEXT NOT NULL,
+  source_note TEXT NOT NULL,
+  PRIMARY KEY (term_id, reference_id, source_term, source_translation, source_note)
+);
+`
+
 function backfillTmSourceMetadata(db: SqliteDatabase): void {
   const rows = db.prepare(`
     SELECT id, project_id, source, source_locale, target_locale, origin
@@ -917,4 +930,5 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
       },
     ],
   },
+  { version: 20, description: 'term entries linked to their actual imported reference rows', sql: MIGRATION_20_SQL },
 ]
