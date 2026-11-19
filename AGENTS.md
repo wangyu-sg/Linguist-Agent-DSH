@@ -18,7 +18,7 @@ LA 是 DSH 原生 Host + Client 的游戏本地化插件。DSH 管理会话、�
 - LA 控制的单文件接收上限为 1 GiB（1024 MiB），普通批次与参考资源一致；共享常量是事实来源。HTTP 请求预算与逻辑批次分开，分请求上传须保留同批 Phrase 配对。接收上限不保证所有格式的解析性能。
 - 暂存完成或取消后释放；待确认与在途输入受到保护；过期和重启孤儿回收仅操作 LA 自有 staging。保护原稿、正式数据、备份与交付物。
 - 正常构建、测试与打包只依赖当前源码、声明的依赖和合成样本，不依赖旧源码镜像、历史功能清单或作者手制回执。按改动运行相关合成测试、类型检查或本地打包，修复本次引入的问题后重跑；交付时说明实际通过的检查和仍待验证的部分。该本地循环可连续执行。
-- 主要入口：packages/dsh-linguist/src/index.ts、src/host、src/client；packages/linguist-cat-*、packages/linguist-domain-service；integrations/browser-skill。linguist-legacy-migration 是旧数据导入能力，保留。
+- 主要入口：`packages/dsh-linguist/src/index.ts`、`packages/dsh-linguist/src/host/`、`packages/dsh-linguist/src/client/`；packages/linguist-cat-*、packages/linguist-domain-service；integrations/browser-skill。linguist-legacy-migration 是旧数据导入能力，保留。
 - 正常命令：pnpm install --frozen-lockfile、pnpm typecheck、pnpm test:required、pnpm build、pnpm pack:plugin；工具版本见 CONTRIBUTING.md。
 
 ## 文档与交付

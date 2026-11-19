@@ -36,7 +36,7 @@ test('shared project originals reach CAT, browser, working-copy and questions; u
     ])
     const libraryPath = join(service.getProjectPaths(project.id).projectDir, 'project-library.json')
     const stamp = statSync(libraryPath).mtimeMs
-    assert.equal((await syncProjectLibrary(service, project.id, root)), library)
+    assert.equal((await syncProjectLibrary(service, project.id, root)).resources, library.resources)
     assert.equal(statSync(libraryPath).mtimeMs, stamp, 'unchanged originals do not rewrite the library')
     await syncProjectLibrary(service, project.id, root, [{ path: join(root, 'notes.txt'), kind: 'context' }])
     assert.equal(statSync(libraryPath).mtimeMs, stamp, 'registering the same absolute path is idempotent')

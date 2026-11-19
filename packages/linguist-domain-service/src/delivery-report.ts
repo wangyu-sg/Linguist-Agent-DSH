@@ -1,11 +1,42 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fillDeliveryWorkbook, sha256Hex } from '@linguist/cat-formats'
+import { fillDeliveryWorkbook, parseXlsxWorkbook, sha256Hex } from '@linguist/cat-formats'
 import { z } from 'zod'
 import { writeFileAtomic } from './safe-file'
 import { readWorkingJson, workingCopyPath } from './working-copy'
+import { LINGUIST_FILE_MAX_BYTES } from './contracts'
+import { readPickedFileWithinLimit } from './project-file-intake'
 
 export type DeliveryReportKind = 'translation' | 'review'
+
+export async function inspectDeliveryReport(workspaceRoot: string, path: string, batch?: string) {
+  const { bytes, filename } = await readPickedFileWithinLimit(workingCopyPath(workspaceRoot, path), LINGUIST_FILE_MAX_BYTES)
+  const { sheets, skippedSheets } = await parseXlsxWorkbook(bytes, { filename, maxRowsPerSheet: batch ? undefined : 3 })
+  const detail = sheets.find(sheet => sheet.name === '翻译明细' || sheet.name === '审校明细')
+  const header = detail && new Map([...detail.headers, ...detail.rows.slice(0, 3)]
+    .filter(row => row.rowNo === 2 || row.rowNo === 3).flatMap(row => row.cells.map(cell => [cell.ref, cell.value] as const)))
+  const locations = batch && sheets.flatMap(sheet => {
+    const matches = sheet.name === batch ? [`页签「${sheet.name}」`] : []
+    const task = sheet === detail ? header?.get('B2') : undefined
+    if (task?.startsWith(`${batch} / `)) matches.push(`「${sheet.name}」的任务栏 B2 为「${task}」`)
+    for (const rows of [sheet.headers, sheet.rows]) {
+      for (const row of rows) {
+        const cell = row.cells.find(cell => cell.value.trim() === batch)
+        if (cell) return [...matches, `「${sheet.name}」的 ${cell.ref} 单元格值为「${cell.value}」`]
+      }
+    }
+    return matches
+  })
+  return {
+    path,
+    ...(header && { report: { task: header.get('B2') ?? '', baseline: header.get('E2') ?? '', version: header.get('H2') ?? '',
+      collection: header.get('B3') ?? '', scope: header.get('E3') ?? '' } }),
+    sheets: sheets.map(sheet => sheet.name),
+    ...(batch && { batchCheck: { batch, locations } }),
+    skippedSheets: skippedSheets.map(sheet => sheet.name),
+  }
+}
+
 const cell = z.string().max(32767)
 const required = cell.refine(value => value.trim().length > 0, '必须填写')
 const translationStatuses = ['定稿', '保留原文', '待确认', '待核术语', '待验结构'] as const

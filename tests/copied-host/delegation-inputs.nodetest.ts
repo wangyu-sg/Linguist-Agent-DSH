@@ -34,6 +34,7 @@ test('missing required input blocks native child start and frozen scope survives
     const agent = { id: 'synthetic-parent' }
     const { tool } = createLinguistDelegationTool({
       service, binding, agent: agent as never,
+      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: () => { throw new Error('No intent is reserved on blocked input') },
       control: {} as never,

@@ -8,7 +8,7 @@ import type { ReadSnapshotMeta, SessionReadSnapshots } from './read-snapshots'
 import type { PreparedEvidenceMeta } from './evidence'
 
 /** Preserve the original TypeBox validation at the model-input boundary. */
-export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => PreparedEvidenceMeta | void, onExecuting?: (callId: string, rootCallId: string, args: Record<string, unknown>) => void, onUpdate?: (callId: string, update: LinguistToolResult) => void, snapshots?: SessionReadSnapshots, scope?: () => readonly string[] | undefined): ToolDefinition {
+export function adaptCatTool(source: LinguistToolDefinition, attachments: AttachmentStore, onPresented?: (callId: string, content: ContentBlock[]) => PreparedEvidenceMeta | void, onExecuting?: (callId: string, rootCallId: string, args: Record<string, unknown>, signal: AbortSignal) => void | Promise<void>, onUpdate?: (callId: string, update: LinguistToolResult) => void, snapshots?: SessionReadSnapshots, scope?: () => readonly string[] | undefined): ToolDefinition {
   const parameters = JSON.parse(JSON.stringify(source.parameters)) as Record<string, unknown>
   const automaticRead = snapshots !== undefined && (source.name === 'cat_apply_translations' || source.name === 'cat_confirm_segments')
   if (automaticRead) {
@@ -74,7 +74,7 @@ export function adaptCatTool(source: LinguistToolDefinition, attachments: Attach
         const first = Value.Errors(source.parameters, input)[0]
         throw new Error(`Invalid ${source.name} arguments: ${first?.message ?? ''}`)
       }
-      onExecuting?.(exec.callId, exec.rootCallId ?? exec.callId, input)
+      await onExecuting?.(exec.callId, exec.rootCallId ?? exec.callId, input, exec.signal)
       const execute = async () => {
         const result = await source.execute(exec.callId, input as never, exec.signal, update => onUpdate?.(exec.callId, update))
         const content: ContentBlock[] = []

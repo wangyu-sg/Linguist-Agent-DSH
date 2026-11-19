@@ -409,6 +409,7 @@ export type LibraryPreparationStatus =
 export interface LibraryPreparationOffer {
   projectId: string
   groups: Array<{ id: string; name: string; offeredAt: number }>
+  registrations?: Array<{ path: string; filename: string; taskGroupId: string; status: 'ready' | 'manual' | 'error' }>
 }
 
 export interface LinguistImportProgress {

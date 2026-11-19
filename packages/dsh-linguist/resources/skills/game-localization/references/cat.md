@@ -1,6 +1,6 @@
 # CAT 作业
 
-正式本地文件任务调用 `linguist_prepare_project`，传原稿和已知语言对。用户明确指定方式时传 `workMode`；否则根据实际格式检查给出建议，首次请用户选择；用户明确让 LA 决定时传 `autoRoute: true`。返回的 `files` 会标明已准备的 CAT 批次、可继续的文件和需要澄清的局部问题。XLSX 使用已保存或唯一明确的映射；无法确定时，问清具体工作表和列。Phrase split 使用对应 master。核对稳定 ID、锁定和标签边界。
+正式本地文件任务调用 `linguist_prepare_project`，传原稿和已知语言对。已有 CAT 批次时传 `existingCat: true`。工作方式未定时由宿主根据稿件给出建议并询问用户。返回的 `files` 会标明已准备的 CAT 批次、可继续的文件和需要澄清的局部问题。XLSX 使用已保存或唯一明确的映射，无法确定时问清具体工作表和列。Phrase split 使用对应 master。核对稳定 ID、锁定和标签边界。
 
 General 用 `linguist_delegate` 将当前批次或指定句段交给专业岗位。正常材料带完整源译文及适用依据；直接阅读内联首组，然后沿 `continuationPaths` 续读。缺少必要来源时按出处补查。读完后按已授权范围集中保存或确认，锁定、版本与原件保护继续有效。只做报告时传 `reportOnly: true`，并仅交付判断。
 

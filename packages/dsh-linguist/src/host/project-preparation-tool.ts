@@ -5,12 +5,13 @@ import { Value } from 'typebox/value'
 import type { LibraryPreparationOffer } from '@linguist/domain-service/contracts'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { prepareCatTask, prepareProjectLibrary, syncProjectLibrary, listProjectLibrary, type LinguistProjectService } from '@linguist/domain-service'
-import type { SessionBinding } from './bindings'
-import { inspectLocalSource, routeTask } from './task-routing'
+import type { LinguistWorkMode, SessionBinding } from './bindings'
+import { inspectLocalSource, routeTask, workModeInstruction } from './task-routing'
 import { projectQuestionText } from './project-question-context'
 
 const Input = Type.Object({
   taskGroupId: Type.Optional(Type.String({ description: 'Session group ID. Empty string selects shared project materials.' })),
+  listResourceFiles: Type.Optional(Type.Literal(true, { description: 'Inspect registered resource files and their current availability, without registering or refreshing. Use alone or with taskGroupId. lastReadSha256 identifies the last successful read of a workspace file.' })),
   groupChange: Type.Optional(GroupChange),
   moveResources: Type.Optional(Type.Object({ keys: Type.Array(Type.String(), { minItems: 1 }), to: Type.String({ description: 'Destination group ID, or empty string for project.' }) })),
   query: Type.Optional(Type.String({ minLength: 1, description: 'Look up project evidence for this focused question. Use query alone for a read in the current scope.' })),
@@ -20,10 +21,10 @@ const Input = Type.Object({
   batch: Type.Optional(Type.Object({ assetId: Type.Optional(Type.String()), kind: Type.Union([Type.Literal('browser'), Type.Literal('working-copy')]), locator: Type.String({ minLength: 1, description: 'Stable platform file identifier or source digest.' }), name: Type.String({ minLength: 1 }) })),
   removeResource: Type.Optional(Type.String({ description: 'Exact resource key from the returned resources list to remove from project use; original files are retained.' })),
   replaceResource: Type.Optional(Type.String({ description: 'Exact resource key to replace after the single new resource reads successfully.' })),
-  workMode: Type.Optional(Type.Union([Type.Literal('cat'), Type.Literal('working-copy'), Type.Literal('browser')], { description: 'Pass only an explicit user choice. Otherwise reuse the current route, or ask once using the host recommendation. Set autoRoute only if the user delegates the choice.' })),
+  workMode: Type.Optional(Type.Union([Type.Literal('cat'), Type.Literal('working-copy'), Type.Literal('browser')], { description: 'The mode the user named explicitly. A model-suggested mode does not authorize work; the host asks when needed.' })),
   sourceLocale: Type.Optional(Type.String()), targetLocale: Type.Optional(Type.String()),
   online: Type.Optional(Type.Boolean({ description: 'True when the task concerns a live platform Job, file or page.' })),
-  autoRoute: Type.Optional(Type.Boolean({ description: 'True only if the user explicitly asks LA to choose the working mode.' })),
+  existingCat: Type.Optional(Type.Boolean({ description: 'True to start formal work on a batch already in CAT when no source file needs importing.' })),
   newTask: Type.Optional(Type.Boolean({ description: 'True only for a distinct task in this conversation. A continuing task retains its previous route.' })),
   reportOnly: Type.Optional(Type.Boolean({ description: 'True when the user requests observations only, without changing or confirming targets.' })),
   useRoleDefaults: Type.Optional(Type.Boolean({ description: 'True only if the user expressly chooses LA role defaults. Preserve the current host settings otherwise.' })),
@@ -38,12 +39,18 @@ const Input = Type.Object({
   }, { additionalProperties: false }))),
 }, { additionalProperties: false })
 
+// The native tool executor rejects undefined members, including optional nested fields.
+function jsonOutput<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 export function createProjectPreparationTool(service: LinguistProjectService, resolve: (callId: string, useTurnQuestion: boolean) => Promise<{
-  workspaceRoot: string; sessionId: string; binding: SessionBinding; segmentIds?: string[]; question?: string
+  workspaceRoot: string; sessionId: string; binding: SessionBinding; segmentIds?: string[]; question?: string; userText?: string
+  chooseWorkMode?: (recommended: LinguistWorkMode | undefined, signal: AbortSignal) => Promise<LinguistWorkMode | undefined>
 }>, bind: (projectId: string, binding: SessionBinding) => void, onChanged?: (projectId: string) => void): ToolDefinition {
   return {
     name: 'linguist_prepare_project',
-    description: 'Prepare supplied project assets once for every LA conversation and work mode. resources: TM/TB use native matching; rules carry complete checklist/SG requirements, optional appliesTo scopes; context keeps full examples/query responses with source positions. No mandatory extra columns. Reuses unchanged originals and updates changed sources. For a formal task provide its local sources or online=true. Returns the chosen way to work, prepared CAT copies where applicable, and any files needing attention. For questions use query alone. No original or platform write. Non-CAT work still uses the same library. Only register attachments the user wants retained as project materials. For a question that needs project evidence, use query alone in the bound session. For cross-group comparison supply compareGroups and the same query.',
+    description: 'Start formal work with sources, existingCat=true, or online=true. The host asks the user which way to work when undecided, then prepares the chosen mode. Use resources to register new project material; for a newer version pass its previous exact key as replaceResource and the new original in resources. TM/TB matches and rules are ready after registration. The user can start optional meaning-based indexing from the resulting card or Project Resources. For an evidence question use query alone. For cross-group comparison supply compareGroups and the same query.',
     parameters: JSON.parse(JSON.stringify(Input)),
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -59,25 +66,33 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
       if (input.semantic && !input.query && !input.compareGroups) throw new Error('语义检索需要查询问题')
       const context = await resolve(String(exec.rootCallId ?? exec.callId), !!input.compareGroups && !input.query)
       if (context.binding.delegatedScope && (input.groupChange || input.moveResources || input.compareGroups || input.sources || input.batch
-        || input.resources || input.online || input.autoRoute || input.workMode || input.reportOnly !== undefined || input.useRoleDefaults !== undefined || input.prepareInBackground || input.removeResource || input.replaceResource || input.taskGroupId !== undefined && input.taskGroupId !== context.binding.taskGroupId)) throw new Error('子任务已冻结范围，项目或任务组维护请交由 General')
+        || input.resources || input.online || input.existingCat || input.workMode || input.reportOnly !== undefined || input.useRoleDefaults !== undefined || input.prepareInBackground || input.removeResource || input.replaceResource || input.taskGroupId !== undefined && input.taskGroupId !== context.binding.taskGroupId)) throw new Error('子任务已冻结范围，项目或任务组维护请交由 General')
+      if (input.listResourceFiles) {
+        if (Object.keys(input).some(key => key !== 'listResourceFiles' && key !== 'taskGroupId')) throw new Error('盘点资料仅接受任务组范围')
+        const { projectId } = context.binding
+        if (!projectId) return { status: 'no-project', resources: [], groups: [] }
+        const taskGroupId = input.taskGroupId ?? context.binding.taskGroupId ?? ''
+        const { groups, resources } = service.inspectProjectResourceFiles(projectId, context.workspaceRoot, taskGroupId)
+        return jsonOutput({ projectId, taskGroupId, groups: context.binding.delegatedScope ? groups.filter(group => group.id === taskGroupId) : groups, resources })
+      }
       if (input.query && Object.keys(input).every(key => key === 'query' || key === 'taskGroupId' || key === 'semantic')) {
         const { projectId } = context.binding
         if (!projectId) throw new Error('当前会话尚未绑定项目资料')
         const taskGroupId = (input.taskGroupId ?? context.binding.taskGroupId) || undefined
         if (input.taskGroupId && !service.openProject(projectId).taskGroups.list().some(group => group.id === taskGroupId)) throw new Error('任务组不存在')
         const segmentIds = taskGroupId === context.binding.taskGroupId ? context.segmentIds : undefined
-        return { projectId, taskGroupId, materials: await projectQuestionText(service, projectId, context.workspaceRoot, input.query, segmentIds, taskGroupId, exec.signal, input.semantic) }
+        return jsonOutput({ projectId, taskGroupId, materials: await projectQuestionText(service, projectId, context.workspaceRoot, input.query, segmentIds, taskGroupId, exec.signal, input.semantic) })
       }
       if (input.compareGroups && Object.keys(input).every(key => ['compareGroups', 'query', 'semantic'].includes(key))) {
         const { projectId } = context.binding
         if (!projectId) throw new Error('当前会话尚未绑定项目资料')
         const groups = service.openProject(projectId).taskGroups.list()
         const question = input.query ?? context.question
-        return { projectId, comparison: await Promise.all(input.compareGroups.map(async id => {
+        return jsonOutput({ projectId, comparison: await Promise.all(input.compareGroups.map(async id => {
           const group = groups.find(item => item.id === id)
           if (!group) throw new Error('比较的任务组不存在')
           return { group, materials: question && await projectQuestionText(service, projectId, context.workspaceRoot, question, undefined, id, exec.signal, input.semantic) }
-        })) }
+        })) })
       }
       if (input.prepareInBackground && !input.resources?.length && !context.binding.projectId) throw new Error('当前会话尚未绑定项目资料')
       let project = context.binding.projectId ? service.getProject(context.binding.projectId) : undefined
@@ -92,38 +107,46 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
       let taskGroupId = (input.taskGroupId ?? (input.groupChange?.action === 'create' ? changedId : context.binding.taskGroupId)) || undefined
       if (input.groupChange && ('id' in input.groupChange) && input.groupChange.id === taskGroupId && (input.groupChange.action === 'archive' || input.groupChange.action === 'delete')) taskGroupId = undefined
       if (taskGroupId) db.taskGroups.requireActive(taskGroupId)
-      let batchId: string | undefined
-      if (input.batch) {
-        service.assertProjectWritable(project.id)
-        batchId = db.taskGroups.registerBatch(taskGroupId ?? 'ungrouped', input.batch.kind, input.batch.locator, input.batch.name, input.batch.assetId)
-      }
       const taskInputs = (input.sources ?? []).map(source => ({
         projectId: project.id, taskGroupId, workspaceRoot: context.workspaceRoot, sessionId: context.sessionId, ...source, sourcePath: source.path,
       }))
       const missingLanguages = sourceLocale === 'und' || targetLocale === 'und'
-      const decisionInput = { explicit: input.workMode, online: input.online, newTask: input.newTask }
+      const formal = Boolean(taskInputs.length || input.existingCat || input.online || input.batch)
+      const instruction = formal || input.workMode ? workModeInstruction(context.userText) : undefined
+      const explicit = instruction === 'auto' ? undefined : instruction
+      const decisionInput = { explicit, online: input.online || input.batch?.kind === 'browser', newTask: input.newTask }
       const preferred = routeTask(context.binding, decisionInput)
       const inspected = missingLanguages || preferred.workMode === 'browser' && preferred.workModeDecision
         ? [] : await Promise.all(taskInputs.map(source => inspectLocalSource(service, source)))
-      const local = inspected.some(file => file.mode === 'cat') ? 'cat' : inspected.some(file => file.mode === 'working-copy') ? 'working-copy' : undefined
+      const local = input.existingCat || inspected.some(file => file.mode === 'cat') ? 'cat'
+        : input.batch?.kind === 'working-copy' || inspected.some(file => file.mode === 'working-copy') ? 'working-copy' : undefined
       const recommendation = routeTask(context.binding, { ...decisionInput, local })
       const existingRoute = routeTask(context.binding, { newTask: input.newTask })
-      const needsModeChoice = !input.autoRoute && !input.workMode && !existingRoute.workModeDecision
-        && Boolean(recommendation.workModeDecision) && (Boolean(taskInputs.length) || input.online === true)
-      const routed = needsModeChoice ? existingRoute : recommendation
+      const auto = instruction === 'auto' && recommendation.workModeDecision !== undefined
+      const needsChoice = formal && !explicit && !existingRoute.workModeDecision && !auto
+      const recommendedWorkMode = recommendation.workModeDecision ? recommendation.workMode : undefined
+      const answer = needsChoice ? await context.chooseWorkMode?.(recommendedWorkMode, exec.signal) : undefined
+      const needsModeChoice = needsChoice && !answer
+      const routed = answer ? routeTask(context.binding, { explicit: answer }) : needsModeChoice ? existingRoute : recommendation
       const binding = { ...context.binding, taskGroupId, projectId: project.id, ...routed,
         reportOnly: input.reportOnly ?? (input.newTask ? undefined : context.binding.reportOnly),
         useRoleDefaults: input.useRoleDefaults ?? context.binding.useRoleDefaults,
       }
       const mode = binding.workMode
       bind(project.id, binding)
-      await syncProjectLibrary(service, project.id, context.workspaceRoot, input.resources, { taskGroupId, move: input.moveResources, remove: input.removeResource, replace: input.replaceResource })
-      const backgroundScopes = [...new Set(input.resources?.flatMap(resource => resource.kind === 'context' ? [resource.taskGroupId ?? taskGroupId ?? ''] : []))]
-      if (input.prepareInBackground && !backgroundScopes.length) backgroundScopes.push(taskGroupId ?? '')
+      let batchId: string | undefined
+      if (input.batch && !needsModeChoice && mode === input.batch.kind) {
+        service.assertProjectWritable(project.id)
+        batchId = db.taskGroups.registerBatch(taskGroupId ?? 'ungrouped', input.batch.kind, input.batch.locator, input.batch.name, input.batch.assetId)
+      }
+      const { registered } = await syncProjectLibrary(service, project.id, context.workspaceRoot, input.resources, { taskGroupId, move: input.moveResources, remove: input.removeResource, replace: input.replaceResource })
+      const backgroundScopes = [...new Set(registered.flatMap(resource => resource.kind === 'context' && resource.status === 'ready' ? [resource.taskGroupId] : []))]
+      if (input.prepareInBackground && !registered.length) backgroundScopes.push(taskGroupId ?? '')
       const groups = db.taskGroups.list()
-      const preparationOffer: LibraryPreparationOffer | undefined = backgroundScopes.length ? {
+      const preparationOffer: LibraryPreparationOffer | undefined = backgroundScopes.length || registered.length ? {
         projectId: project.id,
         groups: backgroundScopes.map(id => ({ id, name: id ? groups.find(group => group.id === id)!.name : '', offeredAt: Date.now() })),
+        registrations: registered.map(({ kind: _kind, ...registration }) => registration),
       } : undefined
       const preparation = input.prepareInBackground ? backgroundScopes.map(id => ({
         id, status: prepareProjectLibrary(service, project.id, context.workspaceRoot, id).phase,
@@ -153,8 +176,8 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
         if (!group) throw new Error('比较的任务组不存在')
         return { group, materials: question && await projectQuestionText(service, project!.id, context.workspaceRoot, question, undefined, id, exec.signal, input.semantic) }
       }))
-      return { projectId: project.id, ...(needsModeChoice ? { status: 'choose-work-mode', recommendedWorkMode: recommendation.workMode } : {}), workMode: mode, workModeDecision: binding.workModeDecision, reportOnly: binding.reportOnly, files, taskGroupId, groups, batchId, comparison, preparationOffer, preparation, resources: listProjectLibrary(service, project.id, context.workspaceRoot, taskGroupId), prepared, materials,
-        note: '同一项目资料供所有岗位使用。CAT 副本不覆盖原稿；锁定与标签须结合扫描样例判断。审校材料和独立审校沿用正常入口，无逐条回执。' }
+      return jsonOutput({ projectId: project.id, ...(needsModeChoice ? { status: 'choose-work-mode', recommendedWorkMode } : {}), workMode: mode, workModeDecision: binding.workModeDecision, reportOnly: binding.reportOnly, files, taskGroupId, groups, batchId, comparison, preparationOffer, preparation, resources: listProjectLibrary(service, project.id, context.workspaceRoot, taskGroupId), prepared, materials,
+        note: '同一项目资料供所有岗位使用。CAT 副本不覆盖原稿；锁定与标签须结合扫描样例判断。审校材料和独立审校沿用正常入口，无逐条回执。' })
     },
   }
 }

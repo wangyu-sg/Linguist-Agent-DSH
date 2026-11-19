@@ -934,6 +934,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     })
     const { tool, messageTool, listTool, interruptTool } = createLinguistDelegationTool({
       service, binding: parentBinding, agent, control, llm: { resolveCallConfig: async value => value },
+      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: (childId, binding) => { intents.set(childId, binding); return () => { intents.delete(childId) } },
       subagents: native,

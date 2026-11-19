@@ -18,7 +18,7 @@ const parameters = Type.Object({
   contextFiles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Workspace-relative spreadsheets, presentations or images with visual context.' })),
 })
 
-export function createWorkingCopyTool(resolveContext: (toolCallId: string, rootCallId: string) => WorkingCopyContext, verifySession: (input: WorkingCopyActionInput) => Promise<void>): ToolDefinition {
+export function createWorkingCopyTool(resolveContext: (toolCallId: string, rootCallId: string) => WorkingCopyContext, verifySession: (input: WorkingCopyActionInput, signal: AbortSignal) => Promise<void>): ToolDefinition {
   return {
     name: 'linguist_working_copy',
     description: 'Prepare a bilingual working copy, with or without a bound CAT project. Call references once for the current draft: supply previousResultPath and any task-specific TM/TB referenceFiles. The first reading group includes current source/target, matched references and cached semantic associations; read continuationPaths without separate per-50 queries. Similarity is a lead, not an error. Read related images when needed. Assemble explicitly reviewed decisions into a private draft; deliver verifies the original-format file, current draft, scope and completion. A project is associated automatically when needed. For unsupported formats use existing workspace tools.',
@@ -33,7 +33,7 @@ export function createWorkingCopyTool(resolveContext: (toolCallId: string, rootC
     async execute(args, exec) {
       if (!Value.Check(parameters, args)) throw new Error(`Invalid linguist_working_copy arguments: ${Value.Errors(parameters, args)[0]?.message}`)
       const input = args as WorkingCopyActionInput
-      await verifySession(input)
+      await verifySession(input, exec.signal)
       return executeWorkingCopyAction(input, () => resolveContext(String(exec.callId), String(exec.rootCallId)), exec.signal)
     },
   }

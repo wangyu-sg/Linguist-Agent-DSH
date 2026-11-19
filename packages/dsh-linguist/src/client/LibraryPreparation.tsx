@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { LibraryPreparationStatus, SemanticProgress } from '@linguist/domain-service/contracts'
+import type { LibraryPreparationOffer, LibraryPreparationStatus, SemanticProgress } from '@linguist/domain-service/contracts'
 import { required, subscribeProject } from './api'
 import { useT } from './ui-locale'
 import styles from './Native.module.css'
@@ -20,15 +20,16 @@ export function SemanticProgressLine({ scope, progress }: { scope: string; progr
 export function LibraryPreparationTurnActions({ turn, sessionId }: { turn: TurnLocation; sessionId: string }) {
   const source = turn.data.source('linguist-library-preparation')
   const offers = React.useSyncExternalStore(source.subscribe, source.getSnapshot)
-  return <>{offers?.map(offer => <LibraryPreparation key={offer.projectId} projectId={offer.projectId} groups={offer.groups}
+  return <>{offers?.map(offer => <LibraryPreparation key={offer.projectId} projectId={offer.projectId} groups={offer.groups} registrations={offer.registrations}
     offerKey={'linguist:later:' + sessionId + ':' + turn.turn + ':' + offer.projectId} />)}</>
 }
 
-export function LibraryPreparation({ projectId, groups, offerKey, readOnly }: {
+export function LibraryPreparation({ projectId, groups, offerKey, readOnly, registrations }: {
   projectId: string
   groups: Array<{ id: string; name: string; offeredAt?: number }>
   offerKey?: string
   readOnly?: boolean
+  registrations?: LibraryPreparationOffer['registrations']
 }) {
   const t = useT()
   const [statuses, setStatuses] = React.useState<LibraryPreparationStatus[]>([])
@@ -43,6 +44,7 @@ export function LibraryPreparation({ projectId, groups, offerKey, readOnly }: {
     let live = true, request = 0
     let timer: ReturnType<typeof setTimeout>
     const scopes: Array<{ id: string; offeredAt?: number }> = JSON.parse(groupKey)
+    if (scopes.length === 0) return
     const read = async () => {
       clearTimeout(timer)
       const sequence = ++request
@@ -91,11 +93,12 @@ export function LibraryPreparation({ projectId, groups, offerKey, readOnly }: {
     refresh()
   }
 
-  if (deferred) return <p className={styles.retrievalProgress}>{t('可稍后在项目资料页提前准备')}</p>
-  const canStart = !readOnly && actionable.length > 0
+  const canStart = !deferred && !readOnly && actionable.length > 0
   const waitingForChoice = !!offerKey && statuses.some(status => status.phase === 'idle')
   return <section className={styles.libraryPreparation} aria-label={t('背景资料准备')}>
-    {waitingForChoice && <p>{t('已登记到 {groups}，可在后台提前准备语义检索。', { groups: groups.map(group => group.name || t('项目共用')).join('、') })}</p>}
+    {registrations?.map(item => <p key={JSON.stringify([item.path, item.taskGroupId])} role="status">{item.filename} · {t(item.status === 'ready' ? '项目资料已登记，可查阅'
+      : item.status === 'manual' ? '已登记，需查看原件' : '读取失败')}</p>)}
+    {waitingForChoice && <p>{deferred ? t('可稍后在项目资料页提前准备') : t('已登记到 {groups}，可在后台提前准备语义检索。', { groups: groups.map(group => group.name || t('项目共用')).join('、') })}</p>}
     <div className={styles.libraryPreparationActions}>
       {canStart && <Button variant="outline" size="sm" type="button" disabled={busy} onClick={() => void start()}>{t(offerKey ? '现在准备' : '提前准备')}</Button>}
       {canStart && waitingForChoice && <Button variant="ghost" size="sm" type="button" disabled={busy} onClick={() => { sessionStorage.setItem(offerKey, 'later'); setDeferred(true) }}>{t('稍后')}</Button>}

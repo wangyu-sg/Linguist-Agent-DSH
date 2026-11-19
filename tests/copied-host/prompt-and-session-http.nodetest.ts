@@ -54,10 +54,18 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const executorPlugin = ctx.plugin(NativeToolExecutor)
   await executorPlugin.await()
   let preset = 'standard'
+  let asked = 0
   let agent = { id: SessionId('native-one'), model: { current: () => undefined }, session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
     agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
     schedule: { catalog: async () => [] },
+    sessionPersistence: { stat: async () => ({ header: agent.session.header }) },
+    userQuestions: { ask: async ({ questions }: { questions: Array<{ id: string; options: Array<{ label: string }> }> }) => {
+      asked++
+      assert.equal(questions[0]?.id, 'linguist-work-mode')
+      assert.deepEqual(questions[0]?.options.map(option => option.label).sort(), ['CAT', '工作副本', '浏览器'].sort())
+      return { answers: [{ id: 'linguist-work-mode', selected: ['CAT'] }] }
+    } },
     skills: { registerProvider: () => () => {} }, webServer: { register: () => () => {} },
     workspaceRegistry: { list: () => workspaces, get: (id: string) => workspaces.find(row => row.id === id) },
   }
@@ -72,6 +80,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     preset = 'linguist'
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: single, role: 'general', workMode: 'cat', projectId: project.id })
+    assert.match(renderPrompt(await ctx.systemPrompt.assemble()), /# 工作区维护标准/)
     assert.ok(ctx.tools.get('cat_project_summary'))
     const search = t.mock.method(service.reviewCache.constructor.prototype, 'search', async () => [[]])
     for (const turn of [1, 2]) {
@@ -81,16 +90,36 @@ test('native Linguist preset binds General, removes blank-session binding on exi
       assert.deepEqual(decision.messages.slice(1), messages)
       assert.equal(search.mock.callCount(), 0, 'new and resumed chat reach the model without starting semantic search')
     }
+    writeFileSync(join(root, '委托簿.md'), '仅测试目录发现，不把客户内容自动送入会话')
+    const pickup = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '接手 32.2' }] })
+    const taken = await ctx.waterfall('agent/pre-step', { agent, turn: 3, step: 0, messages: [pickup], signal: new AbortController().signal } as never,
+      async () => ({ kind: 'enter' as const, messages: [pickup] }))
+    const hint = taken.messages.find(message => message.source.kind === 'linguist-workspace-handoff')
+    assert.match(JSON.stringify(hint?.content), /委托簿\.md/)
+    assert.match(JSON.stringify(hint?.content), /32\.2/)
+    assert.match(JSON.stringify(hint?.content), /linguist_inspect_delivery_report/)
+    assert.doesNotMatch(JSON.stringify(hint?.content), /客户内容|reference\.txt/)
+    assert.equal(taken.messages.at(-1), pickup)
+    assert.equal(search.mock.callCount(), 0)
+    const start = await ctx.tools.get('linguist_prepare_project')!.execute(
+      { existingCat: true, workMode: 'working-copy' }, { agent, callId: 'work-mode', signal: new AbortController().signal } as never,
+    ) as { workMode: string }
+    assert.equal(asked, 1, 'DSH asks the user directly even if the call guesses a mode')
+    assert.equal(start.workMode, 'cat')
+    assert.deepEqual(start, JSON.parse(JSON.stringify(start)))
     preset = 'standard'
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.equal(new BindingStore(root).session(agent.id), undefined)
     assert.equal(ctx.tools.get('cat_project_summary'), undefined)
+    assert.doesNotMatch(renderPrompt(await ctx.systemPrompt.assemble()), /# 工作区维护标准/)
     preset = 'linguist'
     agent = { ...agent, id: SessionId('native-multiple'), session: Session.create(SessionId('native-multiple'), undefined, { version: 4, id: SessionId('native-multiple'), createdAt: Date.now(), isSeeded: false, cwd: multiplePath }) }
     await ctx.serial('agent/created', { agent, source: 'create' } as never)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'general', workMode: 'working-copy' })
+    assert.match(renderPrompt(await ctx.systemPrompt.assemble()), /# 工作区维护标准/)
     assert.ok(ctx.tools.get('linguist_working_copy'))
     assert.ok(ctx.tools.get('linguist_delivery_report'), 'the report is available in a Linguist session without CAT')
+    assert.ok(ctx.tools.get('linguist_inspect_delivery_report'))
     assert.ok(ctx.tools.get('linguist_delegate'), 'professional delegation is available without a CAT project')
     assert.equal(ctx.tools.get('cat_project_summary'), undefined)
     const parentId = agent.id
@@ -145,8 +174,10 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
     const conversation = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'working-copy' })
     assert.match(conversation.prompt, /游戏本地化专家/)
     assert.match(conversation.prompt, /普通语言判断/)
+    const maintenance = readFileSync(new URL('../../packages/dsh-linguist/resources/skills/game-localization/references/workspace-maintenance.md', import.meta.url), 'utf8').trim()
     for (const role of ['general', 'translator', 'reviewer', 'proofreader'] as const) {
       const fixed = buildLinguistPromptSection(service, roles, professional, { role, workMode: 'working-copy' })
+      assert.ok(fixed.prompt.includes(maintenance), `complete workspace standard for ${role}`)
       for (const workMode of ['cat', 'working-copy', 'browser'] as const) {
         const current = buildLinguistPromptSection(service, roles, professional, { role, workMode, projectId: project.id })
         assert.equal(current.status.professionalStandardHash, professional.standardHash)
@@ -259,6 +290,7 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   const bindings = new BindingStore(root)
   bindings.bindProject(project.id, workspaceId)
   bindings.bindSession(sessionId, { workspaceId, projectId: project.id, role: scenario === 'general' ? 'general' : 'reviewer', workMode: 'cat',
+    workModeDecision: { source: 'user' },
     ...(scenario === 'bound-scope' ? { delegatedScope: { assetIds: [imported.assetId], segmentIds: [segmentIds[0]!] } } : {}),
   })
   const ctx = new Context()

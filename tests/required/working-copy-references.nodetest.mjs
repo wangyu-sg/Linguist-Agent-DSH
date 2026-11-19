@@ -103,6 +103,7 @@ test('CAT, online snapshots/exports and working copies share retrieval without w
     let prompt, childBinding
     const delegate = createLinguistDelegationTool({ service, agent,
       binding: { workspaceId: 'synthetic', projectId: project.id, role: 'general', workMode: 'cat' },
+      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }), reserveIntent: (_id, binding) => { childBinding = binding; return () => {} }, control: {},
       subagents: { resolveMaxDepth: () => undefined, startActivation: async spec => {
         prompt = spec.prompt[0].text
@@ -251,6 +252,7 @@ test('file and online delegation use the selected role and task-specific referen
     let prompt, childBinding
     const delegate = createLinguistDelegationTool({ service, agent,
       binding: { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'working-copy' },
+      selectWorkMode: async recommended => recommended,
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: (_id, binding) => { childBinding = binding; return () => {} }, control: {},
       subagents: { resolveMaxDepth: () => undefined, startActivation: async spec => {
@@ -365,6 +367,7 @@ test('file, CAT and online review receive cached embedded images without per-ima
     let prompt
     const delegate = createLinguistDelegationTool({ service, agent,
       binding: { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat' },
+      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }), reserveIntent: () => () => {}, control: {},
       subagents: { resolveMaxDepth: () => undefined, startActivation: async spec => {
         prompt = spec.prompt[0].text

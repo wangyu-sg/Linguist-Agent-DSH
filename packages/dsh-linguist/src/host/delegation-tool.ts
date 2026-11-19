@@ -9,7 +9,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { prepareReviewMaterials, workingCopyPath, type LinguistProjectService, type ReviewMaterialsInput } from '@linguist/domain-service'
 import { Type } from 'typebox'
 import { Value } from 'typebox/value'
-import type { SessionBinding } from './bindings'
+import type { LinguistWorkMode, SessionBinding } from './bindings'
 import { resolveExecutionProfile } from './execution-profile'
 import { freezeLinguistDelegation } from './delegation'
 import type { LinguistDelegationControl } from './delegation-control'
@@ -67,6 +67,7 @@ export function createLinguistDelegationTool(input: {
   control: LinguistDelegationControl
   llm?: Pick<LlmRuntime, 'resolveModelInfo' | 'resolveCallConfig'>
   resolveSessionWorkspace: () => Promise<{ workspaceRoot: string }>
+  selectWorkMode: (recommended: LinguistWorkMode, signal: AbortSignal) => Promise<LinguistWorkMode | undefined>
   reserveIntent: (childSessionId: string, binding: SessionBinding) => () => void
 }): { tool: ToolDefinition; messageTool: ToolDefinition; listTool: ToolDefinition; interruptTool: ToolDefinition } {
   const tool: ToolDefinition = {
@@ -85,6 +86,12 @@ export function createLinguistDelegationTool(input: {
       const { workspaceRoot } = await input.resolveSessionWorkspace()
       const scope = call.scope ?? {}
       const fileTask = Boolean(scope.sourcePath || scope.snapshotPath)
+      if (fileTask || scope.batchIds?.length || scope.segmentIds?.length) {
+        const requested = fileTask ? scope.online ? 'browser' : 'working-copy' : 'cat'
+        const selected = await input.selectWorkMode(requested, exec.signal)
+        if (!selected) return { status: 'choose-work-mode' }
+        if (selected !== requested) return { status: 'use-selected-work-mode', workMode: selected }
+      }
       const childBinding = freezeLinguistDelegation(input.service, input.binding, {
         role: call.role,
         ...(fileTask ? { fileMode: scope.online ? 'browser' as const : 'working-copy' as const }

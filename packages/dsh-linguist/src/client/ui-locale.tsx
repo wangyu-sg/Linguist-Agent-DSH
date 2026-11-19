@@ -72,6 +72,8 @@ const english: Record<string, string> = {
   '提前准备': 'Prepare in advance', '现在准备': 'Prepare now', '稍后': 'Later',
   '背景资料准备': 'Prepare background materials', '等待后台准备': 'Waiting to prepare in the background',
   '可稍后在项目资料页提前准备': 'You can prepare later from Project Resources.',
+  '项目资料已登记，可查阅': 'Registered in project resources and available for lookup',
+  '已登记，需查看原件': 'Registered; consult the original file',
   '已登记到 {groups}，可在后台提前准备语义检索。': 'Added to {groups}. Prepare meaning-based search in the background.',
   '请在 DSH 设置中开启语义关联': 'Enable semantic retrieval in DSH Settings.',
   '已准备 {count} 条背景资料': 'Prepared {count} background entries',

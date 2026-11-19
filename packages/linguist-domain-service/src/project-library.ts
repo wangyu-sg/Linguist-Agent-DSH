@@ -4,6 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, relative } from 'node:pat
 import { z } from 'zod'
 import { deriveStableIdV2, matchTmCandidates, selectTmAgentEvidence, type ContextAnchorLocator, type Segment } from '@linguist/cat-core'
 import { parseXlsxWorkbook } from '@linguist/cat-formats'
+import type { ProjectDatabase } from '@linguist/cat-store'
 import type { LinguistProjectService } from './project-service'
 import type { XlsxImportMapping } from './project-service-types'
 import { contextImageFormat, extractContext } from './context-extractor'
@@ -27,6 +28,9 @@ interface RegisteredResource extends ProjectResource {
   error?: string; readAt?: string; replaces?: string; replaceScope?: string
 }
 interface LibraryState { resources: RegisteredResource[] }
+function registrationStatus(resource: RegisteredResource): 'ready' | 'manual' | 'error' {
+  return resource.error ? 'error' : (resource.kind === 'context' || resource.kind === 'rules') && !resource.entries?.length ? 'manual' : 'ready'
+}
 export interface ProjectLibraryItem extends ProjectResource {
   key: string
   filename: string
@@ -36,6 +40,7 @@ export interface ProjectLibraryItem extends ProjectResource {
   warnings: string[]
   error?: string
   readAt?: string
+  lastReadSha256?: string
 }
 export interface ProjectLibraryChange { taskGroupId?: string; move?: { keys: string[]; to: string }; remove?: string; replace?: string; retry?: boolean }
 export interface ProjectLibraryMaterials {
@@ -145,21 +150,22 @@ export function prepareLibraryBackup(service: LinguistProjectService, projectId:
 }
 
 /** Register supplied originals once. Refresh only changed files; never rewrite originals. */
-export async function syncProjectLibrary(service: LinguistProjectService, projectId: string, workspaceRoot: string, resources: ProjectResource[] = [], change: ProjectLibraryChange = {}): Promise<LibraryState> {
+export async function syncProjectLibrary(service: LinguistProjectService, projectId: string, workspaceRoot: string, resources: ProjectResource[] = [], change: ProjectLibraryChange = {}) {
   workspaceRoot = realpathSync(workspaceRoot)
   const key = statePath(service, projectId)
   const pending = active.get(key)
   const work = (async () => {
     if (pending) await Promise.allSettled([pending])
-    if (service.getProject(projectId).archivedAt && !resources.length && !change.remove && !change.replace && !change.retry && !change.move) return readState(service, projectId)
+    if (service.getProject(projectId).archivedAt && !resources.length && !change.remove && !change.replace && !change.retry && !change.move) return { ...readState(service, projectId), registered: [] }
     service.assertProjectWritable(projectId)
     const state = { resources: readState(service, projectId).resources.map(resource => ({ ...resource })) }
     const requestedFiles = new Set<string>()
+    const registrations: Array<{ resource: RegisteredResource; taskGroupId: string }> = []
     const db = service.openProject(projectId)
     const groups = db.taskGroups
     const scope = change.taskGroupId ?? ''
     if (scope && (resources.length || change.remove || change.replace || change.move || change.retry)) groups.requireActive(scope)
-    else if (scope && groups.list().find(group => group.id === scope)?.archived) return state
+    else if (scope && groups.list().find(group => group.id === scope)?.archived) return { ...state, registered: [] }
     const registered = new Set(groups.refs().map(ref => ref.resource_key))
     for (const existing of state.resources) {
       const fileKey = 'file:' + existing.path
@@ -234,7 +240,9 @@ export async function syncProjectLibrary(service: LinguistProjectService, projec
         if (replacing) resource.taskGroupId = owner
         if (prior) { Object.assign(prior, resource); if (prior.error) prior.stamp = undefined }
         else state.resources.push(resource)
-        if (change.replace && change.replace !== fileKey) Object.assign(state.resources.find(item => item.path === resource.path)!, { replaces: change.replace, replaceScope: scope })
+        const registered = prior ?? resource
+        registrations.push({ resource: registered, taskGroupId: owner })
+        if (change.replace && change.replace !== fileKey) Object.assign(registered, { replaces: change.replace, replaceScope: scope })
         if (!prior || change.replace || replacing) changed = true
       }
     })
@@ -339,27 +347,29 @@ export async function syncProjectLibrary(service: LinguistProjectService, projec
       writeJsonFileAtomic(key, state)
       states.set(key, { stamp: statSync(key).mtimeMs, value: state })
     }
-    return changed ? state : readState(service, projectId)
+    return { ...(changed ? state : readState(service, projectId)), registered: registrations.map(({ resource, taskGroupId }) => ({
+      path: resource.path, filename: basename(resource.path), taskGroupId, kind: resource.kind, status: registrationStatus(resource),
+    })) }
   })()
   active.set(key, work)
   try { return await work } finally { if (active.get(key) === work) active.delete(key) }
 }
 
 /** List metadata without parsing or embedding files. Native CAT imports share the same view. */
-export function listProjectLibrary(service: LinguistProjectService, projectId: string, workspaceRoot: string, taskGroupId = ''): ProjectLibraryItem[] {
+export function listProjectLibrary(service: LinguistProjectService, projectId: string, workspaceRoot: string, taskGroupId = '',
+  { db = service.openProject(projectId), filesOnly = false }: { db?: ProjectDatabase; filesOnly?: boolean } = {}): ProjectLibraryItem[] {
   const state = readState(service, projectId)
-  const db = service.openProject(projectId)
   const refs = db.taskGroups.refs()
   const hidden = db.taskGroups.hidden(taskGroupId)
   const items: ProjectLibraryItem[] = state.resources.filter(resource => !hidden.has('file:' + resource.path)).map(resource => {
-    let status: ProjectLibraryItem['status'] = resource.error ? 'error' : (resource.kind === 'context' || resource.kind === 'rules') && !resource.entries?.length ? 'manual' : 'ready'
+    let status: ProjectLibraryItem['status'] = registrationStatus(resource)
     let error = resource.error
     try {
       const stat = statSync(libraryFile(service, projectId, workspaceRoot, resource.path))
       if (!error && resource.stamp !== `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`) status = 'changed'
     } catch (cause) { status = 'error'; error = cause instanceof Error ? cause.message : String(cause) }
     return { key: `file:${resource.path}`, path: resource.path, filename: basename(resource.path), origin: 'workspace', kind: resource.kind,
-      appliesTo: resource.appliesTo, xlsxMapping: resource.xlsxMapping, status, error, readAt: resource.readAt, warnings: resource.warnings ?? [] }
+      appliesTo: resource.appliesTo, xlsxMapping: resource.xlsxMapping, status, error, readAt: resource.readAt, lastReadSha256: resource.hash, warnings: resource.warnings ?? [] }
   })
   const termCounts = db.termEntries.countBySource()
   for (const kind of ['tm', 'terms'] as const) {
@@ -376,17 +386,19 @@ export function listProjectLibrary(service: LinguistProjectService, projectId: s
       kind: /checklist|style.?guide|风格|检查表|检查清单|(?:^|[ _.-])sg(?:[ _.-]|$)/iu.test(doc.originalFilename) ? 'rules' : 'context',
       status: doc.textExtract?.trim() ? 'ready' : 'manual', warnings: doc.extractionWarnings.map(warning => warning.message), readAt: doc.createdAt })
   }
-  const entry = (key: string, kind: ProjectResource['kind'], name: string, value: object): void => {
-    items.push({ key, kind, path: key, filename: name, text: JSON.stringify(value, null, 2), origin: 'entry', status: 'ready', warnings: [] })
-  }
-  for (const rule of db.styleGuideRules.list({ limit: db.styleGuideRules.count() })) entry('rule:' + rule.id, 'rules', rule.ruleText, rule)
-  for (const rule of db.techConstraints.list({ limit: db.techConstraints.count() })) entry('rule:' + rule.id, 'rules', rule.kind, rule)
-  for (const pattern of db.sentencePatterns.list({ limit: db.sentencePatterns.count() })) entry('pattern:' + pattern.id, 'context', pattern.source, pattern)
-  for (const term of db.termEntries.manualEntries()) entry('term:' + term.id, 'terms', term.term, term)
-  for (const profile of db.voiceProfiles.list({ limit: db.voiceProfiles.count() })) entry('voice:' + profile.id, 'context', profile.speaker, profile)
-  for (const exemplar of db.tmUnits.listApprovedExemplars({ limit: Number.MAX_SAFE_INTEGER, taskGroupId })) entry('exemplar:' + exemplar.id, 'tm', exemplar.source, exemplar)
-  for (const source of db.tmSources.list()) {
-    if (source.id.startsWith('confirmed:')) entry('tm-source:' + source.id, 'tm', `已确认译文（${source.unitCount}）`, source)
+  if (!filesOnly) {
+    const entry = (key: string, kind: ProjectResource['kind'], name: string, value: object): void => {
+      items.push({ key, kind, path: key, filename: name, text: JSON.stringify(value, null, 2), origin: 'entry', status: 'ready', warnings: [] })
+    }
+    for (const rule of db.styleGuideRules.list({ limit: db.styleGuideRules.count() })) entry('rule:' + rule.id, 'rules', rule.ruleText, rule)
+    for (const rule of db.techConstraints.list({ limit: db.techConstraints.count() })) entry('rule:' + rule.id, 'rules', rule.kind, rule)
+    for (const pattern of db.sentencePatterns.list({ limit: db.sentencePatterns.count() })) entry('pattern:' + pattern.id, 'context', pattern.source, pattern)
+    for (const term of db.termEntries.manualEntries()) entry('term:' + term.id, 'terms', term.term, term)
+    for (const profile of db.voiceProfiles.list({ limit: db.voiceProfiles.count() })) entry('voice:' + profile.id, 'context', profile.speaker, profile)
+    for (const exemplar of db.tmUnits.listApprovedExemplars({ limit: Number.MAX_SAFE_INTEGER, taskGroupId })) entry('exemplar:' + exemplar.id, 'tm', exemplar.source, exemplar)
+    for (const source of db.tmSources.list()) {
+      if (source.id.startsWith('confirmed:')) entry('tm-source:' + source.id, 'tm', `已确认译文（${source.unitCount}）`, source)
+    }
   }
   const explicit = new Set(refs.map(ref => ref.resource_key))
   const owners = new Set(refs.filter(ref => !ref.scope || ref.scope === taskGroupId).map(ref => ref.resource_key))

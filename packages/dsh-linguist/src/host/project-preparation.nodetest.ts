@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -7,17 +8,20 @@ import { LinguistProjectService } from '@linguist/domain-service'
 import { createProjectPreparationTool } from './project-preparation-tool'
 import { freezeLinguistDelegation } from './delegation'
 import { BindingStore, type SessionBinding } from './bindings'
+import { libraryPreparationTurn } from '../client/library-preparation-turn'
+import type { LibraryPreparationOffer } from '@linguist/domain-service/contracts'
 
 test('on-demand project questions, chosen CAT preparation and independent children share scoped originals', async t => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-preparation-')))
   const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
   service.init()
   let binding: SessionBinding = { workspaceId: 'synthetic', role: 'general', workMode: 'working-copy' }
+  let userText: string | undefined
   let segmentIds: string[] = []
   try {
     writeFileSync(join(root, 'rules.txt'), 'Use sentence case.\n')
     const tool = createProjectPreparationTool(service,
-      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds }),
+      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds, userText }),
       (_id, next) => { binding = next })
     const exec = {} as Parameters<typeof tool.execute>[1]
     const prepared = await tool.execute({ query: 'What are the project rules?', resources: [{ path: 'rules.txt', kind: 'rules' }] }, exec) as { materials: string }
@@ -32,7 +36,8 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     }
     assert.equal(registered.preparationOffer.projectId, projectId)
     assert.deepEqual(registered.preparationOffer.groups.map(({ id, name }) => ({ id, name })), [{ id: '', name: '' }])
-    assert.deepEqual(tool.output.presentationMeta?.({}, JSON.parse(JSON.stringify(registered))), { linguistLibraryPreparation: registered.preparationOffer })
+    assert.deepEqual(registered, JSON.parse(JSON.stringify(registered)), 'the native tool executor rejects undefined values before displaying the card')
+    assert.deepEqual(tool.output.presentationMeta?.({}, registered), { linguistLibraryPreparation: registered.preparationOffer })
     assert.equal(prepare.mock.callCount(), 0, 'ordinary registration returns a choice')
     writeFileSync(join(root, 'examples.txt'), 'Place a paper crane on the table.')
     await tool.execute({ resources: [{ path: 'examples.txt', kind: 'context' }] }, exec)
@@ -43,6 +48,14 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     const related = await tool.execute({ query: 'folded bird', semantic: true }, exec) as { materials: string }
     assert.equal(search.mock.callCount(), 1)
     assert.match(related.materials, /Place a paper crane/)
+    writeFileSync(join(root, 'examples-v2.txt'), 'Place a paper crane on the table.')
+    const replaced = await tool.execute({ replaceResource: 'file:examples.txt', resources: [{ path: 'examples-v2.txt', kind: 'context' }] }, exec) as {
+      resources: Array<{ path: string }>; preparationOffer: LibraryPreparationOffer
+    }
+    assert.deepEqual(replaced.preparationOffer.registrations, [{ path: 'examples-v2.txt', filename: 'examples-v2.txt', taskGroupId: '', status: 'ready' }])
+    assert.equal(replaced.preparationOffer.groups.length, 1)
+    assert.ok(!replaced.resources.some(resource => resource.path === 'examples.txt'))
+    assert.equal(prepare.mock.callCount(), 0, 'replacement does not start the encoder without a choice')
     const started = await tool.execute({ prepareInBackground: true }, exec) as { preparation: Array<{ id: string; status: string }> }
     assert.deepEqual(started.preparation, [{ id: '', status: 'queued' }], 'explicit request starts the background path')
     const [_cache, group, load] = prepare.mock.calls[0]!.arguments as unknown as [string, string, () => Promise<string[]>]
@@ -56,17 +69,24 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     assert.equal(proposed.recommendedWorkMode, 'cat')
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
     writeFileSync(join(root, 'plain.txt'), 'A plain document for a detached work copy.')
-    const fileMode = await tool.execute({ sources: [{ path: 'plain.txt' }], autoRoute: true }, exec) as { workMode: string }
+    userText = '你来决定工作方式'
+    const fileMode = await tool.execute({ sources: [{ path: 'plain.txt' }] }, exec) as { workMode: string }
     assert.equal(fileMode.workMode, 'working-copy')
     assert.equal(binding.workModeDecision?.source, 'automatic')
-    const liveMode = await tool.execute({ online: true, newTask: true, autoRoute: true }, exec) as { workMode: string }
+    const liveMode = await tool.execute({ online: true, newTask: true }, exec) as { workMode: string }
     assert.equal(liveMode.workMode, 'browser')
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
 
     writeFileSync(join(root, 'terms.csv'), 'source,target\nPotion,药剂\n')
-    await tool.execute({ workMode: 'cat', sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }], resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec)
+    userText = '用 CAT'
+    const withTerms = await tool.execute({ workMode: 'cat', sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }], resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec) as { preparationOffer: LibraryPreparationOffer }
+    assert.deepEqual(withTerms.preparationOffer.groups, [], 'term matching is ready without a semantic preparation job')
+    const meta = tool.output.presentationMeta?.({}, JSON.parse(JSON.stringify(withTerms)))
+    assert.deepEqual(libraryPreparationTurn.match({ type: 'tool/result', data: { turn: 1, message: { isError: false }, meta } } as never),
+      { id: '1', role: 'start' }, 'registration feedback survives into the real reply slot without an embedding job')
     assert.equal(binding.projectId, projectId)
     assert.equal(binding.workModeDecision?.source, 'user')
+    userText = undefined
     await tool.execute({ sources: [{ path: 'task.xliff' }] }, exec)
     const db = service.openProject(projectId)
     assert.equal(db.assets.countByProject(), 1, 'confirmed CAT is reused without a second choice or duplicate manuscript')
@@ -87,6 +107,94 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     assert.deepEqual(comparison.comparison.map(item => item.group.id), comparisonIds)
     binding = child
     await assert.rejects(tool.execute({ compareGroups: comparisonIds, query: 'Potion' }, exec), /子任务已冻结范围/)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('workspace maintenance verifies moved files in project and group layouts without adopting a directory convention', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-maintenance-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
+  service.init()
+  try {
+    for (const layout of [
+      { name: 'monthly', directory: '共用资料', kind: 'rules', text: 'Use title case.' },
+      { name: 'platform', directory: '平台/任务甲/答疑', kind: 'context', text: 'A customer question awaiting a reply.' },
+    ] as const) {
+      const workspaceRoot = join(root, layout.name)
+      mkdirSync(join(workspaceRoot, layout.directory), { recursive: true })
+      const from = 'original.txt', to = join(layout.directory, from)
+      writeFileSync(join(workspaceRoot, from), layout.text)
+      let binding: SessionBinding = { workspaceId: layout.name, role: 'general', workMode: 'working-copy' }
+      const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot, sessionId: layout.name, binding }),
+        (_id, next) => { binding = next })
+      const exec = {} as Parameters<typeof tool.execute>[1]
+      const inspect = (taskGroupId: string) => tool.execute({ listResourceFiles: true, taskGroupId }, exec) as Promise<ReturnType<typeof service.inspectProjectResourceFiles>>
+      const projectCount = service.listProjects().length
+      assert.deepEqual(await inspect(''), { status: 'no-project', groups: [], resources: [] })
+      assert.equal(binding.projectId, undefined)
+      assert.equal(service.listProjects().length, projectCount)
+
+      const project = await service.createProject({ name: layout.name, sourceLocale: 'en', targetLocale: 'zh-CN' })
+      binding = { ...binding, projectId: project.id }
+      const db = service.openProject(project.id)
+      const group = layout.kind === 'context' ? db.taskGroups.change({ action: 'create', name: '任务甲' }) : ''
+      await tool.execute({ resources: [{ path: from, kind: layout.kind, taskGroupId: group }] }, exec)
+      const bindingBeforeInspection = binding
+      const libraryPath = join(service.getProjectPaths(project.id).projectDir, 'project-library.json')
+      const libraryBeforeInspection = readFileSync(libraryPath)
+      if (group) {
+        assert.deepEqual((await inspect('')).resources, [], 'group-only material stays out of the shared inventory')
+        binding = { ...binding, taskGroupId: group, delegatedScope: { assetIds: [], segmentIds: [] } }
+        assert.deepEqual((await inspect(group)).groups.map(item => item.id), [group])
+        await assert.rejects(inspect(''), /子任务已冻结范围/)
+        binding = bindingBeforeInspection
+      }
+      const [registered] = (await inspect(group)).resources
+      assert.equal(registered?.status, 'ready')
+      assert.equal(registered.lastReadSha256, createHash('sha256').update(layout.text).digest('hex'))
+
+      renameSync(join(workspaceRoot, from), join(workspaceRoot, to))
+      const [broken] = (await inspect(group)).resources
+      assert.equal(broken?.status, 'error', 'a past successful read cannot hide a missing original')
+      assert.equal(broken.lastReadSha256, registered.lastReadSha256)
+      await assert.rejects(tool.execute({ listResourceFiles: true, removeResource: registered.key }, exec), /仅接受任务组范围/)
+      assert.strictEqual(binding, bindingBeforeInspection)
+      assert.deepEqual(readFileSync(libraryPath), libraryBeforeInspection, 'the check preserves the last successful registration')
+      assert.strictEqual(service.openProject(project.id), db, 'inspection leaves the working database handle open')
+
+      await tool.execute({ taskGroupId: group, replaceResource: registered.key, resources: [{ path: to, kind: layout.kind }] }, exec)
+      const verified = (await inspect(group)).resources
+      assert.deepEqual(verified.map(item => [item.path, item.taskGroupId ?? '', item.status, item.lastReadSha256]),
+        [[to, group, 'ready', registered.lastReadSha256]])
+      assert.equal(readFileSync(join(workspaceRoot, to), 'utf8'), layout.text)
+    }
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('a model recommendation cannot stand in for a decision from the person starting the job', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-route-human-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
+  service.init()
+  let binding: SessionBinding = { workspaceId: 'synthetic', role: 'general', workMode: 'working-copy' }
+  let userText = '请完整审校这份稿件。'
+  let questions = 0
+  try {
+    writeFileSync(join(root, 'task.xliff'), '<xliff version="1.2"><file><body><trans-unit id="one"><source>Use potion</source><target>使用药水</target></trans-unit></body></file></xliff>')
+    const tool = createProjectPreparationTool(service,
+      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, userText, chooseWorkMode: async () => { questions++; return 'cat' as const } }),
+      (_id, next) => { binding = next })
+    const exec = {} as Parameters<typeof tool.execute>[1]
+    const input = { sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }] }
+    const first = await tool.execute({ ...input, workMode: 'working-copy' }, exec) as { workMode: string }
+    assert.equal(questions, 1)
+    assert.equal(first.workMode, 'cat')
+    assert.equal(binding.workModeDecision?.source, 'user')
+    await tool.execute(input, exec)
+    assert.equal(questions, 1)
+    binding = { ...binding, workModeDecision: undefined }
+    userText = '请用工作副本审校这份稿件。'
+    const chosen = await tool.execute({ ...input, workMode: 'working-copy' }, exec) as { workMode: string }
+    assert.equal(chosen.workMode, 'working-copy')
+    assert.equal(questions, 1)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 

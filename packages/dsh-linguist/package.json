@@ -1,6 +1,6 @@
 {
   "name": "@linguist/dsh-plugin",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Linguist Agent professional CAT workbench for DeepSeek Harness",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -110,6 +110,7 @@
     "@deepseek-ai/dsh-token-meter": ">=0.2.2-rc.3 <0.2.3-0",
     "@deepseek-ai/dsh-tools": ">=0.2.2-rc.3 <0.2.3-0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.3 <0.2.3-0",
+    "@deepseek-ai/dsh-user-questions": ">=0.2.2-rc.3 <0.2.3-0",
     "@deepseek-ai/dsh-util-workspace-path": ">=0.2.2-rc.3 <0.2.3-0",
     "@deepseek-ai/dsh-workspace": ">=0.2.2-rc.3 <0.2.3-0",
     "@deepseek-ai/schemastery": "3.19.0",
@@ -165,6 +166,7 @@
     "@deepseek-ai/dsh-token-meter": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
     "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-user-questions": "0.2.2-rc.5",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.5",
     "@deepseek-ai/dsh-workspace": "0.2.2-rc.5"
   },

@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-schedule'
 import type {} from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-user-questions'
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
 import Schema from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -20,13 +21,13 @@ import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat
 import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
 import { LinguistProjectService, type ContextImageMetadata } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
-import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
+import { BindingStore, type LinguistRole, type LinguistWorkMode, type SessionBinding } from './host/bindings'
 import { createCatDeps } from './host/cat-deps'
 import { DEFAULT_DATA_ROOT, initializeStorage } from './host/config'
 import { LinguistDelegationControl } from './host/delegation-control'
 import { createLinguistDelegationTool } from './host/delegation-tool'
-import { createDeliveryReportTool } from './host/delivery-report-tool'
-import { buildFixedLinguistPrompt, buildLinguistTaskContext, DIAGNOSTICS_OPERATIONS, DiagnosticsHost } from './host/diagnostics'
+import { createDeliveryReportTool, createInspectDeliveryReportTool } from './host/delivery-report-tool'
+import { buildFixedLinguistPrompt, buildLinguistTaskContext, DIAGNOSTICS_OPERATIONS, DiagnosticsHost, workspaceHandoffContext } from './host/diagnostics'
 import { projectDiscoveryScope, authorizeWorkspaceRead, authorizeWorkspaceWrite } from './host/discovery'
 import { EvidenceObserver } from './host/evidence'
 import { ManagedFiles } from './host/files'
@@ -34,7 +35,7 @@ import { registerHttpRoutes } from './host/http'
 import { INTEGRITY_OPERATIONS, IntegrityHost } from './host/integrity'
 import { MutationBus } from './host/mutations'
 import { resolveExecutionProfile } from './host/execution-profile'
-import { routeTask } from './host/task-routing'
+import { routeTask, workModeInstruction } from './host/task-routing'
 import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
@@ -52,7 +53,7 @@ import { createProjectPreparationTool } from './host/project-preparation-tool'
 import { settingsOperation, SETTINGS_OPERATIONS } from './host/settings'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'userQuestions', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_DATA_ROOT), installationId: Schema.string().default(''),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
@@ -152,6 +153,33 @@ export function apply(ctx: Context, config: Config): void {
       return taskGroupId ? { ...current, taskGroupId } : current
     }
     let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
+    const userText = () => agent.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'user')
+      ?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+    let pendingMode: Promise<LinguistWorkMode | undefined> | undefined
+    const askWorkMode = (recommended: LinguistWorkMode | undefined, signal: AbortSignal) => {
+      const choices = { cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' } as const
+      const modes = Object.keys(choices) as LinguistWorkMode[]
+      if (recommended) modes.splice(0, 0, ...modes.splice(modes.indexOf(recommended), 1))
+      return pendingMode ??= ctx.userQuestions.ask({ agent, signal, questions: [{
+        id: 'linguist-work-mode', header: '工作方式', question: '这次要用哪种方式开工？',
+        options: modes.map(mode => ({ label: choices[mode], ...(recommended === mode ? { description: '根据本次稿件或平台建议' } : {}) })),
+      }] }).then(result => {
+        const answer = result.answers.find(item => item.id === 'linguist-work-mode')
+        const chosen = modes.find(mode => choices[mode] === answer?.selected[0]) ?? workModeInstruction(answer?.custom)
+        return chosen === 'auto' ? recommended : chosen
+      }).finally(() => { pendingMode = undefined })
+    }
+    const selectWorkMode = async (recommended: LinguistWorkMode, signal: AbortSignal) => {
+      const current = currentBinding()
+      const instruction = workModeInstruction(userText())
+      if (current.workModeDecision && (!instruction || instruction === 'auto' || current.delegatedScope)) return current.workMode
+      const mode = instruction === 'auto' ? recommended : instruction ?? await askWorkMode(recommended, signal)
+      const source = instruction === 'auto' ? 'automatic' : 'user'
+      if (mode && (mode !== current.workMode || source !== current.workModeDecision?.source)) {
+        bindings.bindSession(agent.id, { ...currentBinding(), workMode: mode, workModeDecision: { source } })
+      }
+      return mode
+    }
     const modelProvenance = new ModelCallProvenance()
     const fixedPrompt = buildFixedLinguistPrompt(roleText, professional, binding.role)
     let expectedContextHash: string | undefined
@@ -189,6 +217,14 @@ export function apply(ctx: Context, config: Config): void {
           }
         }
         if (decision.kind === 'reject') return decision
+        const request = decision.messages.findLast(message => message.source.kind === 'user')
+        if (request) {
+          const text = request.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+          const handoff = await workspaceHandoffContext(workspace.path, text)
+          if (handoff) decision = { ...decision, messages: [createUserMessage({
+            source: { kind: 'linguist-workspace-handoff' }, content: [{ type: 'text', text: handoff }],
+          }), ...decision.messages] }
+        }
         const current = currentBinding()
         let selection = agent.model.current()
         if (current.useRoleDefaults && selection && !selection.reasoningEffort && !current.executionProfile) {
@@ -223,14 +259,15 @@ export function apply(ctx: Context, config: Config): void {
       disposers.push(agent.ctx.tools.register(createDeliveryReportTool(deliveryTemplates, async () => ({
         ...await resolveSessionWorkspace(agent.id), role: currentBinding().role,
       }))))
+      disposers.push(agent.ctx.tools.register(createInspectDeliveryReportTool(() => resolveSessionWorkspace(agent.id))))
       disposers.push(agent.ctx.tools.register(createProjectPreparationTool(service, async (callId, useTurnQuestion) => {
         const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
         const snapshot = turnContextProvenance?.forCall(callId)?.turnContextSnapshot
         const selection: LinguistTurnContextV1 | undefined = snapshot ? JSON.parse(snapshot) : undefined
         const segmentIds = selection && [...new Set([...selection.selectedSegmentIds, ...(selection.activeSegmentId ? [selection.activeSegmentId] : [])])]
-        const question = useTurnQuestion ? agent.session.deriveMessages().filter(message => message.role === 'user' && message.source.kind === 'user').at(-1)?.content
-          .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') : undefined
-        return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds, question }
+        const currentUserText = userText()
+        return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds,
+          question: useTurnQuestion ? currentUserText : undefined, userText: currentUserText, chooseWorkMode: askWorkMode }
       }, (projectId, nextBinding) => {
         const previousProject = bindings.session(agent.id)?.projectId
         bindings.bindProject(projectId, workspace.id)
@@ -264,8 +301,12 @@ export function apply(ctx: Context, config: Config): void {
           } : {}),
           get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
-      }, async input => {
+      }, async (input, signal) => {
         await resolveSessionWorkspace(agent.id)
+        if (input.operation !== 'references') {
+          const mode = await selectWorkMode('working-copy', signal)
+          if (!mode || mode === 'browser') throw new Error('请先选定 CAT 或工作副本；选择浏览器时按线上任务继续')
+        }
         const current = currentBinding()
         if (input.operation === 'assemble' || input.operation === 'deliver') assertNoOtherWriter(agent.id, { ...current, professionalSource: input.sourcePath })
         if (input.operation === 'references' || current.projectId || current.delegatedScope) return
@@ -285,7 +326,7 @@ export function apply(ctx: Context, config: Config): void {
       if (binding.role === 'general') {
         const delegation = createLinguistDelegationTool({
           service, get binding() { return currentBinding() }, agent, subagents: ctx.subagents, control: delegationControl, llm: ctx.llm,
-          resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id),
+          resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id), selectWorkMode,
           reserveIntent: (childSessionId, intent) => {
             assertNoOtherWriter(childSessionId, intent)
             if (delegationIntents.has(childSessionId)) throw new Error('Linguist child identity is already reserved')
@@ -395,12 +436,13 @@ export function apply(ctx: Context, config: Config): void {
         for (const source of createLinguistCatTools(deps)) {
           disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments,
             (callId, content) => evidence.presented(sessionId, callId, content),
-            (callId, rootCallId, args) => {
+            async (callId, rootCallId, args, signal) => {
               turnContextProvenance?.associateNestedCall(callId, rootCallId)
               modelProvenance.associateNestedCall(callId, rootCallId)
               if (/^cat_(?:apply_translations|confirm_segments|accept_proposals|propose_translations|create_consistency_proposals|export_batch)$/.test(source.name)) {
                 const current = currentBinding()
                 if (current.reportOnly) throw new Error('当前任务只报告问题，不能写入译文、确认阶段或生成译稿交付')
+                if (await selectWorkMode('cat', signal) !== 'cat') throw new Error('请按用户已选的工作方式继续，当前动作需要选择 CAT')
                 const ids = new Set((Array.isArray(args.edits) ? args.edits : []).map(edit => (edit as { segmentId?: string }).segmentId).filter((id): id is string => typeof id === 'string'))
                 for (const field of ['segmentIds', 'reviewedSegmentIds']) if (Array.isArray(args[field])) for (const id of args[field] as string[]) ids.add(id)
                 assertNoOtherWriter(sessionId, ids.size ? { ...current, delegatedScope: { assetIds: [], segmentIds: [...ids] } } : current)

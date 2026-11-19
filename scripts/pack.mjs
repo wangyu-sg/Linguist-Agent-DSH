@@ -33,7 +33,7 @@ for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'pack
 for (const name of ['phrase-platform-review-ops', 'cultural-lqa', 'game-localization', 'localization-readiness', 'release-lqa', 'terminology-candidate-mining', 'translator-brief']) {
   if (!entries.includes(`package/resources/skills/${name}/SKILL.md`)) throw new Error(`Plugin tarball omits bundled skill ${name}`)
 }
-for (const reference of ['cat', 'working-copy', 'browser', 'project-evidence', 'delivery']) {
+for (const reference of ['cat', 'working-copy', 'browser', 'project-evidence', 'workspace-maintenance', 'delivery']) {
   if (!entries.includes(`package/resources/skills/game-localization/references/${reference}.md`)) throw new Error(`Plugin tarball omits localization reference ${reference}`)
 }
 for (const kind of ['translation', 'review']) {

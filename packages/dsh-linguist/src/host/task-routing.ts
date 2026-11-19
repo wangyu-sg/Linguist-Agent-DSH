@@ -3,6 +3,20 @@ import { createDefaultCatFormatRegistry, readPickedFileWithinLimit, workingCopyP
 import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 import type { LinguistWorkMode, SessionBinding } from './bindings'
 
+export function workModeInstruction(text: string | undefined): LinguistWorkMode | 'auto' | undefined {
+  for (const part of text?.split(/[。！？!?；;\n]/u) ?? []) {
+    const sentence = part.trim()
+    if (/^(?:请\s*)?(?:由你|你来|你自行|自行)(?:决定|选择)(?:工作方式|开工方式|怎么开工)?$/u.test(sentence) ||
+        /^(?:please\s+)?(?:you choose|you decide|choose the working mode)$/iu.test(sentence)) return 'auto'
+    if (/(?:还是|或者|\bor\b)/iu.test(sentence)) continue
+    const label = (/^(CAT|工作副本|浏览器|working[- ]copy|browser)$/iu.exec(sentence)?.[1]
+      ?? /^(?:(?:这次|本次|这批|请|就)\s*)*(?:采用|使用|用|走|选择|选|use\s+|choose\s+)\s*(CAT\b|工作副本|浏览器|working[- ]copy\b|browser\b)/iu.exec(sentence)?.[1])?.toLowerCase()
+    if (label === 'cat') return 'cat'
+    if (label === '工作副本' || label?.startsWith('working')) return 'working-copy'
+    if (label === '浏览器' || label === 'browser') return 'browser'
+  }
+}
+
 export function routeTask(
   binding: Pick<SessionBinding, 'workMode' | 'workModeDecision'>,
   input: { explicit?: LinguistWorkMode; online?: boolean; local?: 'cat' | 'working-copy'; newTask?: boolean },

@@ -1,4 +1,4 @@
-import { prepareLibraryBackup, resetLibraryForRestore } from './project-library'
+import { listProjectLibrary, prepareLibraryBackup, resetLibraryForRestore } from './project-library'
 /**
  * LinguistProjectService — DSH Host 内的 CAT 项目服务。
  *
@@ -794,6 +794,15 @@ export class LinguistProjectService {
     catch (error) { throw new LinguistProjectUnhealthyError(projectId, errorCodeOf(error)) }
     try { return { project, taskGroups: db.taskGroups.list(), ...this.summarizeHandle(db, db.schemaVersion < 21 && taskGroupId === 'ungrouped' ? undefined : taskGroupId) } }
     finally { db.close() }
+  }
+
+  inspectProjectResourceFiles(projectId: string, workspaceRoot: string, taskGroupId: string) {
+    const db = this.store.openProject(projectId, { readOnly: true })
+    try {
+      const groups = db.taskGroups.list()
+      if (taskGroupId && !groups.some(group => group.id === taskGroupId)) throw new Error('任务组不存在')
+      return { groups, resources: listProjectLibrary(this, projectId, workspaceRoot, taskGroupId, { db, filesOnly: true }) }
+    } finally { db.close() }
   }
 
   /**

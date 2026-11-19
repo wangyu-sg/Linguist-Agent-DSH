@@ -30,7 +30,13 @@ function preparationOffer(event: SessionEventLike): LibraryPreparationOffer | un
   const groups = offer.groups.flatMap(group =>
     group && typeof group === 'object' && !Array.isArray(group) && typeof group.id === 'string' && typeof group.name === 'string' && typeof group.offeredAt === 'number'
       ? [{ id: group.id, name: group.name, offeredAt: group.offeredAt }] : [])
-  if (groups.length) return { projectId: offer.projectId, groups }
+  const registrations: NonNullable<LibraryPreparationOffer['registrations']> = Array.isArray(offer.registrations)
+    ? offer.registrations.flatMap(item => item && typeof item === 'object' && !Array.isArray(item)
+      && typeof item.path === 'string' && typeof item.filename === 'string' && typeof item.taskGroupId === 'string'
+      && (item.status === 'ready' || item.status === 'manual' || item.status === 'error')
+      ? [{ path: item.path, filename: item.filename, taskGroupId: item.taskGroupId, status: item.status }] : [])
+    : []
+  if (groups.length || registrations.length) return { projectId: offer.projectId, groups, registrations }
 }
 
 export const libraryPreparationTurn: ConversationNodeDefinition<LibraryPreparationOffer[]> = {
@@ -41,7 +47,9 @@ export const libraryPreparationTurn: ConversationNodeDefinition<LibraryPreparati
     const offer = preparationOffer(match.event)!
     const prior = state.find(value => value.projectId === offer.projectId)
     const groups = new Map([...(prior?.groups ?? []), ...offer.groups].map(group => [group.id, group]))
-    return [...state.filter(value => value.projectId !== offer.projectId), { projectId: offer.projectId, groups: [...groups.values()] }]
+    const registrations = new Map([...(prior?.registrations ?? []), ...(offer.registrations ?? [])]
+      .map(item => [JSON.stringify([item.path, item.taskGroupId]), item]))
+    return [...state.filter(value => value.projectId !== offer.projectId), { projectId: offer.projectId, groups: [...groups.values()], registrations: [...registrations.values()] }]
   },
   buildLocationData: ({ id, state }, scope, previous) => {
     if (scope === 'turn' && state) return previous?.value === state ? previous : { kind: 'turn', turn: Number(id), key, value: state }

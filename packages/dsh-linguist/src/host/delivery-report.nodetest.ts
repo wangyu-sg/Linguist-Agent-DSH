@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { parseXlsxWorkbook } from '@linguist/cat-formats'
-import { createDeliveryReportTool } from './delivery-report-tool'
+import { createDeliveryReportTool, createInspectDeliveryReportTool } from './delivery-report-tool'
 
 test('formal translation and review produce the correct template, and inconsistent or incomplete handoffs fail', async t => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), 'la-delivery-report-'))
@@ -57,4 +57,27 @@ test('formal translation and review produce the correct template, and inconsiste
   assert.equal(reviewSheet.name, '审校明细')
   assert.deepEqual(reviewSheet.rows.find(row => row.rowNo === 6)!.cells.slice(2, 5).map(cell => cell.value), ['Old', 'Button', '采用终稿'])
   assert.deepEqual(reviewSheet.rows.find(row => row.rowNo === 7)!.cells.slice(2, 5).map(cell => cell.value), ['Close', '', '保留原译'])
+
+  const reader = createInspectDeliveryReportTool(async () => ({ workspaceRoot }))
+  const inspect = (path: string, batch?: string) => reader.execute({ path, ...(batch && { batch }) }, {} as never)
+  const expected = { task: 'Synthetic / zh-CN → en-US', baseline: metadata.baseline, version: metadata.version,
+    collection: input.collection, scope: metadata.scope }
+  const before = readFileSync(join(workspaceRoot, changed.path))
+  assert.deepEqual(await inspect(translation.path), { path: translation.path, report: expected,
+    sheets: sheets.map(({ name }) => name), skippedSheets: [] })
+  assert.deepEqual(await inspect(translation.path, metadata.task), { path: translation.path, report: expected,
+    sheets: sheets.map(({ name }) => name), batchCheck: { batch: metadata.task, locations: ['「翻译明细」的任务栏 B2 为「Synthetic / zh-CN → en-US」'] }, skippedSheets: [] })
+  const names = ['审校明细', '待确认', '历史对照', '填写示例', '使用说明']
+  assert.deepEqual(await inspect(changed.path, 'test.key.1'), { path: changed.path,
+    report: { ...expected, collection: review.collection }, sheets: names,
+    batchCheck: { batch: 'test.key.1', locations: ['「审校明细」的 A6 单元格值为「test.key.1」'] }, skippedSheets: [] })
+  assert.deepEqual(await reader.execute({ path: changed.path, batch: 'test.key.1', kind: 'Review' }, {} as never), await inspect(changed.path, 'test.key.1'))
+  assert.deepEqual(await inspect(changed.path, 'not-this-batch'), { path: changed.path,
+    report: { ...expected, collection: review.collection }, sheets: names, batchCheck: { batch: 'not-this-batch', locations: [] }, skippedSheets: [] })
+  writeFileSync(join(workspaceRoot, '空模板.xlsx'), original)
+  assert.deepEqual(await inspect('空模板.xlsx', '32.2'), { path: '空模板.xlsx',
+    report: { task: '', baseline: '', version: '', collection: '', scope: '' }, sheets: sheets.map(({ name }) => name),
+    batchCheck: { batch: '32.2', locations: [] }, skippedSheets: [] })
+  await assert.rejects(async () => inspect(join(workspaceRoot, changed.path)), /相对路径/)
+  assert.deepEqual(readFileSync(join(workspaceRoot, changed.path)), before)
 })
