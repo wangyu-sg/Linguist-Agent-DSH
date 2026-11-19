@@ -9,7 +9,7 @@ import type { ManagedFiles } from './files'
 
 const PROJECT_ID = /^prj-[0-9a-f]{16}$/
 const MAX_PROMPT_CHARS = 18_000
-const PROMPT_VERSION = 'dsh-native-6.0.0'
+const PROMPT_VERSION = 'dsh-native-6.1.0'
 const TRUNCATED = '\n…（Project Digest 仅展开上方完整条目；其余必要要求与资料尚未展开，请按项目资料路由补读，不据此声称全覆盖）'
 
 const QUALITY = `# Linguist Agent · 共同作业约定
@@ -25,6 +25,8 @@ const QUALITY = `# Linguist Agent · 共同作业约定
 已有授权继续执行，不在普通步骤后停下来等待催促。真实冲突或缺失只阻塞受影响内容，其他工作继续；不能猜测客户决定或虚构完成。原稿覆盖、平台写回和平台提交分别遵守实际授权。
 
 持续复用当前有效成果。中断或压缩后依据宿主提供的真实状态接续；只有变化及其实际影响范围需要重评。完成时报告真实范围、交付位置和影响使用的未决项。模型、Provider 和推理档位由当前获准配置决定，不自行切换。
+
+每次正式翻译、审校或校对收尾都必须填写对应的 Excel 交付表。读取 game-localization 的 references/delivery.md，用 linguist_delivery_report 生成实际文件并在交接或最终答复提供路径。无改项、只做报告或部分范围受阻时也写明真实范围与未决项。General 核对各已完成阶段的文件后才报交付完成。普通咨询、进度回复和中间保存无需交付表。
 
 # 与用户交流
 

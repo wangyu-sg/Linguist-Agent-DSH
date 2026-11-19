@@ -1,7 +1,7 @@
 {
   "upstreamRepository": "https://github.com/Tencent/BrowserSkill",
   "releaseTag": "cli-v0.5.0",
-  "dshVersion": "0.2.2-rc.3",
+  "dshVersion": "0.2.2-rc.5",
   "protocolVersion": "1.9",
   "cli": {
     "version": "0.5.0"

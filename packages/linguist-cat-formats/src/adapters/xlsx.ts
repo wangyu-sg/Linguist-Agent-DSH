@@ -475,7 +475,7 @@ export function decodeXmlText(raw: string, counter?: OoxmlTextCounter): string {
  * entities, \r as &#xD; (literal CR would be parser-normalized to LF), and
  * XML-1.0-forbidden C0 controls as `_xHHHH_`.
  */
-function escapeCellText(value: string): string {
+export function escapeCellText(value: string): string {
   return value
     .replace(/_x([0-9A-Fa-f]{4})_/g, '_x005F_x$1_')
     .replace(/[&<>"]/g, (ch) => XML_TEXT_ESCAPES[ch]!)

@@ -90,6 +90,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     await ctx.serial('agent/created', { agent, source: 'create' } as never)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'general', workMode: 'working-copy' })
     assert.ok(ctx.tools.get('linguist_working_copy'))
+    assert.ok(ctx.tools.get('linguist_delivery_report'), 'the report is available in a Linguist session without CAT')
     assert.ok(ctx.tools.get('linguist_delegate'), 'professional delegation is available without a CAT project')
     assert.equal(ctx.tools.get('cat_project_summary'), undefined)
     const parentId = agent.id

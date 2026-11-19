@@ -25,6 +25,7 @@ import { createCatDeps } from './host/cat-deps'
 import { DEFAULT_DATA_ROOT, initializeStorage } from './host/config'
 import { LinguistDelegationControl } from './host/delegation-control'
 import { createLinguistDelegationTool } from './host/delegation-tool'
+import { createDeliveryReportTool } from './host/delivery-report-tool'
 import { buildFixedLinguistPrompt, buildLinguistTaskContext, DIAGNOSTICS_OPERATIONS, DiagnosticsHost } from './host/diagnostics'
 import { projectDiscoveryScope, authorizeWorkspaceRead, authorizeWorkspaceWrite } from './host/discovery'
 import { EvidenceObserver } from './host/evidence'
@@ -89,6 +90,7 @@ export function apply(ctx: Context, config: Config): void {
   const integrity = new IntegrityHost(service, mutations, files)
   const professional = loadProfessionalResources(new URL('../resources/professional-judgment/', import.meta.url))
   const roleText = loadLinguistRoleResources(new URL('../resources/linguist-roles/', import.meta.url))
+  const deliveryTemplates = new URL('../resources/delivery-templates/', import.meta.url)
   ctx.skills.registerProvider(control => new FileSystemSkillProvider(ctx, control, {
     providerName: 'linguist', includeDefaultRoots: false, watch: false,
     bundledSkillDir: fileURLToPath(new URL('../resources/skills/', import.meta.url)),
@@ -218,6 +220,9 @@ export function apply(ctx: Context, config: Config): void {
         }
         return decision
       }))
+      disposers.push(agent.ctx.tools.register(createDeliveryReportTool(deliveryTemplates, async () => ({
+        ...await resolveSessionWorkspace(agent.id), role: currentBinding().role,
+      }))))
       disposers.push(agent.ctx.tools.register(createProjectPreparationTool(service, async (callId, useTurnQuestion) => {
         const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
         const snapshot = turnContextProvenance?.forCall(callId)?.turnContextSnapshot

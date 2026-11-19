@@ -5,10 +5,10 @@ LA uses the official BrowserSkill CLI/MCP and Chrome Web Store extension. DSH's
 Fishquito's `dsh-skill-mcp-panel` provides the management page. No DSH or
 BrowserSkill source changes or dedicated BrowserSkill DSH plugin are needed.
 
-`BASELINE.json` records the last checked official release, not an update pin.
-CLI 0.5.0 and store extension 0.5.0 were checked on DSH 0.2.2-rc.3, macOS ARM64;
-both use protocol 1.9. The CLI's official automatic updates remain enabled, and
-Chrome manages extension updates. LA installation does not replace either one.
+`BASELINE.json` records the checked official releases and LA's DSH build baseline.
+CLI 0.5.0 and store extension 0.5.0 use protocol 1.9. The browser fixtures were
+verified on DSH 0.2.2-rc.3 on macOS ARM64. LA now builds against DSH 0.2.2-rc.5.
+The official CLI and Chrome continue to manage their own updates.
 
 ## Install and connect
 

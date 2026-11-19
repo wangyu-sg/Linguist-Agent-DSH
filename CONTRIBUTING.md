@@ -2,7 +2,7 @@
 
 ## 当前依赖与命令
 
-准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 在开发依赖中固定为 **0.2.2-rc.3**；运行时 peer 与 `engines.dsh` 范围为 `>=0.2.2-rc.3 <0.2.3-0`。兼容范围不是未来接口兼容的验证结论，升级需检查实际用到的接口；本机检查平台为 macOS ARM64。
+准备普通 **Node 24.21.0**、**pnpm 11.7.0**、**Bun 1.3.14**，在 PATH 中可调用。DSH SDK 在开发依赖中固定为 **0.2.2-rc.5**；运行时 peer 与 `engines.dsh` 范围为 `>=0.2.2-rc.3 <0.2.3-0`。兼容范围不是未来接口兼容的验证结论，升级需检查实际用到的接口；本机检查平台为 macOS ARM64。
 
 不要用 DSH App 内受签名限制的 Node 运行 checkout 的第三方原生模块。普通 Node 可以加载声明依赖的预编译本机模块；SDK 间接依赖 koffi 已带平台二进制，维护配置不执行其额外源码构建。
 
@@ -22,7 +22,7 @@ pnpm pack:plugin
 
 CAT、线上材料和工作副本共用的语义检索复用已安装的 MemSearch Python 环境及本地 `gpahal/bge-m3-onnx-int8`，通过离线子进程执行包内 `semantic-review.py`。正常回归使用合成进程／模型替身，不要求下载权重；使用安装了 `memsearch[onnx]` 且已有模型缓存的 Python 运行 `tests/semantic-review.integration.py`，可验证真实召回、缓存复用、模型变更失效和长原文覆盖。该集成检查不读取客户资料或调用付费模型。推理缓存独立于 CAT 正式库，不触发 CAT schema 变更；检索阈值只控制候选召回，不是语言质量或 TM 分数。全局开关保存于 LA 管理的 `review-preferences.json`，不改 DSH reserved profile；设置页复用官方 `settings.section` 插槽和现有项目设置面板。按组清理会取消该组的材料任务，删除该组的派生结果并保留共享向量。按项目清理会删除该项目的语义缓存文件和日志。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.7.0.tgz`，会核对岗位、专业标准与案例、七个业务技能、Worker、本地语义检索脚本和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.7.1.tgz`，会核对岗位、专业标准与案例、七个业务技能、两份 Excel 交付模板、Worker、本地语义检索脚本和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
 LA 独立打包。BrowserSkill 使用官方正式发行的 CLI／MCP 和商店扩展，保留官方更新能力；LA 安装不覆盖 BrowserSkill。安装、原生 MCP 配置和合成检查见 [BrowserSkill 集成说明](integrations/browser-skill/README.md)。
 

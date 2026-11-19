@@ -115,5 +115,6 @@ export {
 } from './workbook'
 
 export { extractXlsxContext, extractPptxContext } from './context-extraction'
+export { fillDeliveryWorkbook } from './delivery-workbook'
 
 export type { XmlLocalePairOptions } from './xml-parser'
