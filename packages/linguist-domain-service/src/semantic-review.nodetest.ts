@@ -25,13 +25,14 @@ test('only the last cancelled material search stops its subprocess and a same-ke
     writeFileSync(join(root, 'memsearch'), 'synthetic launcher')
     writeFileSync(join(root, 'python'), `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path');
-process.stdin.resume();
+let input = ''; process.stdin.on('data', chunk => { input += chunk });
 process.stdin.on('end', () => {
+  const queries = JSON.parse(input).queries;
   const marker = path.join(__dirname, String(process.pid));
   process.on('SIGTERM', () => { fs.writeFileSync(marker + '.stopped', ''); process.exit(0) });
   console.error('LA_PROGRESS preparing 1 2');
   fs.appendFileSync(path.join(__dirname, 'started'), process.pid + '\\n');
-  setInterval(() => { if (fs.existsSync(marker + '.finish')) { console.log('{"groups":[[0]]}'); process.exit(0) } }, 10);
+  setInterval(() => { if (fs.existsSync(marker + '.finish')) { console.log(JSON.stringify({groups: queries?.length === 0 ? [] : [[0]]})); process.exit(0) } }, 10);
   setTimeout(() => process.exit(1), 8_000);
 });`, { mode: 0o700 })
     process.env.PATH = root + delimiter + (previousPath ?? '')
@@ -70,6 +71,19 @@ process.stdin.on('end', () => {
     review.abort()
     assert.equal((await grouping).status, 'failed')
     await waitFor(() => existsSync(join(root, launches()[3]! + '.stopped')))
+
+    assert.equal(cache.prepareLibrary(path, 'A', async () => ['entry']).phase, 'queued')
+    assert.equal(cache.prepareLibrary(path, 'B', async () => ['other scope']).phase, 'queued')
+    await waitFor(() => launches().length === 5 && cache.activeProgress(path, 'A')[0]?.progress.phase === 'preparing')
+    assert.equal(cache.preparationStatus(path, 'B').phase, 'queued')
+    assert.deepEqual(cache.preparationStatus(path, 'C'), { phase: 'idle' })
+    writeFileSync(join(root, launches()[4]! + '.finish'), '')
+    await waitFor(() => cache.preparationStatus(path, 'A').phase === 'ready' && launches().length === 6)
+    writeFileSync(join(root, launches()[5]! + '.finish'), '')
+    await waitFor(() => cache.preparationStatus(path, 'B').phase === 'ready')
+    await cache.setEnabled(false)
+    assert.deepEqual(cache.preparationStatus(path, 'B'), { phase: 'disabled' })
+
   } finally {
     cache.dispose()
     if (previousPath === undefined) delete process.env.PATH

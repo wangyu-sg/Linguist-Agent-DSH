@@ -80,6 +80,18 @@ class SemanticReviewTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(result['groups']), 1)
             self.assertNotIn('texts', result, 'material search only returns match positions to the host')
 
+    async def test_background_preparation_is_reused_for_real_queries(self):
+        with tempfile.TemporaryDirectory() as root:
+            request = {'cachePath': str(Path(root) / 'cache.sqlite'),
+                       'texts': ['请把三只纸鹤放在窗台上。', '调低厨房吊灯的亮度。']}
+            with patch.object(semantic, 'related_groups', side_effect=AssertionError('preparation should only build vectors')):
+                prepared = await semantic.retrieve({**request, 'queries': []})
+                self.assertEqual(prepared['embedded'], 2)
+                self.assertEqual(prepared['groups'], [])
+                searched = await semantic.retrieve({**request, 'queries': ['将三只折纸鹤摆到窗台。']})
+                self.assertEqual(searched['embedded'], 1)  # Only the new question.
+                self.assertEqual(searched['groups'][0][0], 0)
+
     async def test_long_source_is_not_truncated(self):
         import numpy as np
         from types import SimpleNamespace

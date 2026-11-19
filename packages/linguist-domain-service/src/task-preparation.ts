@@ -18,15 +18,16 @@ const PlatformLocks = z.object({ segments: z.array(z.object({
 export async function prepareCatTask(service: LinguistProjectService, input: {
   projectId: string; taskGroupId?: string; workspaceRoot: string; sessionId: string; sourcePath: string; platformSnapshotPath?: string
   xlsxMapping?: XlsxImportMapping; phraseMasterPath?: string
+  sourceData?: { bytes: Uint8Array; filename: string }; phraseMaster?: { bytes: Uint8Array; filename: string }
 }) {
   const { projectId, workspaceRoot, sessionId, sourcePath } = input
   const project = service.getProject(projectId)
   const languages = { sourceLocale: project.sourceLocale, targetLocale: project.targetLocale }
-  const sourceData = await readPickedFileWithinLimit(workingCopyPath(workspaceRoot, sourcePath), LINGUIST_FILE_MAX_BYTES)
+  const sourceData = input.sourceData ?? await readPickedFileWithinLimit(workingCopyPath(workspaceRoot, sourcePath), LINGUIST_FILE_MAX_BYTES)
   const xlsxMapping = input.xlsxMapping ?? (sourceData.filename.toLowerCase().endsWith('.xlsx')
     ? await service.resolveWorkbookMapping(projectId, sourceData.bytes, sourceData.filename) : undefined)
-  const phraseMaster = input.phraseMasterPath
-    ? await readPickedFileWithinLimit(workingCopyPath(workspaceRoot, input.phraseMasterPath), LINGUIST_FILE_MAX_BYTES) : undefined
+  const phraseMaster = input.phraseMaster ?? (input.phraseMasterPath
+    ? await readPickedFileWithinLimit(workingCopyPath(workspaceRoot, input.phraseMasterPath), LINGUIST_FILE_MAX_BYTES) : undefined)
   const imported = await service.importAsset(projectId, { ...sourceData, xlsxMapping, phraseMaster, taskGroupId: input.taskGroupId })
   const db = service.openProject(projectId)
   let segments = db.segments.query({ assetId: imported.assetId, limit: imported.segmentCount })

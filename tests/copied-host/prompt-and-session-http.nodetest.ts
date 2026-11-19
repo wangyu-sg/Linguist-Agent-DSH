@@ -54,7 +54,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const executorPlugin = ctx.plugin(NativeToolExecutor)
   await executorPlugin.await()
   let preset = 'standard'
-  let agent = { id: SessionId('native-one'), session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
+  let agent = { id: SessionId('native-one'), model: { current: () => undefined }, session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
     agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
     schedule: { catalog: async () => [] },
@@ -77,7 +77,8 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     for (const turn of [1, 2]) {
       const messages = [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] })]
       const decision = await ctx.waterfall('agent/pre-step', { agent, turn, step: 0, messages, signal: new AbortController().signal } as never, async () => ({ kind: 'enter' as const, messages }))
-      assert.deepEqual(decision.messages, messages)
+      assert.equal(decision.messages[0]?.source.kind, 'linguist-task-context')
+      assert.deepEqual(decision.messages.slice(1), messages)
       assert.equal(search.mock.callCount(), 0, 'new and resumed chat reach the model without starting semantic search')
     }
     preset = 'standard'
@@ -142,39 +143,29 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
     for (const text of Object.values(roles)) assert.ok(text.length <= 6_000)
     const conversation = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'working-copy' })
     assert.match(conversation.prompt, /游戏本地化专家/)
-    assert.match(conversation.prompt, /简单问题直接回答，不要求用户先建项目/)
+    assert.match(conversation.prompt, /普通语言判断/)
     for (const role of ['general', 'translator', 'reviewer', 'proofreader'] as const) {
-      for (const workMode of ['cat', 'file', 'browser'] as const) {
+      const fixed = buildLinguistPromptSection(service, roles, professional, { role, workMode: 'working-copy' })
+      for (const workMode of ['cat', 'working-copy', 'browser'] as const) {
         const current = buildLinguistPromptSection(service, roles, professional, { role, workMode, projectId: project.id })
         assert.equal(current.status.professionalStandardHash, professional.standardHash)
         assert.equal(current.status.professionalExamplesHash, professional.examplesHash)
         assert.equal(current.prompt.match(/PJ-01 /g)?.length, 1)
-        assert.match(current.prompt, /压缩|接续/)
-        assert.match(current.prompt, /正式翻译前.*术语/)
-        assert.match(current.prompt, /现实专名、历史事实、引文或典故/)
-        assert.match(current.prompt, /联网.*原始或权威来源/)
-        assert.match(current.prompt, /父任务.*不等于客户批准/)
-        if (role === 'general') {
-          assert.match(current.prompt, /正式翻译从一开始交给 Translator/)
-          assert.match(current.prompt, /已被明确委派.*不再转派/)
-          assert.doesNotMatch(current.prompt, /少量任务直接完成/)
-        }
-        if (role === 'reviewer') {
-          assert.match(current.prompt, /先依据 Source.*再评估当前 Target/)
-          assert.match(current.prompt, /自匹配不能作为独立证据/)
-          assert.match(current.prompt, /来源、Key、任务\/批次、更新时间/)
-          assert.match(current.prompt, /项目例外不推广到其他句段或项目/)
-        }
-        assert.ok(current.prompt.length <= 18_000)
+        assert.equal(current.prompt, fixed.prompt)
+        assert.equal(current.status.promptHash, fixed.status.promptHash)
+        assert.notEqual(current.status.taskContextHash, fixed.status.taskContextHash)
+        assert.match(current.taskContext, new RegExp(`"workMode":"${workMode}"`))
+        assert.doesNotMatch(current.prompt, /COMPLETE-RULE-/)
+        assert.match(current.prompt, /Talk to me ELI5 by default/)
       }
     }
     const result = buildLinguistPromptSection(service, roles, professional, { role: 'reviewer', workMode: 'cat', projectId: project.id })
     assert.ok(result.prompt.length <= 18_000)
     assert.equal(result.status.role, 'reviewer')
     assert.equal(result.status.projectDigestTruncated, true)
-    assert.match(result.prompt, /COMPLETE-RULE-0:/)
-    assert.match(result.prompt, /其余必要要求与资料尚未展开/)
-    assert.doesNotMatch(result.prompt, /COMPLETE-RULE-11:/)
+    assert.match(result.taskContext, /COMPLETE-RULE-0:/)
+    assert.match(result.taskContext, /其余必要要求与资料尚未展开/)
+    assert.doesNotMatch(result.taskContext, /COMPLETE-RULE-11:/)
     assert.match(result.prompt, /独立|审读|审校/)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
@@ -234,7 +225,7 @@ test('missing CAT database leaves Prompt diagnostic available and never recreate
       const roles = { general: 'General', translator: 'Translator', reviewer: 'Reviewer', proofreader: 'Proofreader' }
       const prompt = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'cat', projectId: project.id })
       assert.equal(prompt.status.projectDigestStatus, 'skipped')
-      assert.match(prompt.prompt, /Project Digest 当前无可用项目数据/)
+      assert.match(prompt.taskContext, /Project Digest 当前无可用项目数据/)
       assert.equal(existsSync(path), false)
       assert.throws(() => service.openProject(project.id))
     } finally { renameSync(`${path}.held`, path) }

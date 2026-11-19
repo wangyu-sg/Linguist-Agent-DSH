@@ -10,6 +10,7 @@ import type { BindingStore } from './bindings'
 
 declare module '@deepseek-ai/dsh-llm/message' {
   interface MessageSourceMap {
+    'linguist-task-context': { kind: 'linguist-task-context'; form: 'snapshot'; hash: string }
     'linguist-turn-context': { kind: 'linguist-turn-context'; requestId: string; projectId: string }
   }
 }

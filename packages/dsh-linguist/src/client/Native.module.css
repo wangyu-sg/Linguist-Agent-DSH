@@ -39,3 +39,8 @@
 .retrievalProgress progress { flex: 1 1 64px; min-width: 48px; max-width: 160px; height: 6px; accent-color: var(--dsw-alias-state-business-primary); }
 .setupHint { color: var(--dsw-alias-label-tertiary); font-size: 12px; margin-left: auto; }
 .setupError { composes: sessionSetup; color: var(--dsw-alias-state-error-primary); }
+
+.libraryPreparation { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 12px; }
+.libraryPreparation p { margin: 0; }
+.libraryPreparationActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.libraryPreparationActions:empty { display: none; }

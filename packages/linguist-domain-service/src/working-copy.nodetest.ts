@@ -302,3 +302,38 @@ test('working reference worker reuses private-group changes and observes committ
     assert.equal((await read()).contextRefs[0]?.requiredness, 'required')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
+
+test('a detached six-segment draft in each direction delivers through the original adapter and retains the original file', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-detached-delivery-'))
+  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
+  service.init()
+  try {
+    for (const [sourceLocale, targetLocale, source, target, corrected] of [
+      ['en', 'zh-CN', 'Collect %d shells', '消耗 %d 枚贝壳', '收集 %d 枚贝壳'],
+      ['zh-CN', 'en', '收集 %d 枚贝壳', 'Spend %d shells', 'Collect %d shells'],
+    ] as const) {
+      const project = await service.createProject({ name: sourceLocale, sourceLocale, targetLocale })
+      const sourcePath = sourceLocale + '.csv'
+      const original = 'key,source,target\n' + Array.from({ length: 6 }, (_, i) => `row${i},${source},${target}`).join('\n') + '\n'
+      writeFileSync(join(root, sourcePath), original)
+      const context: WorkingCopyContext = { workspaceRoot: root, sessionId: 'synthetic', service, referenceProjectId: project.id,
+        provenance: { runId: 'review', sessionId: 'synthetic', toolCallId: 'deliver', modelProvider: 'synthetic', modelId: 'test' } }
+      const request = { sourcePath, sourceLocale, targetLocale }
+      const prepared = await executeWorkingCopyAction({ ...request, operation: 'prepare' }, () => context)
+      const rows = (readWorkingJson(root, prepared.path).value as LinguistWorkingCopy).segments
+      const decisionsPath = sourceLocale + '.json'
+      writeFileSync(join(root, decisionsPath), JSON.stringify({
+        sourceSha256: prepared.sourceSha256, previousResultSha256: prepared.artifactSha256, unresolved: [],
+        groups: [{ decision: 'corrected', segmentIds: [rows[0]!.id] }, { decision: 'unchanged', segmentIds: rows.slice(1).map(row => row.id) }],
+        edits: [{ segmentId: rows[0]!.id, target: corrected }],
+      }))
+      const delivery = { ...request, operation: 'deliver' as const, previousResultPath: prepared.path, decisionsPath }
+      await assert.rejects(executeWorkingCopyAction(delivery, () => ({ ...context, reportOnly: true })), /只报告问题/)
+      const result = await executeWorkingCopyAction(delivery, () => context)
+      assert.equal(result.segments, 6)
+      assert.equal(readFileSync(join(root, sourcePath), 'utf8'), original)
+      assert(readFileSync(join(root, result.path), 'utf8').includes(corrected))
+      assert.equal(service.openProject(project.id).assets.countByProject(), 0)
+    }
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})

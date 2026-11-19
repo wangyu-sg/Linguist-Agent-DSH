@@ -12,7 +12,7 @@ import type { CatReadVersion } from '@linguist/cat-tools'
 import { disposeWorkingCopyReferences, getWorkingCopyReferences, type ReferenceItem } from './working-copy-references'
 import { bindWorkingBatch, type LinguistWorkingCopy, prepareWorkingCopy, readWorkingJson, resumeWorkingCopy, workingCopyPath } from './working-copy'
 import { buildWorkingReview, workingReviewInput } from './working-review'
-import { writeJsonFileAtomic, writeTextFileAtomic } from './safe-file'
+import { writeJsonFileAtomic, writeFileAtomic } from './safe-file'
 import { readPickedFileWithinLimit } from './project-file-intake'
 import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import type { XlsxImportMapping } from './project-service-types'
@@ -289,7 +289,7 @@ export async function prepareReviewMaterials(service: LinguistProjectService, in
     if (inside.startsWith('..') || isAbsolute(inside)) throw new Error('审校材料目录越界')
   }
   const review = buildWorkingReview(segments, items, semantic, selectedIds, visual, library)
-  for (const file of review.files) writeTextFileAtomic(join(directory, file.name), file.name === 'index.md'
+  for (const file of review.files) writeFileAtomic(join(directory, file.name), file.name === 'index.md'
     ? `本次已取得 ${coverage.loaded}/${coverage.expected} 条；${coverage.complete ? '当前声明范围已取齐' : '范围尚未取齐，不得声明整批关联已检查'}。\n\n${input.online ? `平台：${input.online.url}\n读取时间：${input.online.observedAt}\n线上写回前须核对当前文本、稳定 ID 和最新 Comments。\n\n` : ''}${file.text}` : file.text)
   writeJsonFileAtomic(join(directory, 'materials.json'), content)
   // This binds supplied materials to their versions; it is not evidence of reading.

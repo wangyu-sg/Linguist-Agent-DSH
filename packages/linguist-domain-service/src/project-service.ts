@@ -1464,8 +1464,9 @@ export class LinguistProjectService {
     projectId: string,
     bytes: Uint8Array,
     filename: string,
+    allowUniqueHeaders = false,
   ): Promise<LinguistIntakeXlsxMapping | undefined> {
-    return resolveProjectWorkbookMapping(this.getProject(projectId), bytes, filename)
+    return resolveProjectWorkbookMapping(this.getProject(projectId), bytes, filename, allowUniqueHeaders)
   }
 
   importResourcesFromPaths(

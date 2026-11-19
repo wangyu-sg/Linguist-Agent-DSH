@@ -17,7 +17,7 @@ export { prepareWorkingCopy, assembleWorkingCopy, readWorkingJson, workingCopyPa
 export { executeWorkingCopyAction } from './working-copy-service'
 export { clearGroupReviewMaterials, prepareReviewMaterials, semanticCachePath } from './review-materials'
 export type { ReviewMaterialsInput } from './review-materials'
-export { syncProjectLibrary, listProjectLibrary, requireLibraryItem, resolveLibraryFile, getProjectQuestionMaterials, getProjectLibraryMaterials, ProjectResourceSchema } from './project-library'
+export { syncProjectLibrary, listProjectLibrary, requireLibraryItem, resolveLibraryFile, getProjectQuestionMaterials, getProjectLibraryMaterials, prepareProjectLibrary, ProjectResourceSchema } from './project-library'
 export type { ProjectResource, ProjectLibraryMaterials } from './project-library'
 export { prepareCatTask } from './task-preparation'
 export { disposeWorkingCopyReferences } from './working-copy-references'

@@ -41,7 +41,7 @@ test('native prompt, diagnostics bundle, worker scrub and redacted exports use s
     const roles = { general: 'General', translator: 'Translator', reviewer: 'Reviewer', proofreader: 'Proofreader' }
     const binding = bindings.session('session-synthetic')!
     const prompt = buildLinguistPromptSection(service, roles, professional, binding, workspaceRoot)
-    assert.match(prompt.prompt, /Synthetic fixture purpose/)
+    assert.match(prompt.taskContext, /Synthetic fixture purpose/)
     assert.equal(prompt.status.projectDigestStatus, 'complete')
     assert.equal(prompt.status.promptHash, createHash('sha256').update(prompt.prompt).digest('hex'))
     const diagnostics = new DiagnosticsHost(service, bindings, files, {

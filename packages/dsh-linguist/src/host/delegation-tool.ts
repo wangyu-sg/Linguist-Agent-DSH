@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { isAbsolute, relative } from 'node:path'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, type LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { prepareReviewMaterials, type LinguistProjectService, type ReviewMaterialsInput } from '@linguist/domain-service'
+import { prepareReviewMaterials, workingCopyPath, type LinguistProjectService, type ReviewMaterialsInput } from '@linguist/domain-service'
 import { Type } from 'typebox'
 import { Value } from 'typebox/value'
 import type { SessionBinding } from './bindings'
+import { resolveExecutionProfile } from './execution-profile'
 import { freezeLinguistDelegation } from './delegation'
 import type { LinguistDelegationControl } from './delegation-control'
 import { deliverDelegationInputs, preflightDelegationInputs } from './delegation-inputs'
@@ -41,6 +42,7 @@ const parameters = Type.Object({
     expectedSha256: Type.Optional(Type.String()),
     snapshot: Type.Optional(Type.Boolean()),
   }))),
+  reportOnly: Type.Optional(Type.Boolean({ description: 'True for observations only; no translation or stage writes.' })),
   expectedOutcome: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
 })
 
@@ -63,18 +65,19 @@ export function createLinguistDelegationTool(input: {
   agent: Agent
   subagents: Pick<SubagentRuntime, 'resolveMaxDepth' | 'startActivation'>
   control: LinguistDelegationControl
+  llm?: Pick<LlmRuntime, 'resolveModelInfo' | 'resolveCallConfig'>
   resolveSessionWorkspace: () => Promise<{ workspaceRoot: string }>
   reserveIntent: (childSessionId: string, binding: SessionBinding) => () => void
 }): { tool: ToolDefinition; messageTool: ToolDefinition; listTool: ToolDefinition; interruptTool: ToolDefinition } {
   const tool: ToolDefinition = {
     name: 'linguist_delegate',
-    description: 'Delegate translation, independent review or proofreading in CAT, working-copy or browser mode. Choose the professional role and objective. For CAT provide batchIds or segmentIds; for a file provide sourcePath, language pair, optional previousResultPath and this task’s TM/TB referenceFiles; for online review provide its export or snapshotPath with online metadata. Include original spreadsheets, presentations or images as inputs or contextFiles. Bilingual materials, selected TM/TB, semantic associations and image locations are prepared once and handed to the child automatically. A question requiring a professional child can omit scope. The model and effort are inherited unless explicitly selected. Starting a child is not review completion.',
+    description: 'Delegate translation, independent review or proofreading in CAT, working-copy or browser mode. Choose the professional role and objective. For CAT provide batchIds or segmentIds; for a file provide sourcePath, language pair, optional previousResultPath and this task’s TM/TB referenceFiles; for online review provide its export or snapshotPath with online metadata. Include original spreadsheets, presentations or images as inputs or contextFiles. Bilingual materials, selected TM/TB, semantic associations and image locations are prepared once and handed to the child automatically. A question requiring a professional child can omit scope. The host supplies the approved model and effort. Omit model overrides. Starting a child is not review completion.',
     parameters: JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>, output: output(),
     async execute(args, exec) {
       if (!Value.Check(parameters, args)) throw new Error(`Invalid linguist_delegate arguments: ${Value.Errors(parameters, args)[0]?.message}`)
       if (exec.agent !== input.agent) throw new Error('Delegation caller is not the bound DSH Agent')
       const call = args as {
-        role: 'translator' | 'reviewer' | 'proofreader'; objective: string; expectedOutcome?: string
+        role: 'translator' | 'reviewer' | 'proofreader'; objective: string; expectedOutcome?: string; reportOnly?: boolean
         provider?: string; model?: string; reasoningEffort?: string
         scope?: Omit<ReviewMaterialsInput, 'workspaceRoot' | 'taskId' | 'projectId'>
         inputs?: Array<{ path: string; purpose: string; required: boolean; expectedSha256?: string; snapshot?: boolean }>
@@ -87,6 +90,21 @@ export function createLinguistDelegationTool(input: {
         ...(fileTask ? { fileMode: scope.online ? 'browser' as const : 'working-copy' as const }
           : scope.batchIds || scope.segmentIds ? { scope: { assetIds: scope.batchIds, segmentIds: scope.segmentIds } } : {}),
       })
+      childBinding.reportOnly = input.binding.reportOnly || call.reportOnly
+      const file = scope.sourcePath ?? scope.snapshotPath
+      if (file) childBinding.professionalSource = relative(realpathSync(workspaceRoot), workingCopyPath(workspaceRoot, file))
+      const selection = input.agent.model?.current()
+      const nativeSelection = input.agent.session?.ownEvents().findLast(event => event.type === 'model/selection')
+      const inherited = input.binding.executionProfile
+      const inheritedRoleDefault = inherited?.source === 'la-role-default'
+        && selection?.provider === inherited.provider && selection?.model === inherited.model && selection?.reasoningEffort === inherited.resolvedEffort
+      const userSelected = nativeSelection !== undefined && !inheritedRoleDefault
+      const asserted = { provider: call.provider, model: call.model, reasoningEffort: call.reasoningEffort === undefined ? undefined : ReasoningEffortId(call.reasoningEffort) }
+      const childSelection = inheritedRoleDefault && selection && !asserted.reasoningEffort ? { ...selection, reasoningEffort: undefined } : selection
+      const resolved = childSelection && input.llm ? await resolveExecutionProfile(input.llm, childSelection, call.role,
+        input.binding.useRoleDefaults === true, userSelected, asserted, exec.signal) : undefined
+      if (!resolved && (call.provider !== undefined || call.model !== undefined || call.reasoningEffort !== undefined)) throw new Error('当前会话没有可验证的模型配置')
+      childBinding.executionProfile = resolved?.profile
       const preflight = await preflightDelegationInputs(call.inputs ?? [], workspaceRoot)
       if (!preflight.ready) return { status: 'blocked-input', inputs: preflight.items.map(item => item.receipt) }
       const receipts = await deliverDelegationInputs(preflight.items, workspaceRoot, String(exec.callId))
@@ -106,6 +124,7 @@ export function createLinguistDelegationTool(input: {
           `Objective: ${call.objective}`,
           ...(call.expectedOutcome ? [`Expected outcome: ${call.expectedOutcome}`] : []),
           `Linguist role: ${childBinding.role}; mode: ${childBinding.workMode}.`,
+          ...(childBinding.reportOnly ? ['Deliver observations only. Leave targets and stage confirmations untouched.'] : []),
           ...(childBinding.delegatedScope?.segmentIds.length ? [`Scope: ${childBinding.delegatedScope.segmentIds.length} segments.`] : []),
           ...(review ? [
             '[LA prepared review materials]',
@@ -116,11 +135,7 @@ export function createLinguistDelegationTool(input: {
           'Inspect necessary original images; batch image reads when practical. Report missing evidence and unresolved issues. Materials are not proof of completed review.',
         ].join('\n')
         const maxDepth = input.subagents.resolveMaxDepth()
-        const agentOptions: AgentOptions = {
-          ...(call.provider === undefined ? {} : { provider: call.provider }),
-          ...(call.model === undefined ? {} : { model: call.model }),
-          ...(call.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(call.reasoningEffort) }),
-        }
+        const agentOptions: AgentOptions = resolved?.options ?? {}
         const accepted = await input.subagents.startActivation({
           provider: 'spawn', delivery: 'parent', childId, label: call.objective.slice(0, 120),
           parent: input.agent, prompt: [{ type: 'text', text: prompt }],

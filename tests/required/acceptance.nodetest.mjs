@@ -885,7 +885,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     const project = await service.createProject({ name: 'Native child', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
     await service.importAsset(project.id, { bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'), filename: 'child.csv' })
     const segment = service.openProject(project.id).segments.query({ limit: 1 })[0]
-    const agent = { id: 'parent-session' }
+    const agent = { id: 'parent-session', model: { current: () => requestedRoute } }
     const bindings = new BindingStore(root)
     bindings.bindProject(project.id, 'workspace')
     const parentBinding = { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat' }
@@ -933,7 +933,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
       assert.equal(projectId, project.id)
     })
     const { tool, messageTool, listTool, interruptTool } = createLinguistDelegationTool({
-      service, binding: parentBinding, agent, control,
+      service, binding: parentBinding, agent, control, llm: { resolveCallConfig: async value => value },
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: (childId, binding) => { intents.set(childId, binding); return () => { intents.delete(childId) } },
       subagents: native,
@@ -981,6 +981,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
       assert.equal(tool.parameters.required.includes(field), false)
     }
     requestedRoute = { provider: 'synthetic-selected-provider', model: 'synthetic-selected-model', reasoningEffort: 'max' }
+    await assert.rejects(tool.execute({ ...args, model: 'unapproved-route' }, { agent, callId: 'rejected-route' }), /已选的模型/)
     const routed = await tool.execute({ ...args, ...requestedRoute }, { agent, callId: 'synthetic-selected-route', signal: new AbortController().signal })
     assert.equal(routed.status, 'started')
     assert.notEqual(routed.childSessionId, result.childSessionId)

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { basename, join, relative, isAbsolute } from 'node:path'
-import type { LinguistGenerationProvenance, LinguistTagProfile } from '@linguist/cat-core'
+import { asProjectId, createAsset, type LinguistGenerationProvenance, type LinguistTagProfile } from '@linguist/cat-core'
+import { serializeXlsxFormatConfig } from '@linguist/cat-formats'
+import { createDefaultCatFormatRegistry } from './format-registry'
 import type { ProjectEventInput, RunMutationChange } from '@linguist/cat-store'
-import { writeJsonFileAtomic, writeTextFileAtomic } from './safe-file'
+import { writeJsonFileAtomic, writeFileAtomic } from './safe-file'
 import { assembleWorkingCopy, bindWorkingBatch, prepareWorkingCopy, readWorkingJson, resumeWorkingCopy, workingCopyPath } from './working-copy'
 import { getWorkingCopyReferences, prefetchWorkingCopyReferences } from './working-copy-references'
 import { buildWorkingReview, workingReviewInput } from './working-review'
@@ -32,6 +34,7 @@ export interface WorkingCopyActionInput {
 export interface WorkingCopyContext {
   workspaceRoot: string
   sessionId: string
+  reportOnly?: boolean
   taskId?: string
   service?: LinguistProjectService
   taskGroupId?: string
@@ -56,7 +59,9 @@ export async function executeWorkingCopyAction(
   const previous = input.previousResultPath === undefined ? undefined : readWorkingJson(context.workspaceRoot, input.previousResultPath)
   const previousScope = previous?.value as Partial<import('./working-copy').LinguistWorkingCopy> | undefined
   if (context.project && input.operation !== 'prepare' && input.previousResultPath === undefined) throw new Error('请通过 previousResultPath 指定已审读的 prepare 或 assemble 快照')
-  if (input.operation === 'deliver' && !context.project) throw new Error('原格式交付需要绑定本地化项目；普通工作区仍可准备和接续工作稿')
+  if (context.reportOnly && (input.operation === 'assemble' || input.operation === 'deliver')) throw new Error('当前任务只报告问题，不能写入或交付译稿')
+  if (input.operation === 'deliver' && !context.project && !context.referenceProjectId) throw new Error('原格式交付需要绑定本地化项目')
+  if (input.operation === 'deliver' && !previous) throw new Error('交付需要指向当前已审读的工作稿')
   const scopedSource = context.project && context.delegatedSegmentIds ? await readPickedFileWithinLimit(workingCopyPath(context.workspaceRoot, input.sourcePath), LINGUIST_FILE_MAX_BYTES) : undefined
   if (scopedSource && context.project && context.delegatedSegmentIds) {
     const db = context.project.service.openProject(context.project.projectId)
@@ -109,12 +114,18 @@ export async function executeWorkingCopyAction(
       if (imported.status === 'imported') context.onMutation?.({ kind: 'asset-updated' })
     }
     baseline = { ...baseline, projectId, taskGroupId: context.taskGroupId ?? 'ungrouped', assetId, segments: db.segments.query({ assetId, limit: baseline.segments.length }) }
-  } else baseline = await prepareWorkingCopy({ ...input, workspaceRoot: context.workspaceRoot })
+  } else {
+    const data = await readPickedFileWithinLimit(workingCopyPath(context.workspaceRoot, input.sourcePath), LINGUIST_FILE_MAX_BYTES)
+    const mapping = context.referenceProjectId && context.service && data.filename.toLowerCase().endsWith('.xlsx')
+      ? await context.service.resolveWorkbookMapping(context.referenceProjectId, data.bytes, data.filename, true) : undefined
+    baseline = await prepareWorkingCopy({ ...input, workspaceRoot: context.workspaceRoot, sourceData: data,
+      ...(mapping ? { formatConfigJson: serializeXlsxFormatConfig({ version: 1, ...mapping }) } : {}) })
+  }
   if (!context.project && context.referenceProjectId && context.service) {
     const group = context.taskGroupId ?? 'ungrouped'
     if (previousScope?.taskGroupId && previousScope.taskGroupId !== group) throw new Error('上阶段工作稿属于其他任务组，请按当前范围准备')
     if (previousScope?.batchId && context.service.openProject(context.referenceProjectId).taskGroups.groupOf(previousScope.batchId) !== group) throw new Error('工作稿的批次归属已变化，请重新准备')
-    baseline = bindWorkingBatch(context.service, context.referenceProjectId, group, baseline)
+    if (!previousScope || previousScope.batchId) baseline = bindWorkingBatch(context.service, context.referenceProjectId, group, baseline)
   }
   const decisions = input.operation === 'assemble' || input.operation === 'deliver' ? readWorkingJson(context.workspaceRoot, input.decisionsPath!) : undefined
   const tagProfile = context.project ? context.project.service.getProject(context.project.projectId).tagProfile : context.tagProfile
@@ -181,7 +192,7 @@ export async function executeWorkingCopyAction(
     mkdirSync(reviewDirectory, { recursive: true })
     const within = relative(root, realpathSync(reviewDirectory))
     if (within.startsWith('..') || isAbsolute(within)) throw new Error('工作材料目录越界')
-    for (const file of review.files) writeTextFileAtomic(join(reviewDirectory, file.name), file.text)
+    for (const file of review.files) writeFileAtomic(join(reviewDirectory, file.name), file.text)
     return { ...workingReviewInput(review, relative(root, reviewDirectory)), path: relative(root, referenceOutput), artifactSha256,
       readingPath: relative(root, join(reviewDirectory, 'index.md')), readingGroups: review.groups,
       sourceSha256: baseline.sourceSha256, segments: selectedIds.length, format: baseline.formatId, warnings: baseline.warnings,
@@ -190,6 +201,35 @@ export async function executeWorkingCopyAction(
       semantic: scopedSemantic.status === 'ready'
         ? { status: 'ready', groups: scopedSemantic.groups.length, embedded: scopedSemantic.embedded, cached: scopedSemantic.cached }
         : scopedSemantic }
+  }
+  if (input.operation === 'deliver' && !context.project) {
+    const projectId = context.referenceProjectId!
+    const assembled = assembleWorkingCopy(baseline, decisions!.value, tagProfile, previous)
+    if (assembled.coverage.undecided || assembled.coverage.blocked || assembled.unresolved.length) throw new Error('交付需要完整裁定，且没有阻断或待解决问题')
+    const { bytes: originalBytes, filename } = await readPickedFileWithinLimit(workingCopyPath(root, input.sourcePath), LINGUIST_FILE_MAX_BYTES)
+    if (createHash('sha256').update(originalBytes).digest('hex') !== baseline.sourceSha256) throw new Error('原文件已变化，请核对当前工作稿')
+    const adapter = createDefaultCatFormatRegistry().get(baseline.formatId)!
+    const mapping = filename.toLowerCase().endsWith('.xlsx') && context.service
+      ? await context.service.resolveWorkbookMapping(projectId, originalBytes, filename, true) : undefined
+    const original = await adapter.import({ bytes: originalBytes, filename, sourceLocale: input.sourceLocale, targetLocale: input.targetLocale,
+      ...(mapping ? { formatConfigJson: serializeXlsxFormatConfig({ version: 1, ...mapping }) } : {}) })
+    const asset = createAsset({ ...original.asset, id: assembled.segments[0]!.assetId, projectId: asProjectId(projectId) })
+    const bytes = await adapter.export({ originalBytes, asset, segments: assembled.segments })
+    const verified = await adapter.import({ bytes, filename, sourceLocale: input.sourceLocale, targetLocale: input.targetLocale, formatConfigJson: asset.formatConfigJson })
+    if (verified.segments.length !== assembled.segments.length || verified.segments.some((row, index) => {
+      const expected = assembled.segments[index]!
+      return row.key !== expected.key || row.source !== expected.source || row.target !== expected.target || row.locked !== expected.locked
+    })) throw new Error('交付文件重新读取时，稳定标识、源译文或锁定与工作稿不一致')
+    assertCurrent()
+    if (readWorkingJson(root, input.previousResultPath!).sha256 !== previous!.sha256) throw new Error('交付时工作稿已变化，请重新读取')
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    const destination = join(parent, `${hash.slice(0, 16)}-${filename}`)
+    writeFileAtomic(destination, bytes)
+    const artifact = { path: relative(root, destination), artifactSha256: hash, sourceSha256: baseline.sourceSha256, projectId,
+      segments: assembled.segments.length, format: baseline.formatId, warnings: baseline.warnings,
+      coverage: assembled.coverage, externalSubmitted: false, verifiedByReimport: true }
+    writeJsonFileAtomic(output, { ...assembled, delivery: artifact, execution: context.provenance })
+    return { ...artifact, reviewPath: relative(root, output) }
   }
   if (input.operation === 'deliver') {
     const { service, projectId } = context.project!
@@ -254,7 +294,7 @@ export async function executeWorkingCopyAction(
       finalChangeCount: delivered.finalChanges.length, submitted: true, externalSubmitted: false, verification: staged.verification,
       nextAction: delivered.nextAction }
   }
-  writeJsonFileAtomic(output, result)
+  writeJsonFileAtomic(output, assembled ? { ...assembled, execution: context.provenance } : result)
   if (input.operation === 'prepare' && context.project) {
     prefetchWorkingCopyReferences(context.project.service, context.project.projectId, context.taskId ?? context.sessionId,
       baseline.sourceSha256, baseline.segments.map(segment => segment.id as string))

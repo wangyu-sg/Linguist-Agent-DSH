@@ -398,6 +398,19 @@ export interface LinguistRetrievalProgress {
   progress: SemanticProgress
 }
 
+export type LibraryPreparationStatus =
+  | { phase: 'idle' }
+  | { phase: 'disabled' }
+  | { phase: 'queued'; requestedAt: number }
+  | { phase: 'running'; requestedAt: number; progress: SemanticProgress }
+  | { phase: 'ready'; requestedAt: number; total: number }
+  | { phase: 'failed'; requestedAt: number; error: string }
+
+export interface LibraryPreparationOffer {
+  projectId: string
+  groups: Array<{ id: string; name: string; offeredAt: number }>
+}
+
 export interface LinguistImportProgress {
   filename: string
   index: number

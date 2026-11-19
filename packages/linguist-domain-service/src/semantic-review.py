@@ -121,7 +121,9 @@ async def retrieve(request, progress=lambda: None, report=lambda phase, ready, t
         if cached:
             groups = json.loads(cached[0])
         else:
-            rows = [db.execute("SELECT value FROM vectors WHERE key = ?", (key,)).fetchone() for key in keys]
+            preparation_only = queries == []
+            lookup = "SELECT 1 FROM vectors WHERE key = ?" if preparation_only else "SELECT value FROM vectors WHERE key = ?"
+            rows = [db.execute(lookup, (key,)).fetchone() for key in keys]
             missing = [i for i, row in enumerate(rows) if row is None]
             total = len(corpus_texts)
             ready = total - sum(texts[i] in corpus_texts for i in missing)
@@ -135,7 +137,7 @@ async def retrieve(request, progress=lambda: None, report=lambda phase, ready, t
                     db.execute("BEGIN IMMEDIATE")
                     pending = []
                     for i in batch:
-                        rows[i] = db.execute("SELECT value FROM vectors WHERE key = ?", (keys[i],)).fetchone()
+                        rows[i] = db.execute(lookup, (keys[i],)).fetchone()
                         if rows[i] is None:
                             pending.append(i)
                     if pending:
@@ -145,15 +147,18 @@ async def retrieve(request, progress=lambda: None, report=lambda phase, ready, t
                         for i, vector in zip(pending, fresh, strict=True):
                             blob = vector.astype("<f4").tobytes()
                             db.execute("INSERT INTO vectors VALUES (?, ?)", (keys[i], blob))
-                            rows[i] = (blob,)
+                            rows[i] = (1,) if preparation_only else (blob,)
                         embedded += len(pending)
                 ready += sum(texts[i] in corpus_texts for i in batch)
                 report("preparing", ready, total)
                 progress()
-            report("matching", ready, total)
-            vectors = [np.frombuffer(row[0], dtype="<f4") for row in rows]
+            if not preparation_only:
+                report("matching", ready, total)
+                vectors = [np.frombuffer(row[0], dtype="<f4") for row in rows]
             if queries is None:
                 groups = related_groups(vectors, progress) if len(vectors) > 1 else []
+            elif not queries:
+                groups = []
             else:
                 by_text = dict(zip(texts, vectors, strict=True))
                 corpus = request["texts"]

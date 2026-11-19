@@ -413,6 +413,12 @@ test('project library GUI and Agent share originals, safe replacement, removal, 
     assert(service.openProject(project.id).contextDocs.get(doc.key.slice('document:'.length)), 'earlier review evidence can still resolve the document')
     assert.equal(service.queryProjectAssets(project.id, 'contextDocs', { offset: 0, limit: 10 }).total, 0)
     assert.equal((await getProjectQuestionMaterials(service, project.id, root, 'potion')).related.length, 0)
+    const status = (operation: string) => dispatchOperation({ ...deps, operation, payload: { projectId: project.id, taskGroupId: '' } })
+    assert.deepEqual(await status('linguistLibraryPreparationStatus'), { phase: 'disabled' })
+    await service.reviewCache.setEnabled(true)
+    assert.equal((await status('linguistLibraryPrepare') as { phase: string }).phase, 'queued')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.deepEqual((await status('linguistLibraryPreparationStatus') as { phase: string; total: number }).total, 0)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 

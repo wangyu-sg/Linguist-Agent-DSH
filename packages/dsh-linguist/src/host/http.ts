@@ -83,13 +83,15 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
         if (!projectId) throw new RequestError(400, 'Task group requires a project')
         deps.service.openProject(projectId).taskGroups.requireActive(taskGroupId)
       }
-      const binding: SessionBinding = { ...(taskGroupId ? { taskGroupId } : {}), workspaceId: workspace.id, ...(projectId === undefined ? {} : { projectId }), role, workMode, workModeConfirmed: true }
       const previous = deps.bindings.session(sessionId)
-      const unchanged = previous?.workspaceId === binding.workspaceId && previous.projectId === binding.projectId && previous.taskGroupId === taskGroupId && previous.role === binding.role && previous.workMode === binding.workMode
-      if (unchanged && previous.workModeConfirmed) {
-        sendJson(response, 200, { sessionId, ...binding }); return
-      }
-      if (!unchanged && await hasUserRequest(deps.ctx, sessionId)) throw new RequestError(409, 'Linguist binding is fixed after the first user request; create a new DSH Session')
+      const decision = input.workModeDecision === undefined ? undefined : objectField(input, 'workModeDecision').source
+      if (input.workModeDecision !== undefined && decision !== 'user' && decision !== 'automatic') throw new RequestError(400, 'Invalid work mode decision')
+      const binding: SessionBinding = { workspaceId: workspace.id, projectId, taskGroupId, role, workMode,
+        workModeDecision: decision === 'user' || decision === 'automatic' ? { source: decision } : undefined }
+      const unchanged = previous?.workspaceId === binding.workspaceId && previous.projectId === projectId && previous.taskGroupId === taskGroupId
+        && previous.role === role && previous.workMode === workMode && previous.workModeDecision?.source === decision
+      if (unchanged) { sendJson(response, 200, { sessionId, ...previous }); return }
+      if (await hasUserRequest(deps.ctx, sessionId)) throw new RequestError(409, 'Linguist binding is fixed after the first user request; create a new DSH Session')
       deps.bindings.bindSession(sessionId, binding)
       try { deps.rebindAgent(sessionId) }
       catch (error) { deps.bindings.restoreSession(sessionId, previous); deps.rebindAgent(sessionId); throw error }

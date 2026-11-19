@@ -434,9 +434,7 @@ function words(text: string): Set<string> {
   return new Set(tokens)
 }
 
-/** One project library, independent of CAT/UI/working-copy mode or the executing role. */
-export async function getProjectLibraryMaterials(service: LinguistProjectService, projectId: string, workspaceRoot: string,
-  queries: Array<{ id: string; text: string }>, signal?: AbortSignal, taskGroupId?: string, semantic = false): Promise<ProjectLibraryMaterials> {
+async function loadLibraryEvidence(service: LinguistProjectService, projectId: string, workspaceRoot: string, taskGroupId: string | undefined, includeVisuals: boolean) {
   const catalog = await syncProjectLibrary(service, projectId, workspaceRoot, [], { taskGroupId })
   const db = service.openProject(projectId)
   const hidden = db.taskGroups.hidden(taskGroupId)
@@ -454,7 +452,7 @@ export async function getProjectLibraryMaterials(service: LinguistProjectService
   for (const doc of db.contextDocs.list({ limit: db.contextDocs.count() })) {
     if (doc.parentContextDocId) continue
     if (hidden.has('document:' + doc.id)) continue
-    if (doc.sha256 && hasVisualContent(doc.originalFilename)) {
+    if (includeVisuals && doc.sha256 && hasVisualContent(doc.originalFilename)) {
       const { sourcePath } = service.resolveContextDocPreviewPath(projectId, doc.id)
       contextFiles.push(visualCopy(sourcePath, doc.originalFilename, doc.sha256))
     }
@@ -471,6 +469,31 @@ export async function getProjectLibraryMaterials(service: LinguistProjectService
   for (const profile of db.voiceProfiles.list({ limit: db.voiceProfiles.count() })) {
     if (!hidden.has('voice:' + profile.id)) entries.push({ id: profile.id, source: profile.speaker, locator: profile.id, text: JSON.stringify(profile) })
   }
+  if (includeVisuals) {
+    for (const resource of state.resources) {
+      if (resource.kind === 'tm' || resource.kind === 'terms') continue
+      contextFiles.push(resource.hash && hasVisualContent(resource.path) && managedUpload(projectId, resource.path)
+        ? visualCopy(libraryFile(service, projectId, workspaceRoot, resource.path), resource.path, resource.hash)
+        : resource.path)
+    }
+  }
+  return { rules, entries, warnings, contextFiles }
+}
+
+export function prepareProjectLibrary(service: LinguistProjectService, projectId: string, workspaceRoot: string, taskGroupId: string) {
+  service.assertProjectWritable(projectId)
+  if (taskGroupId) service.openProject(projectId).taskGroups.requireActive(taskGroupId)
+  const cachePath = join(service.getProjectPaths(projectId).projectDir, 'semantic-cache.sqlite')
+  return service.reviewCache.prepareLibrary(cachePath, taskGroupId, async () => {
+    const { entries } = await loadLibraryEvidence(service, projectId, workspaceRoot, taskGroupId, false)
+    return [...new Set(entries.map(entry => entry.text).filter(text => text.trim()))].sort()
+  })
+}
+
+/** One project library, independent of CAT/UI/working-copy mode or the executing role. */
+export async function getProjectLibraryMaterials(service: LinguistProjectService, projectId: string, workspaceRoot: string,
+  queries: Array<{ id: string; text: string }>, signal?: AbortSignal, taskGroupId?: string, semantic = false): Promise<ProjectLibraryMaterials> {
+  const { rules, entries, warnings, contextFiles } = await loadLibraryEvidence(service, projectId, workspaceRoot, taskGroupId, true)
   const occurrences = Map.groupBy(entries, entry => entry.text)
   const unique = [...occurrences.keys()]
   const nonempty = queries.filter(query => query.text.trim())
@@ -493,12 +516,6 @@ export async function getProjectLibraryMaterials(service: LinguistProjectService
   // Without matching type/context metadata, carry the scoped original once for
   // the reviewer to decide applicability; missing columns must not hide rules.
   const attachedRules = new Set(Object.values(matches).flat().map(entry => entry.id))
-  for (const resource of state.resources) {
-    if (resource.kind === 'tm' || resource.kind === 'terms') continue
-    contextFiles.push(resource.hash && hasVisualContent(resource.path) && managedUpload(projectId, resource.path)
-      ? visualCopy(libraryFile(service, projectId, workspaceRoot, resource.path), resource.path, resource.hash)
-      : resource.path)
-  }
   return { rules: rules.filter(rule => !rule.appliesTo?.length || !attachedRules.has(rule.id)), matches, warnings, contextFiles }
 }
 

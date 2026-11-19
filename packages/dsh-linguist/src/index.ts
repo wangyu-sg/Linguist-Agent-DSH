@@ -1,5 +1,6 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -24,13 +25,15 @@ import { createCatDeps } from './host/cat-deps'
 import { DEFAULT_DATA_ROOT, initializeStorage } from './host/config'
 import { LinguistDelegationControl } from './host/delegation-control'
 import { createLinguistDelegationTool } from './host/delegation-tool'
-import { buildLinguistPromptSection, DIAGNOSTICS_OPERATIONS, DiagnosticsHost } from './host/diagnostics'
+import { buildFixedLinguistPrompt, buildLinguistTaskContext, DIAGNOSTICS_OPERATIONS, DiagnosticsHost } from './host/diagnostics'
 import { projectDiscoveryScope, authorizeWorkspaceRead, authorizeWorkspaceWrite } from './host/discovery'
 import { EvidenceObserver } from './host/evidence'
 import { ManagedFiles } from './host/files'
 import { registerHttpRoutes } from './host/http'
 import { INTEGRITY_OPERATIONS, IntegrityHost } from './host/integrity'
 import { MutationBus } from './host/mutations'
+import { resolveExecutionProfile } from './host/execution-profile'
+import { routeTask } from './host/task-routing'
 import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
@@ -92,6 +95,21 @@ export function apply(ctx: Context, config: Config): void {
   }))
   const registered = new Map<string, () => void>()
   const delegationIntents = new Map<string, { parentSessionId: string; binding: SessionBinding }>()
+  const assertNoOtherWriter = (sessionId: string, scope: SessionBinding) => {
+    if (scope.reportOnly || (!scope.delegatedScope?.segmentIds.length && !scope.professionalSource)) return
+    const segments = new Set(scope.delegatedScope?.segmentIds)
+    const candidates = [...delegationIntents].map(([id, intent]) => [id, intent.binding] as const)
+    for (const candidate of ctx.agents.list()) {
+      if (candidate.status !== 'running' && !candidate.inbox?.nextTurn.length && !candidate.inbox?.nextStep.length) continue
+      const other = bindings.session(candidate.id)
+      if (other) candidates.push([candidate.id, other])
+    }
+    const conflict = candidates.some(([id, other]) => id !== sessionId && !other.reportOnly
+      && other.workspaceId === scope.workspaceId && other.projectId === scope.projectId
+      && (Boolean(scope.professionalSource && scope.professionalSource === other.professionalSource)
+        || other.delegatedScope?.segmentIds.some(id => segments.has(id))))
+    if (conflict) throw new Error('此范围已有专业岗位正在写入，请等它保存交接后再启动下一阶段')
+  }
 
   const resolveSessionWorkspace = async (sessionId: string): Promise<{ workspaceRoot: string }> => {
     const binding = bindings.session(sessionId)
@@ -120,7 +138,7 @@ export function apply(ctx: Context, config: Config): void {
     if (binding.projectId && bindings.projectWorkspace(binding.projectId) !== workspace.id) {
       throw new Error(`Linguist project binding changed for Session ${agent.id}`)
     }
-    const turnContextProvenance = binding.projectId && binding.workMode === 'cat' ? new TurnContextCallProvenance() : undefined
+    const turnContextProvenance = binding.projectId ? new TurnContextCallProvenance() : undefined
     let selectedAssetId: string | undefined
     const currentBinding = (): SessionBinding => {
       const current = bindings.session(agent.id)!
@@ -133,21 +151,19 @@ export function apply(ctx: Context, config: Config): void {
     }
     let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
     const modelProvenance = new ModelCallProvenance()
-    let assembledPrompt: ReturnType<typeof buildLinguistPromptSection> | undefined
+    const fixedPrompt = buildFixedLinguistPrompt(roleText, professional, binding.role)
+    let expectedContextHash: string | undefined
+    let lastContextInput: string | undefined
     const disposers: Array<() => void> = []
     try {
       disposers.push(agent.ctx.systemPrompt.section({
         name: 'linguist-role', order: 300,
-        text: () => {
-          assembledPrompt = buildLinguistPromptSection(service, roleText, professional, currentBinding(), workspace.path)
-          return assembledPrompt.prompt
-        },
+        text: () => fixedPrompt.prompt,
         interpolate: false,
       }))
       disposers.push(agent.ctx.on('llm/stream', (options, next) => {
         if (options.sessionId === agent.id && options.purpose === undefined) {
-          if (!assembledPrompt) throw new Error('Linguist prompt has not been assembled for this DSH request')
-          modelProvenance.dispatched(options, assembledPrompt)
+          modelProvenance.dispatched(options, fixedPrompt, expectedContextHash)
         }
         return next()
       }))
@@ -170,6 +186,36 @@ export function apply(ctx: Context, config: Config): void {
             }
           }
         }
+        if (decision.kind === 'reject') return decision
+        const current = currentBinding()
+        let selection = agent.model.current()
+        if (current.useRoleDefaults && selection && !selection.reasoningEffort && !current.executionProfile) {
+          const userSelected = agent.session.ownEvents().some(event => event.type === 'model/selection')
+          const resolved = await resolveExecutionProfile(ctx.llm, selection, current.role, true, userSelected)
+          if (resolved.profile.source === 'la-role-default') {
+            agent.model.select({ ...selection, reasoningEffort: resolved.options.reasoningEffort })
+            selection = agent.model.current()
+          }
+          current.executionProfile = resolved.profile
+          bindings.bindSession(agent.id, current)
+        }
+        const lastContext = agent.session.deriveMessages().findLast(message => message.source.kind === 'linguist-task-context')?.source
+        const lastHash = lastContext?.kind === 'linguist-task-context' ? lastContext.hash : undefined
+        const input = JSON.stringify([turn, current.projectId, current.taskGroupId, current.workMode, current.workModeDecision,
+          current.reportOnly, current.delegatedScope, selection, current.projectId && mutations.revision(current.projectId)])
+        if (input !== lastContextInput || lastHash !== expectedContextHash) {
+          const dynamic = buildLinguistTaskContext(service, current, workspace.path, {
+            sessionId: agent.id,
+            model: selection ? { ...selection, selectionSource: current.executionProfile?.model === selection.model && current.executionProfile.provider === selection.provider
+              ? current.executionProfile.source : 'current-session' } : undefined,
+            resumed: !lastHash && (lastContextInput !== undefined || agent.session.ownEvents().some(event => event.type === 'turn/end')),
+          })
+          lastContextInput = input
+          expectedContextHash = dynamic.hash
+          if (lastHash !== dynamic.hash) decision = { ...decision, messages: [createUserMessage({
+            content: [{ type: 'text', text: dynamic.content }], source: { kind: 'linguist-task-context', form: 'snapshot', hash: dynamic.hash },
+          }), ...decision.messages] }
+        }
         return decision
       }))
       disposers.push(agent.ctx.tools.register(createProjectPreparationTool(service, async (callId, useTurnQuestion) => {
@@ -181,9 +227,10 @@ export function apply(ctx: Context, config: Config): void {
           .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') : undefined
         return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds, question }
       }, (projectId, nextBinding) => {
+        const previousProject = bindings.session(agent.id)?.projectId
         bindings.bindProject(projectId, workspace.id)
         bindings.bindSession(agent.id, nextBinding)
-        bindAgent(agent)
+        if (previousProject !== projectId) bindAgent(agent)
       }, projectId => mutations.publish(projectId, { kind: 'project-updated' }))))
       if (turnContextProvenance) {
         disposers.push(agent.ctx.on('session/event', (session, event) => {
@@ -203,6 +250,7 @@ export function apply(ctx: Context, config: Config): void {
           service,
           referenceProjectId: current.projectId, taskGroupId: current.taskGroupId, delegatedSegmentIds: reviewScope(),
           sessionId: agent.id,
+          reportOnly: current.reportOnly,
           taskId: agent.session.header.origin === 'subagent' ? agent.session.header.parentSession ?? agent.id : agent.id,
           ...(current.projectId ? { tagProfile: service.getProject(current.projectId).tagProfile } : {}),
           ...(current.projectId && current.workMode === 'cat' ? {
@@ -211,7 +259,16 @@ export function apply(ctx: Context, config: Config): void {
           } : {}),
           get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
-      }, async () => { await resolveSessionWorkspace(agent.id) })))
+      }, async input => {
+        await resolveSessionWorkspace(agent.id)
+        const current = currentBinding()
+        if (input.operation === 'assemble' || input.operation === 'deliver') assertNoOtherWriter(agent.id, { ...current, professionalSource: input.sourcePath })
+        if (input.operation === 'references' || current.projectId || current.delegatedScope) return
+        const project = await service.createProject({ name: basename(workspace.path), sourceLocale: input.sourceLocale, targetLocale: input.targetLocale })
+        bindings.bindProject(project.id, workspace.id)
+        bindings.bindSession(agent.id, { ...current, projectId: project.id, ...routeTask(current, { local: 'working-copy' }) })
+        // The new project is available to this tool immediately. Rebind the overlay at the next native step.
+      })))
       const readSnapshots = binding.projectId ? new SessionReadSnapshots(ctx.sessionQuery, agent.id, binding.projectId, binding.reviewSnapshot) : undefined
       disposers.push(agent.ctx.tools.register(createReviewMaterialsTool(service, async () => {
         const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
@@ -222,9 +279,10 @@ export function apply(ctx: Context, config: Config): void {
       }, readSnapshots)))
       if (binding.role === 'general') {
         const delegation = createLinguistDelegationTool({
-          service, get binding() { return currentBinding() }, agent, subagents: ctx.subagents, control: delegationControl,
+          service, get binding() { return currentBinding() }, agent, subagents: ctx.subagents, control: delegationControl, llm: ctx.llm,
           resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id),
           reserveIntent: (childSessionId, intent) => {
+            assertNoOtherWriter(childSessionId, intent)
             if (delegationIntents.has(childSessionId)) throw new Error('Linguist child identity is already reserved')
             delegationIntents.set(childSessionId, { parentSessionId: agent.id, binding: intent })
             return () => { delegationIntents.delete(childSessionId) }
@@ -332,9 +390,16 @@ export function apply(ctx: Context, config: Config): void {
         for (const source of createLinguistCatTools(deps)) {
           disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments,
             (callId, content) => evidence.presented(sessionId, callId, content),
-            (callId, rootCallId) => {
+            (callId, rootCallId, args) => {
               turnContextProvenance?.associateNestedCall(callId, rootCallId)
               modelProvenance.associateNestedCall(callId, rootCallId)
+              if (/^cat_(?:apply_translations|confirm_segments|accept_proposals|propose_translations|create_consistency_proposals|export_batch)$/.test(source.name)) {
+                const current = currentBinding()
+                if (current.reportOnly) throw new Error('当前任务只报告问题，不能写入译文、确认阶段或生成译稿交付')
+                const ids = new Set((Array.isArray(args.edits) ? args.edits : []).map(edit => (edit as { segmentId?: string }).segmentId).filter((id): id is string => typeof id === 'string'))
+                for (const field of ['segmentIds', 'reviewedSegmentIds']) if (Array.isArray(args[field])) for (const id of args[field] as string[]) ids.add(id)
+                assertNoOtherWriter(sessionId, ids.size ? { ...current, delegatedScope: { assetIds: [], segmentIds: [...ids] } } : current)
+              }
             },
             (toolCallId, update) => {
               const progress = (update.details as CatWorkerJobProgress | undefined)?.jobProgress
@@ -448,7 +513,13 @@ export function apply(ctx: Context, config: Config): void {
     resolveWorkspaceRoot: workspaceId => ctx.workspaceRegistry.get(WorkspaceId(workspaceId))?.path,
     getSession: async sessionId => {
       const agent = ctx.agents.get(sessionId as SessionId)
-      return agent ? { cwd: agent.session.header.cwd } : undefined
+      if (!agent) return undefined
+      const current = agent.model.current()
+      const saved = bindings.session(sessionId)?.executionProfile
+      return { cwd: agent.session.header.cwd,
+        execution: current && { provider: current.provider, model: current.model, requestedEffort: current.reasoningEffort,
+          ...(saved?.provider === current.provider && saved.model === current.model ? { resolvedEffort: saved.resolvedEffort, source: saved.source } : {}),
+          providerEffectiveEffort: null, executionPreset: null } }
     },
   })
   const removeHttp = registerHttpRoutes({

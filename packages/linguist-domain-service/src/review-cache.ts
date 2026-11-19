@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { LinguistRetrievalProgress, SemanticProgress } from './contracts'
+import type { LibraryPreparationStatus, LinguistRetrievalProgress, SemanticProgress } from './contracts'
 import { loadDatabaseSync } from '@linguist/cat-store'
 import { writeJsonFileAtomic } from './safe-file'
 import * as semantic from './semantic-review'
@@ -21,6 +21,14 @@ async function waitForResult<T>(work: Promise<T>, signal?: AbortSignal, onAbort?
 
 type CacheJob<T> = { controller: AbortController; result: Promise<T>; running: boolean; readers: number; progress: SemanticProgress }
 
+type LibraryPreparation = {
+  controller: AbortController
+  work: Promise<void>
+  requestedAt: number
+  rerun: boolean
+  status: LibraryPreparationStatus
+}
+
 function readJob<T>(jobs: Map<string, CacheJob<T>>, key: string, job: CacheJob<T>, signal?: AbortSignal): Promise<T> {
   if (job.running) job.readers++
   return waitForResult(job.result, signal, () => {
@@ -35,6 +43,7 @@ function readJob<T>(jobs: Map<string, CacheJob<T>>, key: string, job: CacheJob<T
 export class ReviewCache {
   private jobs = new Map<string, CacheJob<SemanticReview>>()
   private searches = new Map<string, CacheJob<number[][]>>()
+  private preparations = new Map<string, LibraryPreparation>()
   private clearing = new Map<string, Promise<void>>()
   private preferences: z.infer<typeof Preferences>
   private readonly preferencePath: string
@@ -86,6 +95,8 @@ export class ReviewCache {
         if (job.running && !job.controller.signal.aborted && key.startsWith(prefix)) active.push({ kind, progress: job.progress })
       }
     }
+    const preparation = this.preparationStatus(cachePath, taskGroupId)
+    if (preparation.phase === 'running') active.push({ kind: 'materials', progress: preparation.progress })
     return active
   }
 
@@ -93,10 +104,59 @@ export class ReviewCache {
     return { bytes: ['', '-wal', '-shm', '-journal'].reduce((sum, suffix) => {
       const stat = statSync(cachePath + suffix, { throwIfNoEntry: false })
       return sum + (stat?.size ?? 0)
-    }, 0), running: [...this.jobs, ...this.searches].some(([key, job]) => key.startsWith(cachePath + ':') && job.running) }
+    }, 0), running: [...this.jobs, ...this.searches].some(([key, job]) => key.startsWith(cachePath + ':') && job.running)
+      || [...this.preparations].some(([key, job]) => key.startsWith(cachePath + ':') && (job.status.phase === 'queued' || job.status.phase === 'running')) }
+  }
+
+  preparationStatus(cachePath: string, taskGroupId: string): LibraryPreparationStatus {
+    if (!this.enabled) return { phase: 'disabled' }
+    return this.preparations.get(cachePath + ':' + taskGroupId)?.status ?? { phase: 'idle' }
+  }
+
+  prepareLibrary(cachePath: string, taskGroupId: string, loadTexts: () => Promise<string[]>): LibraryPreparationStatus {
+    if (!this.enabled) return { phase: 'disabled' }
+    const key = cachePath + ':' + taskGroupId
+    const current = this.preparations.get(key)
+    if (current && (current.status.phase === 'queued' || current.status.phase === 'running')) {
+      current.requestedAt = Date.now()
+      // Queued jobs read the newest library when they start. Running jobs also cover new registrations.
+      if (current.status.phase === 'running') current.rerun = true
+      current.status = { ...current.status, requestedAt: current.requestedAt }
+      return current.status
+    }
+    const controller = new AbortController()
+    const { signal } = controller
+    const earlier = [...this.preparations].filter(([otherKey]) => otherKey.startsWith(cachePath + ':')).map(([, job]) => job.work)
+    const clearing = this.clearing.get(cachePath)
+    const requestedAt = Date.now()
+    const job: LibraryPreparation = {
+      controller, requestedAt, rerun: false, status: { phase: 'queued', requestedAt },
+      work: waitForResult(Promise.allSettled([...earlier, clearing]), signal).then(async () => {
+        signal.throwIfAborted()
+        let total = 0
+        do {
+          job.rerun = false
+          job.status = { phase: 'running', requestedAt: job.requestedAt, progress: { phase: 'loading' } }
+          const texts = await loadTexts()
+          signal.throwIfAborted()
+          total = texts.length
+          if (total) await semantic.searchSemanticMaterials(cachePath, texts, [], signal, taskGroupId, progress => {
+            job.status = { phase: 'running', requestedAt: job.requestedAt, progress }
+          })
+          signal.throwIfAborted()
+        } while (job.rerun)
+        job.status = { phase: 'ready', requestedAt: job.requestedAt, total }
+      }).catch(error => {
+        if (!signal.aborted) job.status = { phase: 'failed', requestedAt: job.requestedAt, error: error instanceof Error ? error.message : String(error) }
+      }),
+    }
+    this.preparations.set(key, job)
+    return job.status
   }
 
   async search(cachePath: string, texts: string[], queries: string[], signal?: AbortSignal, taskGroupId = ''): Promise<number[][]> {
+    const preparation = this.preparations.get(cachePath + ':' + taskGroupId)
+    if (preparation?.status.phase === 'running') await waitForResult(preparation.work, signal)
     const clearing = this.clearing.get(cachePath)
     if (clearing) await waitForResult(clearing, signal)
     signal?.throwIfAborted()
@@ -119,9 +179,15 @@ export class ReviewCache {
   }
 
   private async clearJobs(cachePath?: string, taskGroupId?: string): Promise<void> {
-    const selected = [...this.jobs, ...this.searches].filter(([key]) => cachePath === undefined || key.startsWith(cachePath + ':' + (taskGroupId === undefined ? '' : taskGroupId + ':')))
+    const matches = (key: string) => cachePath === undefined || key.startsWith(cachePath + ':' + (taskGroupId === undefined ? '' : taskGroupId + ':'))
+    const selected = [...this.jobs, ...this.searches].filter(([key]) => matches(key))
+    const preparations = [...this.preparations].filter(([key]) => matches(key + ':'))
+    for (const [key, job] of preparations) {
+      job.controller.abort()
+      this.preparations.delete(key)
+    }
     for (const [, job] of selected) job.controller.abort()
-    await Promise.allSettled(selected.map(([, job]) => job.result))
+    await Promise.allSettled([...selected.map(([, job]) => job.result), ...preparations.map(([, job]) => job.work)])
     for (const [key, job] of selected) {
       if (this.jobs.get(key) === job) this.jobs.delete(key)
       if (this.searches.get(key) === job) this.searches.delete(key)
@@ -130,6 +196,7 @@ export class ReviewCache {
 
   async clear(cachePath: string, taskGroupId?: string): Promise<void> {
     const previous = this.clearing.get(cachePath)
+    const preparations = [...this.preparations].filter(([key]) => key.startsWith(cachePath + ':')).map(([, job]) => job.work)
     const clearing = (async () => {
       await previous
       await this.clearJobs(cachePath, taskGroupId)
@@ -138,6 +205,7 @@ export class ReviewCache {
       } else {
         // Other groups may be embedding in the same SQLite transaction. Let them finish.
         await Promise.allSettled([...this.jobs, ...this.searches].filter(([key, job]) => key.startsWith(cachePath + ':') && job.running).map(([, job]) => job.result))
+        await Promise.allSettled(preparations)
         if (!existsSync(cachePath)) return
         const db = new (loadDatabaseSync())(cachePath)
         try {
@@ -153,6 +221,7 @@ export class ReviewCache {
 
   dispose(): void {
     for (const job of [...this.jobs.values(), ...this.searches.values()]) job.controller.abort()
-    this.jobs.clear(); this.searches.clear()
+    for (const job of this.preparations.values()) job.controller.abort()
+    this.jobs.clear(); this.searches.clear(); this.preparations.clear()
   }
 }

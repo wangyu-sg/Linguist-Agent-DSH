@@ -33,6 +33,9 @@ for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'pack
 for (const name of ['phrase-platform-review-ops', 'cultural-lqa', 'game-localization', 'localization-readiness', 'release-lqa', 'terminology-candidate-mining', 'translator-brief']) {
   if (!entries.includes(`package/resources/skills/${name}/SKILL.md`)) throw new Error(`Plugin tarball omits bundled skill ${name}`)
 }
+for (const reference of ['cat', 'working-copy', 'browser', 'project-evidence']) {
+  if (!entries.includes(`package/resources/skills/game-localization/references/${reference}.md`)) throw new Error(`Plugin tarball omits localization reference ${reference}`)
+}
 if (entries.some(entry => entry.includes('la-doc-sync') || entry.startsWith('package/.agents/'))) throw new Error('Maintenance skills must not be bundled for translators')
 for (const entry of entries.filter(name => name.startsWith('package/lib/') && /\.(mjs|cjs|js)$/.test(name))) {
   const code = execFileSync('tar', ['-xOzf', tarball, entry], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 })

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ExecutionProfile } from './execution-profile'
 import type { CatReadVersion } from '@linguist/cat-tools'
 
 export type LinguistRole = 'general' | 'translator' | 'reviewer' | 'proofreader'
@@ -11,8 +12,11 @@ export interface SessionBinding {
   taskGroupId?: string
   role: LinguistRole
   workMode: LinguistWorkMode
-  /** The user chose this mode; an automatic workspace binding is not a decision. */
-  workModeConfirmed?: boolean
+  workModeDecision?: { source: 'user' | 'automatic' }
+  reportOnly?: boolean
+  useRoleDefaults?: boolean
+  executionProfile?: ExecutionProfile
+  professionalSource?: string
   delegatedScope?: { assetIds: string[]; segmentIds: string[] }
   reviewSnapshot?: { id: string; versions: CatReadVersion[] }
 }
@@ -35,6 +39,13 @@ export class BindingStore {
       const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'))
       if (!isBindingState(parsed)) throw new Error('Invalid Linguist binding state')
       this.state = parsed
+      if (Object.values(parsed.sessions).some(entry => Object.hasOwn(entry, 'workModeConfirmed'))) {
+        const sessions = Object.fromEntries(Object.entries(parsed.sessions).map(([id, entry]) => {
+          const { workModeConfirmed, ...binding } = entry as SessionBinding & { workModeConfirmed?: boolean }
+          return [id, { ...binding, ...(workModeConfirmed && !binding.workModeDecision ? { workModeDecision: { source: 'user' as const } } : {}) }]
+        }))
+        this.save({ ...parsed, sessions })
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       this.state = { version: 1, projects: {}, sessions: {} }

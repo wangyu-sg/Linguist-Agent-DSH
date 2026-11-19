@@ -24,7 +24,7 @@ import { normalizeDelimitedHeader, parseXlsxWorkbook, XlsxAdapter, type XlsxWork
 import { readProjectManifestFile, StoreNotFoundError, type ContextDoc, type ProposalMutationItem } from '@linguist/cat-store'
 import {
   LinguistProjectService,
-  syncProjectLibrary, listProjectLibrary, requireLibraryItem, resolveLibraryFile, ProjectResourceSchema, extractContext, formatContextExtractionText, workingCopyPath,
+  syncProjectLibrary, listProjectLibrary, prepareProjectLibrary, semanticCachePath, requireLibraryItem, resolveLibraryFile, ProjectResourceSchema, extractContext, formatContextExtractionText, workingCopyPath,
   LinguistDeliveryNotReadyError,
   LinguistExportBlockedByQaError,
   deriveImportProjectId,
@@ -360,6 +360,12 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
         ...db.taskGroups.externalBatches(),
       ] : undefined }
     }
+    case 'linguistLibraryPreparationStatus': {
+      const id = projectId(payload)
+      const group = optionalString(payload.taskGroupId, 'taskGroupId', 100) ?? ''
+      return service.reviewCache.preparationStatus(semanticCachePath(service, id), group)
+    }
+    case 'linguistLibraryPrepare':
     case 'linguistLibraryMove':
     case 'linguistLibraryList':
     case 'linguistLibraryRefresh':
@@ -372,6 +378,11 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       workspace(workspaceId, workspaceRegistry)
       const root = workspaceRegistry.get(WorkspaceId(workspaceId))!.path
       const taskGroupId = optionalString(payload.taskGroupId, 'taskGroupId', 100)
+      if (operation === 'linguistLibraryPrepare') {
+        const status = prepareProjectLibrary(service, id, root, taskGroupId ?? '')
+        if (status.phase !== 'disabled') notify(mutations, id, 'project-updated')
+        return status
+      }
       if (operation === 'linguistLibraryPreview') {
         const item = requireLibraryItem(service, id, root, string(payload.key, 'key', 4000), taskGroupId)
         if (item.origin === 'entry') return { kind: 'text', text: item.text, filename: item.filename, truncated: false }

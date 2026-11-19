@@ -72,6 +72,7 @@ export function suggestProjectWorkbookMapping(
   sheet: XlsxWorkbookSheet,
   sourceLocale: string,
   targetLocale: string,
+  exact = false,
 ): LinguistWorkbookMappingSuggestion {
   const headers = sheet.headers[0]?.cells ?? []
   const normalized = headers.map((cell) => ({ value: cell.value, normalized: normalizeDelimitedHeader(cell.value), col: cell.col }))
@@ -86,7 +87,8 @@ export function suggestProjectWorkbookMapping(
     target: [...ROLE_ALIASES.target, ...localeAliases(targetLocale)],
   }
   for (const role of MAPPING_COLUMN_ROLES) {
-    const match = normalized.find((column) => !used.has(column.col) && aliases[role].includes(column.normalized))
+    const matches = normalized.filter((column) => !used.has(column.col) && aliases[role].includes(column.normalized))
+    const match = exact && matches.length !== 1 ? undefined : matches[0]
     if (!match) continue
     used.add(match.col)
     columns[role] = match.value
@@ -97,7 +99,7 @@ export function suggestProjectWorkbookMapping(
     }
   }
 
-  if (columns.source === undefined || columns.target === undefined) {
+  if (!exact && (columns.source === undefined || columns.target === undefined)) {
     const candidates = normalized.filter((column) => {
       if (used.has(column.col)) return false
       const values = sheet.rows
@@ -303,6 +305,14 @@ export async function resolveProjectWorkbookMapping(
   project: LinguistProject,
   bytes: Uint8Array,
   filename: string,
+  allowUniqueHeaders = false,
 ): Promise<LinguistIntakeXlsxMapping | undefined> {
-  return (await matchProjectWorkbookMapping(project, bytes, filename))?.mapping
+  const saved = await matchProjectWorkbookMapping(project, bytes, filename)
+  if (saved || !allowUniqueHeaders) return saved?.mapping
+  const parsed = await parseWorkbook({ bytes, filename })
+  const visible = parsed.sheets.filter(sheet => sheet.state === 'visible' && sheet.rows.length > 0)
+  if (visible.length !== 1 || parsed.skippedSheets.length) return undefined
+  const sheet = visible[0]!
+  const { columns } = suggestProjectWorkbookMapping(sheet, project.sourceLocale, project.targetLocale, true)
+  if (columns.source && columns.target) return { sheetName: sheet.name, columns: { ...columns, source: columns.source, target: columns.target } }
 }

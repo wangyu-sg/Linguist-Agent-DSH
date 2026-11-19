@@ -3,6 +3,7 @@ import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { LINGUIST_FILE_MAX_BYTES, type ProjectLibraryItem, type ProjectResource, type TaskGroup } from '@linguist/domain-service/contracts'
 import { discardStagedFiles, required, stageFiles, subscribeProject } from './api'
 import { PreviewView, type PreviewRequest } from './PreviewView'
+import { LibraryPreparation } from './LibraryPreparation'
 import { useT } from './ui-locale'
 import styles from './ProjectLibraryPage.module.css'
 
@@ -104,6 +105,7 @@ export function ProjectLibraryPage({ project, initialGroup, onBack }: {
         <div className={styles.actions}><Button variant="outline" size="sm" disabled={loading || busy} onClick={() => void refresh()}>{t('刷新状态')}</Button><Button variant="primary" size="sm" disabled={readOnly || busy} onClick={() => openEditor('add')}>{t('添加资料')}</Button></div>
       </header>
       <label>{t('资料归属')} <select value={groupId} disabled={busy} onChange={event => { setGroupId(event.target.value); setLoading(true); setSelected([]); setRemoving(undefined); setMessage(''); setPreview(undefined); setEditor(undefined); setItems([]) }}><option value="">{t('项目共用')}</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+      <LibraryPreparation key={groupId} projectId={project.id} groups={[{ id: groupId, name: groups.find(group => group.id === groupId)?.name ?? (initialGroup?.id === groupId ? initialGroup.name : '') }]} readOnly={readOnly || loading || busy} />
       {selected.length > 0 && <div className={styles.actions}><label>{t('资料移入')} <select value={to} onChange={event => setTo(event.target.value)}><option value="">{t('项目共用')}</option>{groups.filter(group => !group.archived).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <Button variant="outline" size="sm" disabled={busy || to === groupId} onClick={() => { setBusy(true); void required<{ items: ProjectLibraryItem[] }>('linguistLibraryMove', { projectId: project.id, taskGroupId, keys: selected, toGroup: to || undefined }).then(result => { setItems(result.items); setSelected([]) }).catch(cause => setError(String(cause))).finally(() => setBusy(false)) }}>{t('移动选中资料')}</Button></div>}
       <p className={styles.intro}>{t('问答、CAT、工作副本和线上审校共用这些资料。原件变化后可刷新读取；上传文件保存在项目工作区的资料副本中。')}</p>

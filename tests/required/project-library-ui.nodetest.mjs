@@ -36,6 +36,7 @@ function mount(archivedAt, initialGroup) {
       },
     }
     if (name === './ui-locale') return { useT: () => key => key }
+    if (name === './LibraryPreparation') return { LibraryPreparation: 'library-preparation' }
     if (name === './PreviewView') return { PreviewView: 'preview' }
     if (name.endsWith('.module.css')) return { default: {} }
     throw new Error(name)
@@ -89,6 +90,7 @@ test('a group inherits project rules and can replace one only in its own scope',
   const page = mount(undefined, { id: 'A', name: '十一月', archived: false })
   await page.settle()
   assert.equal(page.calls[0].input.taskGroupId, 'A')
+  assert.equal(page.node(node => node.type === 'library-preparation').props.groups[0].id, 'A')
   assert.equal(page.button('编辑').disabled, true)
   assert.equal(page.button('移除').disabled, true)
   page.click('仅本组替代'); page.render()
