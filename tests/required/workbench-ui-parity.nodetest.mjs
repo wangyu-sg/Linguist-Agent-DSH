@@ -59,7 +59,7 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
     }
     if (name === 'jotai') return { ...jotai, useAtomValue: atom => store.get(atom), useAtom: atom => [store.get(atom), value => store.set(atom, value)] }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { ...primitives, writeClipboard }
-    if (name === './api') return { required, getBinding, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
+    if (name === './api') return { required, getBinding, subscribeProject: () => () => {}, fileUrl: token => `/la/v1/files/${token}`, stageFiles: async () => ['synthetic-file-token'] }
     if (name === './ui-locale') return { useT: () => t }
     if (name === './project-errors') return { describeProjectError: String, describeHealthCheck: check => check.id }
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
@@ -73,6 +73,7 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
     if (name === './ProjectSessions') return { ProjectSessions: 'project-sessions' }
     if (name === './PdfPreview') return { PdfPreview: 'pdf-preview' }
     if (name === './TaskGroupsPage') return { TaskGroupsPage: 'task-groups-page' }
+    if (name === './BatchImport') return { BatchImport: 'batch-import' }
     if (name === './ProjectLocaleSelect') return { ProjectLocaleSelect: 'locale-select' }
     if (name === './ProjectCreateForm') return { ...projectCreateForm, ProjectCreateForm: 'project-create-form' }
     if (name === '../project-input') return { PROJECT_NAME_MAX_LENGTH }
@@ -828,13 +829,52 @@ test('compact project controls preserve all four roles, three work modes and Wor
   await menus[0].props.onSelect('down'); component.render(); await tick(); component.render()
   assert.deepEqual(Array.from(requests.find(request => request.operation === 'linguistProjectsReorderActive').input.orderedProjectIds), ['two', 'one'])
   assert.equal(component.button('one').variant, 'ghost')
-  await component.click('one'); await tick(); component.render()
+  const buttons = component.nodes().filter(node => node.type === 'button')
+  const resources = buttons.findIndex(node => node.props.children === '项目资料')
+  assert.equal(buttons[resources + 1].props.children, '任务组')
+  await component.click('任务组'); await tick(); component.render()
   const groupPage = component.nodes().find(node => node.props.project?.id === 'one' && node.props.onOpenBatch)
-  assert(groupPage, 'project title opens its task groups')
+  assert(groupPage, 'the card button opens task groups for its project')
   assert.deepEqual(openedProjects, [])
   assert.equal(entered.length, 1, 'browsing task groups does not create a Session')
   await groupPage.props.onOpenBatch({ id: 'group-A' }, 'asset-A')
   assert.deepEqual(openedProjects, ['one'])
+  component.dispose()
+})
+
+test('task groups create a destination and require a fresh selection for each batch move', async () => {
+  const groups = [{ id: 'ungrouped', name: '未分组' }]
+  const batches = ['First.xliff', 'Second.xliff'].map((name, id) => ({ id: String(id), name, taskGroupId: 'ungrouped' }))
+  const component = mount('TaskGroupsPage.tsx', 'TaskGroupsPage', { project: { id: 'project', name: 'Synthetic' } }, {
+    required: async (operation, { change }) => {
+      assert.equal(operation, 'linguistTaskGroups')
+      if (change?.action === 'create') groups.push({ id: 'new-group', name: change.name.trim() })
+      if (change?.action === 'moveBatches') for (const id of change.batchIds) batches.find(batch => batch.id === id).taskGroupId = change.id
+      return { groups, batches, changedId: change?.action === 'create' ? 'new-group' : change?.id }
+    },
+  })
+  component.render(); await tick(); component.render()
+  const input = component.nodes().find(node => node.type === 'input' && node.props['aria-label'] === '任务组名称')
+  input.props.onChange({ target: { value: 'November' } }); component.render()
+  component.click('新建任务组'); await tick(); component.render()
+  const selectors = () => component.nodes().filter(node => node.type === 'select').map(node => node.props)
+  const choose = (props, value) => { props.onChange({ target: { value } }); component.render() }
+  const selectBatch = () => {
+    component.nodes().find(node => node.type === 'input' && node.props.type === 'checkbox' && 'disabled' in node.props).props.onChange({ target: { checked: true } })
+    component.render()
+  }
+  assert.equal(selectors()[0].value, 'new-group')
+  choose(selectors()[0], 'ungrouped')
+  selectBatch()
+  choose(selectors()[1], 'new-group')
+  component.click('移动选中批次'); await tick()
+  assert.doesNotMatch(component.render(), /First\.xliff/)
+  selectBatch()
+  assert.equal(selectors()[1].value, '', 'a finished move must not preselect a destination for the next move')
+  assert.equal(component.button('移动选中批次').disabled, true)
+  choose(selectors()[0], 'new-group')
+  assert.match(component.render(), /First\.xliff/)
+  assert.doesNotMatch(component.render(), /Second\.xliff/)
   component.dispose()
 })
 

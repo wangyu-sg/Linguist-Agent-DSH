@@ -81,6 +81,7 @@ const english: Record<string, string> = {
   '移入后使用目标组资料': 'Move and use resources from',
   '选择任务组': 'Select a task group',
   '移动选中批次': 'Move selected batches',
+  '本组暂无工作批次': 'No batches in this group',
   '资料归属': 'Resource scope',
   '项目共用': 'Shared across the project',
   '资料移入': 'Move resources to',

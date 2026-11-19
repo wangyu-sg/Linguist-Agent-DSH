@@ -226,6 +226,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
               ]} onSelect={(id) => { setProjectMenuId(undefined); void reorder(project.id, id === 'up' ? -1 : 1) }} />}
               {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("工作区已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选工作区")}</Button>}
               <Button variant="outline" size="sm" disabled={busy || !workspace} onClick={() => { setLibraryGroup(undefined); setLibraryProjectId(project.id) }}>{t('项目资料')}</Button>
+              <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => setGroupsProjectId(project.id)}>{t('任务组')}</Button>
               <Button variant="outline" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
               <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t('新建 LA 会话')}</Button>
             </div>

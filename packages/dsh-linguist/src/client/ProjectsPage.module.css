@@ -41,7 +41,7 @@
 .languagePair { display: inline-flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }
 .languagePair > span { color: var(--dsw-alias-label-tertiary); font-weight: 400; }
 .projectWorkspace { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.projectActions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; gap: 4px; }
+.projectActions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; max-width: 100%; gap: 4px; }
 .projectActions > button:last-child { margin-left: 8px; }
 .warning { composes: error from './Controls.module.css'; display: block; }
 .projectIdentity .warning { margin-top: 8px; }
@@ -96,8 +96,12 @@
 
 .groupControls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 0 0 20px; min-width: 0; padding: 12px 0; border: 0; border-block: 1px solid var(--dsw-alias-border-l2); }
 .groupControls > .toolbar { flex-basis: 100%; }
+.groupControls label, .groupSection .toolbar label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.groupSection { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.groupSection h2 { margin: 0; }
 
-.groupBatches { list-style: none; margin: 12px 0; padding: 0; }
+.groupBatches { list-style: none; margin: 0; padding: 0; }
 .groupBatches li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.groupBatches label { min-width: 0; overflow-wrap: anywhere; }
-.groupBatches button { flex: none; }
+.groupBatches label { display: flex; align-items: start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.groupBatches input { flex: none; margin: 2px 0 0; }
+.groupBatches button, .groupBatches small { flex: none; }

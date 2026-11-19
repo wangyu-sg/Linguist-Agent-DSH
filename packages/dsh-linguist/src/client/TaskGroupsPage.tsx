@@ -51,36 +51,44 @@ export function TaskGroupsPage({ project, initialGroup, onBack, onLibrary, onSes
   }
   const group = contents.groups.find(group => group.id === groupId)
   const readOnly = Boolean(project.archivedAt || group?.archived)
+  const blocked = busy || importing || pendingMapping
+  const batches = contents.batches.filter(batch => batch.taskGroupId === groupId)
   return <main className={styles.page}><div className={styles.content}>
-    <header className={styles.heading}><div><Button variant="ghost" size="sm" disabled={busy || importing || pendingMapping} onClick={onBack}>{t('返回项目')}</Button><h1>{project.name} / {t('任务组')}</h1></div></header>
+    <header className={styles.heading}><div><Button variant="ghost" size="sm" disabled={blocked} onClick={onBack}>{t('返回项目')}</Button><h1>{project.name} / {t('任务组')}</h1></div></header>
     {message && <p role="status">{message}</p>}
     {error && <p role="alert">{error}</p>}
-    <fieldset className={styles.groupControls} disabled={busy || importing || pendingMapping}>
+    <fieldset className={styles.groupControls} disabled={blocked}>
       <label>{t('任务组')} <select value={groupId} onChange={event => { setGroupId(event.target.value); setMessage(''); setName(''); setSelected([]); setDestination('') }}>
         {contents.groups.filter(item => includeArchived || !item.archived).map(item => <option value={item.id} key={item.id}>{item.name} ({item.batchCount}){item.archived && ' · ' + t('已归档')}</option>)}
       </select></label>
       <label><input type="checkbox" checked={includeArchived} onChange={event => { setIncludeArchived(event.target.checked); if (group?.archived) setGroupId('ungrouped') }} />{t('显示已归档')}</label>
-      {!project.archivedAt && <div className={styles.toolbar}><Input aria-label={t('任务组名称')} placeholder={t('任务组名称')} value={name} onChange={event => setName(event.target.value)} />
+      {!project.archivedAt && <div className={styles.toolbar}><label>{t('任务组名称')} <Input aria-label={t('任务组名称')} value={name} maxLength={180} onChange={event => setName(event.target.value)} /></label>
         <Button variant="outline" size="sm" disabled={!name.trim()} onClick={() => void change({ action: 'create', name })}>{t('新建任务组')}</Button>
         {group && group.id !== 'ungrouped' && <><Button variant="outline" size="sm" disabled={!name.trim() || readOnly} onClick={() => void change({ action: 'rename', id: group.id, name })}>{t('改名')}</Button>
           <Button variant="outline" size="sm" onClick={() => void change({ action: group.archived ? 'restore' : 'archive', id: group.id })}>{t(group.archived ? '恢复' : '归档')}</Button>
           <Button variant="outline" size="sm" disabled={group.batchCount > 0} onClick={() => void change({ action: 'delete', id: group.id })}>{t('删除空组')}</Button></>}
       </div>}
     </fieldset>
-    {group && <section className={styles.section}><h2>{group.name}</h2><div className={styles.toolbar}>
-      <Button variant="outline" size="sm" disabled={busy || importing || pendingMapping} onClick={() => onLibrary(group)}>{t('本组资料')}</Button>
-      <Button variant="outline" size="sm" disabled={readOnly || busy || importing || pendingMapping} onClick={() => {
+    {group && <section className={`${styles.section} ${styles.groupSection}`}><h2>{group.name}</h2><div className={styles.toolbar}>
+      <Button variant="outline" size="sm" disabled={blocked} onClick={() => onLibrary(group)}>{t('本组资料')}</Button>
+      <Button variant="outline" size="sm" disabled={readOnly || blocked} onClick={() => {
         setBusy(true); setError(''); setMessage('')
         void required('linguistSettingsClearCache', { projectId: project.id, taskGroupId: group.id })
           .then(() => setMessage(t('本组检索缓存已清理'))).catch(cause => setError(String(cause))).finally(() => setBusy(false))
       }}>{t('清理本组检索缓存')}</Button>
-      <Button variant="outline" size="sm" disabled={readOnly || busy || importing || pendingMapping} onClick={() => { setBusy(true); void onSession(group).catch(cause => setError(String(cause))).finally(() => setBusy(false)) }}>{t('新建 LA 会话')}</Button>
+      <Button variant="outline" size="sm" disabled={readOnly || blocked} onClick={() => { setBusy(true); void onSession(group).catch(cause => setError(String(cause))).finally(() => setBusy(false)) }}>{t('新建 LA 会话')}</Button>
     </div>
     <BatchImport key={group.id} projectId={project.id} taskGroupId={group.id} archived={readOnly} importing={importing} setImporting={setImporting} onAwaitingMapping={setPendingMapping} onImported={() => void reload().catch(cause => setError(String(cause)))} />
-    <ul className={styles.groupBatches}>{contents.batches.filter(batch => batch.taskGroupId === group.id).map(batch => <li key={batch.id}><label><input type="checkbox" disabled={readOnly || busy} checked={selected.includes(batch.id)} onChange={event => setSelected(event.target.checked ? [...selected, batch.id] : selected.filter(id => id !== batch.id))} />{batch.name}</label>{batch.kind ? <small> · {t(batch.kind === 'browser' ? '浏览器' : '工作副本')}</small>
-      : <Button variant="ghost" size="sm" disabled={busy || importing || pendingMapping || readOnly} onClick={() => { setBusy(true); void onOpenBatch(group, batch.id).catch(cause => setError(String(cause))).finally(() => setBusy(false)) }}>{t('打开 CAT')}</Button>}</li>)}</ul>
-    {selected.length > 0 && <div className={styles.toolbar}><label>{t('移入后使用目标组资料')} <select value={destination} onChange={event => setDestination(event.target.value)}><option value="">{t('选择任务组')}</option>{contents.groups.filter(item => !item.archived && item.id !== group.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <Button variant="outline" size="sm" disabled={!destination || busy} onClick={() => void change({ action: 'moveBatches', id: destination, batchIds: selected })}>{t('移动选中批次')}</Button></div>}
+    {selected.length > 0 && <div className={styles.toolbar}><label>{t('移入后使用目标组资料')} <select value={destination} disabled={readOnly || blocked} onChange={event => setDestination(event.target.value)}><option value="">{t('选择任务组')}</option>{contents.groups.filter(item => !item.archived && item.id !== group.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <Button variant="outline" size="sm" disabled={!destination || readOnly || blocked} onClick={() => void change({ action: 'moveBatches', id: destination, batchIds: selected })}>{t('移动选中批次')}</Button></div>}
+    {batches.length === 0 ? <p>{t('本组暂无工作批次')}</p> : <ul className={styles.groupBatches}>{batches.map(batch => <li key={batch.id}>
+      <label><input type="checkbox" disabled={readOnly || blocked} checked={selected.includes(batch.id)} onChange={event => {
+        if (!selected.length) setDestination('')
+        setSelected(event.target.checked ? [...selected, batch.id] : selected.filter(id => id !== batch.id))
+      }} /><span>{batch.name}</span></label>
+      {batch.kind ? <small>{t(batch.kind === 'browser' ? '浏览器' : '工作副本')}</small>
+        : <Button variant="ghost" size="sm" disabled={readOnly || blocked} onClick={() => { setBusy(true); void onOpenBatch(group, batch.id).catch(cause => setError(String(cause))).finally(() => setBusy(false)) }}>{t('打开 CAT')}</Button>}
+    </li>)}</ul>}
     </section>}
   </div></main>
 }
