@@ -33,7 +33,7 @@ test('human confirmation records the bound parent task and rejects a foreign ses
     const payload = { projectId: project.id, segmentId: segment.id, expectedRevision: segment.revision }
     await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistCatConfirmStage', payload: { ...payload, sessionId: 'foreign' } }), /Unbound Session/)
     await dispatchOperation({ ...deps, operation: 'linguistCatConfirmStage', payload: { ...payload, sessionId: 'child' } })
-    const record = JSON.parse((db.tmUnits.listCandidates('en-US', 'zh-CN')[0]!.localMetadata!.la_confirmations as string[])[0]!)
+    const record = JSON.parse((db.tmUnits.listCandidates('en-US', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata!.la_confirmations as string[])[0]!)
     assert.equal(record.taskId, 'parent')
     assert.equal(record.actor, 'local-user')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
@@ -102,6 +102,11 @@ test('ordinary XLSX keeps its mapping candidate, cancels it safely, and releases
     const path = files.takeUpload(token).path
     const preview = await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: project.id, fileTokens: [token] } }) as Extract<LinguistProjectImportResult, { requiresXlsxMapping: true }>
     assert.equal(preview.requiresXlsxMapping, true)
+    const otherGroup = service.openProject(project.id).taskGroups.change({ action: 'create', name: 'Other delivery' })
+    await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistProjectsConfirmXlsxMapping', payload: {
+      projectId: project.id, taskGroupId: otherGroup, mappingId: token, sourceSha256: preview.sourceSha256,
+    } }), /bound to another/)
+    assert(files.pendingImports.has(token))
     const imported = await dispatchOperation({ ...deps, operation: 'linguistProjectsConfirmXlsxMapping', payload: {
       projectId: project.id, mappingId: preview.mappingId, sourceSha256: preview.sourceSha256,
       sheetName: 'Synthetic references', columns: { source: 'English', target: 'Chinese' }, rememberMapping: true,
@@ -323,3 +328,138 @@ async function stageSynthetic(files: ManagedFiles, filename: string, bytes: Buff
   ]), { headers: { 'content-type': 'multipart/form-data; boundary=synthetic' } }) as IncomingMessage
   return (await files.stage(request))[0]!
 }
+
+test('project library GUI and Agent share originals, safe replacement, removal, read status and native CAT assets', async () => {
+  const { createProjectPreparationTool } = await import('./project-preparation-tool')
+  const { getProjectQuestionMaterials } = await import('@linguist/domain-service')
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-library-gui-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
+  service.init()
+  const files = new ManagedFiles(root), bindings = new BindingStore(root)
+  try {
+    const project = await service.createProject({ name: 'Synthetic resources', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    await service.reviewCache.setEnabled(false)
+    const wid = WorkspaceId('synthetic-library-workspace')
+    bindings.bindProject(project.id, wid)
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = {
+      service, files, bindings, mutations: new MutationBus(), workspaceRegistry: { get: id => id === wid ? { id, path: root } : undefined },
+      assertProjectSession: async () => { throw new Error('GUI must not need a CAT Session') },
+      resolveSessionWorkspace: async () => { throw new Error('GUI must not need a Session') },
+    }
+    type Item = import('@linguist/domain-service/contracts').ProjectLibraryItem
+    const call = async (operation: string, payload: Record<string, unknown> = {}) => await dispatchOperation({ ...deps, operation, payload: { projectId: project.id, ...payload } }) as { items: Item[] }
+    const list = async () => (await call('linguistLibraryList')).items
+    const upload = async (filename: string, text: string, kind: string, key?: string) => {
+      const token = await stageSynthetic(files, filename, Buffer.from(text))
+      const result = await call('linguistLibrarySave', { kind, key, fileTokens: [token] })
+      assert.throws(() => files.takeUpload(token), 'completed uploads release staging')
+      return result.items
+    }
+    const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot: root, sessionId: 'synthetic',
+      binding: { workspaceId: wid, projectId: project.id, role: 'general', workMode: 'browser' } }), () => {})
+    writeFileSync(join(root, 'rules.txt'), 'Use short sentences.')
+    await tool.execute({ resources: [{ path: 'rules.txt', kind: 'rules' }] }, {} as Parameters<typeof tool.execute>[1])
+    assert.equal((await list())[0]!.filename, 'rules.txt', 'Agent registrations appear in GUI')
+    await call('linguistLibrarySave', { key: 'file:rules.txt', kind: 'rules', appliesTo: ['dialogue'] })
+    assert.deepEqual((await list())[0]!.appliesTo, ['dialogue'])
+    let rows = await upload('terms.csv', 'source,target\nPotion,药剂\n', 'terms')
+    const term = rows.find(item => item.kind === 'terms')!
+    assert.equal(term.status, 'ready')
+    assert.deepEqual((await getProjectQuestionMaterials(service, project.id, root, 'Potion')).terms.map(item => item.translation), ['药剂'], 'GUI import reaches Agent matching')
+    rows = await upload('bad.csv', 'wrong\n', 'terms', term.key)
+    assert(rows.some(item => item.key === term.key), 'failed replacement keeps old original active')
+    const failed = rows.find(item => item.status === 'error')!
+    assert(failed.error)
+    const failedMaterials = await getProjectQuestionMaterials(service, project.id, root, 'Potion')
+    assert.equal(failedMaterials.terms[0]!.translation, '药剂')
+    assert(failedMaterials.warnings.some(warning => warning.includes('读取失败')))
+    rows = await upload('fixed.csv', 'source,target\nPotion,恢复剂\n', 'terms', failed.key)
+    assert(!rows.some(item => item.key === term.key || item.key === failed.key), 'repairing a failed replacement retires its superseded original too')
+    assert.deepEqual((await getProjectQuestionMaterials(service, project.id, root, 'Potion')).terms.map(item => item.translation), ['恢复剂'])
+    const fixed = rows.find(item => item.kind === 'terms')!
+    assert.equal(readFileSync(join(root, term.path), 'utf8'), 'source,target\nPotion,药剂\n', 'workspace originals remain intact')
+    await call('linguistLibraryRemove', { key: fixed.key })
+    assert.equal((await getProjectQuestionMaterials(service, project.id, root, 'Potion')).terms.length, 0)
+    assert(!(await list()).some(item => item.kind === 'terms'), 'retired native reference does not reappear')
+    writeFileSync(join(root, 'rules.txt'), 'Use complete sentences.')
+    assert.equal((await list())[0]!.status, 'changed')
+    await call('linguistLibraryRefresh')
+    assert.equal((await list())[0]!.status, 'ready')
+    assert.match(JSON.stringify((await getProjectQuestionMaterials(service, project.id, root, 'dialogue')).related), /complete sentences/)
+    rmSync(join(root, 'rules.txt'))
+    assert.equal((await list())[0]!.status, 'error')
+    await call('linguistLibraryRefresh')
+    assert.equal((await list())[0]!.status, 'error', 'missing file remains visible and removable')
+    await tool.execute({ removeResource: 'file:rules.txt' }, {} as Parameters<typeof tool.execute>[1])
+    assert.equal((await list()).length, 0, 'Agent removal updates GUI list')
+
+    await service.importReference(project.id, 'tm', { filename: 'native.csv', bytes: Buffer.from('source,target\nOpen menu,打开菜单\n') })
+    await service.importContextDoc(project.id, { filename: 'notes.txt', bytes: Buffer.from('A potion restores energy.') })
+    rows = await list()
+    assert.equal(rows.length, 2)
+    assert(rows.every(item => item.origin === 'cat'))
+    await call('linguistLibraryRemove', { key: rows.find(item => item.kind === 'tm')!.key })
+    assert.equal((await getProjectQuestionMaterials(service, project.id, root, 'Open menu')).tm.length, 0)
+    const doc = rows.find(item => item.kind === 'context')!
+    rows = (await call('linguistLibrarySave', { key: doc.key, kind: 'rules', appliesTo: ['battle'] })).items
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]!.kind, 'rules')
+    assert.deepEqual(rows[0]!.appliesTo, ['battle'])
+    assert.match(JSON.stringify((await getProjectQuestionMaterials(service, project.id, root, 'battle')).related), /restores energy/)
+    const preview = await dispatchOperation({ ...deps, operation: 'linguistLibraryPreview', payload: { projectId: project.id, key: rows[0]!.key } }) as { text: string }
+    assert.match(preview.text, /restores energy/)
+    await call('linguistLibraryRemove', { key: rows[0]!.key })
+    assert.equal((await list()).length, 0)
+    assert(service.openProject(project.id).contextDocs.get(doc.key.slice('document:'.length)), 'earlier review evidence can still resolve the document')
+    assert.equal(service.queryProjectAssets(project.id, 'contextDocs', { offset: 0, limit: 10 }).total, 0)
+    assert.equal((await getProjectQuestionMaterials(service, project.id, root, 'potion')).related.length, 0)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('group-bound CAT pages, totals and concordance use the same batch membership', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-group-cat-view-')))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const { id } = await service.createProject({ name: 'Synthetic', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = { service, files: new ManagedFiles(root), bindings: new BindingStore(root),
+      mutations: new MutationBus(), workspaceRegistry: { get: () => undefined }, assertProjectSession: async () => {}, resolveSessionWorkspace: async () => ({ workspaceRoot: root }) }
+    const groups = []
+    for (const name of ['November', 'December']) {
+      const created = await dispatchOperation({ ...deps, operation: 'linguistTaskGroups', payload: { projectId: id, change: { action: 'create', name } } }) as { changedId: string }
+      groups.push(created.changedId)
+    }
+    const assets = []
+    for (const taskGroupId of groups) {
+      const token = await stageSynthetic(deps.files, 'batch.xliff', Buffer.from('<xliff version="1.2"><file><body><trans-unit id="one"><source>Potion</source><target>药剂</target></trans-unit></body></file></xliff>'))
+      const created = await dispatchOperation({ ...deps, operation: 'linguistProjectsImport', payload: { projectId: id, taskGroupId, fileTokens: [token] } }) as { assetId: string }
+      assets.push(created.assetId)
+    }
+    assert.notEqual(assets[0], assets[1])
+    const db = service.openProject(id)
+    const findings = []
+    const proposals = []
+    for (const assetId of assets) {
+      const segment = db.segments.query({ assetId, limit: 1 })[0]!
+      findings.push(db.qaFindings.insertOpen([{ segmentId: segment.id, code: 'SYNTHETIC', message: 'Synthetic finding', severity: 'L2' }])[0]!.id)
+      const result = await dispatchOperation({ ...deps, operation: 'linguistProposalsApplyTranslations', payload: { projectId: id, mode: 'proposal', edits: [{ segmentId: segment.id, baseRevision: segment.revision, target: '药水' }] } }) as { proposalIds: string[] }
+      proposals.push(result.proposalIds[0]!)
+    }
+    for (const [index, taskGroupId] of groups.entries()) {
+      const summary = service.getProjectSummary(id, taskGroupId)
+      assert.equal(summary.totalSegments, 1)
+      assert.deepEqual(summary.assets.map(asset => asset.assetId), [assets[index]])
+      const page = await dispatchOperation({ ...deps, operation: 'linguistCatQuery', payload: { projectId: id, taskGroupId, includeIndex: true } }) as { segments: { assetId: string }[]; segmentIds: string[] }
+      assert.deepEqual(page.segments.map(row => row.assetId), [assets[index]])
+      assert.equal(page.segmentIds.length, 1)
+      const qa = await dispatchOperation({ ...deps, operation: 'linguistCatListQaFindings', payload: { projectId: id, taskGroupId, code: 'SYNTHETIC' } }) as { total: number; items: { id: string }[] }
+      assert.deepEqual([qa.total, qa.items.map(item => item.id)], [1, [findings[index]]])
+      const inbox = await dispatchOperation({ ...deps, operation: 'linguistProposalsList', payload: { projectId: id, taskGroupId } }) as { total: number; items: { proposal: { id: string } }[] }
+      assert.deepEqual([inbox.total, inbox.items.map(item => item.proposal.id)], [1, [proposals[index]]])
+      await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistProposalsGetDiff', payload: { projectId: id, taskGroupId, proposalId: proposals[1 - index] } }), /task group/)
+      await assert.rejects(dispatchOperation({ ...deps, operation: 'linguistCatWaiveQaFindingsBulk', payload: { projectId: id, taskGroupId, findingIds: findings, reason: 'Synthetic duplication', operator: 'Tester' } }), /task group/)
+      const matches = await dispatchOperation({ ...deps, operation: 'linguistCatConcordance', payload: { projectId: id, query: 'Potion', sourceAssetId: assets[index] } }) as { segments: { segment: { assetId: string } }[] }
+      assert.deepEqual(matches.segments.map(row => row.segment.assetId), [assets[index]])
+    }
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})

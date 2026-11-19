@@ -30,6 +30,10 @@ import {
 
 export const BACKUP_DIR_NAME_PATTERN = /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/
 export const LEGACY_BACKUP_FILE_PATTERN = /^cat-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.db$/
+const PLATFORM_SNAPSHOT_NAME = /^platform-ast(?:-[0-9a-f]{16}|_v2_[0-9a-f]{64})\.json$/
+export function platformSnapshotFiles(projectDir: string): string[] {
+  return readdirSync(projectDir).filter(file => PLATFORM_SNAPSHOT_NAME.test(file))
+}
 export const PRE_RESTORE_PREFIX = 'pre-restore-'
 
 export interface BackupManifestFile {
@@ -202,6 +206,9 @@ export function createProjectBackup(
       join(stagingDir, 'project.json'),
       'project.json',
     )
+    for (const name of platformSnapshotFiles(projectDir)) copyRegularFile(join(projectDir, name), join(stagingDir, name), name)
+    const library = join(projectDir, 'project-library.json')
+    if (lstatSync(library, { throwIfNoEntry: false })) copyRegularFile(library, join(stagingDir, 'project-library.json'), 'project-library.json')
     copyTreeIfPresent(join(projectDir, 'source'), join(stagingDir, 'source'), 'source')
     copyTreeIfPresent(join(projectDir, 'blobs'), join(stagingDir, 'blobs'), 'blobs')
     const projectManifest = readValidatedProjectManifest(join(stagingDir, 'project.json'))

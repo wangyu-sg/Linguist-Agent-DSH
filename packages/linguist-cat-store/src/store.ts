@@ -55,6 +55,7 @@ export interface CatStoreOptions {
 }
 
 export interface OpenProjectOptions {
+  prepareMigrationBackup?: () => void
   /** Open cat.db without write access; all writes throw StoreReadOnlyError. */
   readOnly?: boolean
 }
@@ -157,6 +158,7 @@ export class CatStore {
         if (inspected.schemaVersion < SCHEMA_VERSION) {
           // The backup is intentionally made from the read-only handle before
           // the writable open below is allowed to run migrations.
+          options.prepareMigrationBackup?.()
           createProjectBackup(
             inspected.catDb,
             this.index.projectDir(project.id),
@@ -246,7 +248,7 @@ export class CatStore {
    * Caller discipline: every open handle of this project MUST be closed
    * before calling — the service layer closes its cached handle first.
    */
-  restoreProject(projectId: string, backupName: string): RestoreBackupResult {
+  restoreProject(projectId: string, backupName: string, prepareSnapshot?: () => void): RestoreBackupResult {
     const project = this.index.get(projectId)
     return restoreProjectBackup(
       this.index.projectDir(project.id),
@@ -257,6 +259,7 @@ export class CatStore {
       (input) => {
         this.index.recordDatabaseIdentity(project.id, input)
       },
+      prepareSnapshot,
     )
   }
 }

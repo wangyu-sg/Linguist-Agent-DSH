@@ -129,10 +129,11 @@ function textExtraction(
   sourceHash: string,
   texts: readonly string[],
   locator: (index: number) => ExtractedContextAnchor['locator'],
+  limit: number,
 ): ContextExtraction {
   const textSections: ContextTextSection[] = []
   const anchors: ExtractedContextAnchor[] = []
-  let remaining = CONTEXT_DOC_TEXT_EXTRACT_MAX_CHARS
+  let remaining = limit
   let truncated = false
   texts.forEach((raw, index) => {
     const normalized = raw.trim()
@@ -180,6 +181,7 @@ export async function extractContext(
   bytes: Uint8Array,
   filename: string,
   imageMediaType?: ContextImageMetadata['mediaType'],
+  textLimit = CONTEXT_DOC_TEXT_EXTRACT_MAX_CHARS,
 ): Promise<ContextExtraction> {
   const extension = extname(filename).toLowerCase()
   const sourceHash = sha256Hex(bytes)
@@ -203,13 +205,13 @@ export async function extractContext(
   if (extension === '.pptx') return extractPptxContext(bytes, filename)
   if (TEXT_EXTENSIONS.has(extension)) {
     const text = new TextDecoder('utf-8').decode(bytes)
-    return textExtraction(sourceHash, text.split(/\n{2,}|\r?\n/), (index) => ({ kind: 'paragraph', index }))
+    return textExtraction(sourceHash, text.split(/\n{2,}|\r?\n/), (index) => ({ kind: 'paragraph', index }), textLimit)
   }
   if (extension === '.docx') {
-    return textExtraction(sourceHash, (await extractDocx(bytes)).split(/\r?\n/), (index) => ({ kind: 'paragraph', index }))
+    return textExtraction(sourceHash, (await extractDocx(bytes)).split(/\r?\n/), (index) => ({ kind: 'paragraph', index }), textLimit)
   }
   if (extension === '.pdf') {
-    return textExtraction(sourceHash, await extractPdfPages(bytes), (index) => ({ kind: 'page', page: index + 1 }))
+    return textExtraction(sourceHash, await extractPdfPages(bytes), (index) => ({ kind: 'page', page: index + 1 }), textLimit)
   }
   return {
     textSections: [],

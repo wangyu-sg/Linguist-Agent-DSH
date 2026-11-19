@@ -23,7 +23,7 @@ test('异步导出期间修改项目，清单仍标注实际导出快照的 revi
     const bytes = new TextEncoder().encode('[{"id":"one","source":"Hello","target":"你好"}]')
     const imported = await adapter.import({ bytes, filename: 'sample.json', sourceLocale: 'en', targetLocale: 'zh-CN' })
     const { asset, segments } = db.assets.insertImported(imported)
-    db.saveAssetSourceForImport(asset, bytes)
+    db.saveAssetSource(asset.id, bytes)
     const revisionBefore = computeLinguistProjectRevision(project, db)
     const delivery = new ProjectDelivery({
       rootDir,

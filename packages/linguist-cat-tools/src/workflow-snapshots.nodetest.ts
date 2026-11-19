@@ -159,7 +159,7 @@ test('new reviewed decisions write identifiable stage TM exactly once; blocked a
   const params = { snapshotIds: [snapshot], segmentIds: ids }
   const first = (await f.invoke('cat_confirm_segments', params, 'first-confirm')).details as CatConfirmSegmentsResult
   assert.equal(first.decisions.length, 3)
-  const candidates = f.db.tmUnits.listCandidates('en', 'zh-CN')
+  const candidates = f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')
   assert.equal(candidates.length, 3)
   for (const segment of f.segments) {
     const item = candidates.find(candidate => candidate.source === segment.source)!
@@ -175,10 +175,10 @@ test('new reviewed decisions write identifiable stage TM exactly once; blocked a
   }
   const repeated = (await f.invoke('cat_confirm_segments', params, 'second-confirm')).details as CatConfirmSegmentsResult
   assert.equal(repeated.skipped?.filter(item => item.code === 'ALREADY_RECORDED').length, 3)
-  assert.deepEqual(f.db.tmUnits.listCandidates('en', 'zh-CN'), candidates)
+  assert.deepEqual(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped'), candidates)
   const blocked = (await f.invoke('cat_confirm_segments', { ...params, blockedSegmentIds: ids }, 'blocked-confirm')).details as CatConfirmSegmentsResult
   assert.equal(blocked.decisions.filter(item => item.decision === 'blocked').length, 3)
-  assert.deepEqual(f.db.tmUnits.listCandidates('en', 'zh-CN'), candidates)
+  assert.deepEqual(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped'), candidates)
 }))
 
 test('confirmed TM reuses imported source/target, preserves its metadata and retains a distinct translation', () => fixture(async f => {
@@ -188,7 +188,7 @@ test('confirmed TM reuses imported source/target, preserves its metadata and ret
   f.db.tmUnits.importMany([imported])
   const snapshot = await f.read([original.id])
   await f.invoke('cat_confirm_segments', { snapshotIds: [snapshot], segmentIds: [original.id] })
-  const same = f.db.tmUnits.listCandidates('en', 'zh-CN')
+  const same = f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')
   assert.equal(same.length, 1)
   assert.equal(same[0]!.metadata?.author, 'synthetic-history')
   assert.equal(same[0]!.localMetadata?.la_confirmation_count, '1')
@@ -196,18 +196,18 @@ test('confirmed TM reuses imported source/target, preserves its metadata and ret
   f.db.segments.applyTargetEdit(original.id, '另一种译法', 0)
   const next = await f.read([original.id])
   await f.invoke('cat_confirm_segments', { snapshotIds: [next], segmentIds: [original.id] })
-  assert.deepEqual(new Set(f.db.tmUnits.listCandidates('en', 'zh-CN').map(item => item.target)), new Set([original.target, '另一种译法']))
+  assert.deepEqual(new Set(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped').map(item => item.target)), new Set([original.target, '另一种译法']))
 }))
 
 test('confirming text already present in a paused library makes the local confirmation searchable without enabling the library', () => fixture(async f => {
   const segment = f.segments[0]!
   f.db.tmUnits.importMany([{ source: segment.source, target: segment.target, sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'paused-source', occurrenceKey: 'one' }])
   f.db.tmSources.update('paused-source', { enabled: false })
-  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN').length, 0)
+  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped').length, 0)
   const snapshot = await f.read([segment.id])
   await f.invoke('cat_confirm_segments', { snapshotIds: [snapshot], segmentIds: [segment.id] })
   assert.equal(f.db.tmSources.get('paused-source')!.enabled, false)
-  const candidates = f.db.tmUnits.listCandidates('en', 'zh-CN')
+  const candidates = f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')
   assert.equal(candidates.length, 1)
   assert.equal(candidates[0]!.localMetadata?.la_confirmation_count, '1')
   assert.match(candidates[0]!.sourceLabel!, /confirmed/i)
@@ -219,24 +219,24 @@ test('a TM write failure rolls back the reviewed decision', () => fixture(async 
   f.db.catDb.db.exec(`CREATE TRIGGER synthetic_tm_failure BEFORE INSERT ON tm_units BEGIN SELECT RAISE(ABORT, 'synthetic TM failure'); END`)
   await assert.rejects(f.invoke('cat_confirm_segments', { snapshotIds: [snapshot], segmentIds: [id] }), /synthetic TM failure/)
   assert.equal(f.db.segments.listStageEvents(id).length, 0)
-  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN').length, 0)
+  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped').length, 0)
 }))
 
 test('explicit TM reuse counts successful application separately from confirmation and replay', () => fixture(async f => {
   const segment = f.segments[0]!
   f.db.tmUnits.importMany([{ source: segment.source, target: '复用译文', sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic-tm', occurrenceKey: 'unit' }])
-  const unit = f.db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+  const unit = f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!
   const snapshot = await f.read([segment.id])
   const params = { snapshotIds: [snapshot], edits: [{ segmentId: segment.id, target: unit.target, tmUnitId: unit.unitId }] }
   const first = (await f.invoke('cat_apply_translations', params, 'tm-reuse')).details as CatApplyTranslationsResult
   assert.equal(first.applied, 1)
   await f.invoke('cat_apply_translations', params, 'tm-reuse')
-  const reused = f.db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+  const reused = f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!
   assert.equal(reused.localMetadata?.la_reuse_count, '1')
   assert.equal(reused.localMetadata?.la_confirmation_count, undefined)
   const stale = (await f.invoke('cat_apply_translations', params, 'tm-reuse-stale')).details as CatApplyTranslationsResult
   assert.deepEqual(stale.stale, [segment.id])
-  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '1')
+  assert.equal(f.db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, '1')
 }))
 
 test('automatic context offers a low-scoring but mechanically adaptable variable without changing its score', () => fixture(async f => {

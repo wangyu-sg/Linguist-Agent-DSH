@@ -79,6 +79,13 @@ test('status keeps task state and statistics in separate localized wrapping grou
   assert.doesNotMatch(statusCss, /\.scope\s*\{[^}]*display:\s*none/)
 })
 
+test('ordinary space dots center their own glyph over the original space in either direction', () => {
+  const dot = rule(inlineCss, '.invisible[data-invisible-glyph="·"]::before')
+  assert.match(dot, /left:\s*50%/)
+  assert.match(dot, /right:\s*auto/)
+  assert.match(dot, /transform:\s*translateX\(-50%\)/)
+})
+
 test('editor and status presentation parses and uses theme-based colors', () => {
   for (const source of [editor, tokenEditor, status]) assert.equal(source.parseDiagnostics.length, 0, source.fileName)
   for (const source of [editorCss, tokenCss, inlineCss, statusCss]) {

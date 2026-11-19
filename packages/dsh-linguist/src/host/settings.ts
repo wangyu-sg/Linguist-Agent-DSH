@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
-import { checkSemanticModel, disposeWorkingCopyReferences, semanticCachePath, type LinguistProjectService } from '@linguist/domain-service'
+import { clearGroupReviewMaterials, checkSemanticModel, disposeWorkingCopyReferences, semanticCachePath, type LinguistProjectService } from '@linguist/domain-service'
 
-export const SETTINGS_OPERATIONS = ['linguistSettingsGet', 'linguistSettingsSemantic', 'linguistSettingsClearCache', 'linguistSettingsCheckModel', 'linguistCatRelated'] as const
+export const SETTINGS_OPERATIONS = ['linguistSettingsGet', 'linguistSettingsSemantic', 'linguistSettingsClearCache', 'linguistSettingsCheckModel', 'linguistRetrievalProgress', 'linguistCatRelated'] as const
 
 export async function settingsOperation(service: LinguistProjectService, operation: string, input: Record<string, unknown>) {
   if (operation === 'linguistSettingsSemantic') {
@@ -18,10 +18,16 @@ export async function settingsOperation(service: LinguistProjectService, operati
   }
   if (input.projectId !== undefined && (typeof input.projectId !== 'string' || !/^prj-[a-f0-9]{16}$/.test(input.projectId))) throw new Error('项目 ID 无效')
   const id = input.projectId as string | undefined
+  if (operation === 'linguistRetrievalProgress') {
+    if (!id || typeof input.taskGroupId !== 'string') throw new Error('需要项目和任务组范围')
+    return service.reviewCache.activeProgress(semanticCachePath(service, id), input.taskGroupId)
+  }
   if (id) service.getProject(id)
   if (operation === 'linguistSettingsClearCache') {
-    if (id) disposeWorkingCopyReferences(service, id)
-    await service.reviewCache.clear(semanticCachePath(service, id))
+    const group = input.taskGroupId
+    if (group !== undefined && (typeof group !== 'string' || !id || !service.openProject(id).taskGroups.list().some(item => item.id === group))) throw new Error('任务组不存在')
+    if (id) clearGroupReviewMaterials(service, id, group)
+    await service.reviewCache.clear(semanticCachePath(service, id), group)
     return { cleared: true }
   }
   if (operation === 'linguistCatRelated') {
@@ -31,7 +37,7 @@ export async function settingsOperation(service: LinguistProjectService, operati
     if (!selected) throw new Error('句段不存在')
     const ids = db.segments.queryIds({ assetId: selected.assetId })
     const rows = db.segments.getByIds(ids)
-    const semantic = await service.reviewCache.get(semanticCachePath(service, id), rows)
+    const semantic = await service.reviewCache.get(semanticCachePath(service, id), rows, undefined, db.taskGroups.groupOf(selected.assetId))
     if (semantic.status !== 'ready') return { ...semantic, segments: [] }
     const related = [...new Set(semantic.groups.filter(group => group.segmentIds.includes(selected.id)).flatMap(group => group.segmentIds))]
       .filter(candidate => candidate !== selected.id)

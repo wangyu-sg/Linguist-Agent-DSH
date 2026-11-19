@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Button, Checkbox, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LinguistImportProgress, LinguistProjectImportResult, LinguistXlsxMappingPreviewSheet } from '@linguist/domain-service/contracts'
+import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TaskGroup, LinguistImportProgress, LinguistProjectImportResult, LinguistXlsxMappingPreviewSheet } from '@linguist/domain-service/contracts'
 import { discardStagedFiles, required, stageFiles, subscribeImport } from './api'
 import { describeProjectError } from './project-errors'
 import { describeLinguistFormat, isGenericXliffFallback } from './format-labels'
@@ -22,10 +22,17 @@ function suggestedXlsxColumns(sheet: LinguistXlsxMappingPreviewSheet | undefined
   }
   return columns
 }
-export function BatchImport({ projectId, archived, importing, setImporting, onImported }: {
-  projectId: string; archived: boolean; importing: boolean; setImporting: (busy: boolean) => void; onImported: () => void
+export function BatchImport({ projectId, taskGroupId, groups, archived, importing, setImporting, onImported, onAwaitingMapping }: {
+  projectId: string; taskGroupId?: string; groups?: TaskGroup[]; onAwaitingMapping?: (pending: boolean) => void; archived: boolean; importing: boolean; setImporting: (busy: boolean) => void; onImported: () => void
 }): React.ReactElement {
   const t = useT()
+  const [destination, setDestination] = React.useState(taskGroupId ?? 'ungrouped')
+  const [newName, setNewName] = React.useState('')
+  const [creating, setCreating] = React.useState(false)
+  const [created, setCreated] = React.useState<TaskGroup>()
+  const choices = (groups ?? []).filter(group => !group.archived)
+  if (created && !choices.some(group => group.id === created.id)) choices.push(created)
+
   const picker = React.useRef<HTMLInputElement>(null)
   const directoryPicker = React.useRef<HTMLInputElement>(null)
   const [open, setOpen] = React.useState(false)
@@ -46,15 +53,23 @@ export function BatchImport({ projectId, archived, importing, setImporting, onIm
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [importing])
+  const createGroup = async () => {
+    setCreating(true); setError('')
+    try {
+      const result = await required<{ groups: TaskGroup[]; changedId: string }>('linguistTaskGroups', { projectId, change: { action: 'create', name: newName.trim() } })
+      setCreated(result.groups.find(group => group.id === result.changedId)); setDestination(result.changedId); setNewName('')
+    } catch (cause) { setError(describeProjectError(cause, t)); setOpen(true) } finally { setCreating(false) }
+  }
   const updateProgress = (value: Omit<Progress, 'since'>) => setProgress(current => ({ ...value, since: current?.phase === value.phase && current.filename === value.filename ? current.since : Date.now() }))
   const runImport = async (operation: string, input: object) => {
     const requestId = crypto.randomUUID()
     const unsubscribe = await subscribeImport(projectId, requestId, updateProgress, () => setNotice(t('进度连接已断开，正在等待导入结果。请勿重复导入；完成结果返回后会更新此窗口。')))
-    try { return await required<LinguistProjectImportResult>(operation, { ...input, projectId, requestId }) }
+    try { return await required<LinguistProjectImportResult>(operation, { ...input, projectId, taskGroupId: destination, requestId }) }
     finally { unsubscribe() }
   }
   const acceptResult = (result: LinguistProjectImportResult) => {
     setImportResult(result)
+    onAwaitingMapping?.(!result.cancelled && !result.bulk && !!result.requiresXlsxMapping)
     if (!result.cancelled && !result.bulk && result.requiresXlsxMapping) {
       const sheet = result.preview.sheets[0]
       setSheetName(sheet?.name ?? '')
@@ -93,7 +108,7 @@ export function BatchImport({ projectId, archived, importing, setImporting, onIm
   const cancelMapping = async () => {
     if (!mapCandidate) return
     setImporting(true)
-    try { await discardStagedFiles([mapCandidate.mappingId]); setImportResult(undefined); setOpen(false) }
+    try { await discardStagedFiles([mapCandidate.mappingId]); setImportResult(undefined); setOpen(false); onAwaitingMapping?.(false) }
     catch (cause) { setError(describeProjectError(cause, t)) }
     finally { setImporting(false) }
   }
@@ -104,10 +119,14 @@ export function BatchImport({ projectId, archived, importing, setImporting, onIm
   const title = importing ? '正在导入工作批次' : error ? '导入未完成' : mapCandidate ? '请确认 Excel 列映射' : needsAttention ? '部分文件需要处理' : '导入完成'
   return <>
     <div className={styles.toolbar}>
-      <input ref={picker} type="file" multiple hidden disabled={archived || importing || !!mapCandidate} onChange={event => { if (event.target.files?.length) void importBatch(Array.from(event.target.files), 'files'); event.target.value = '' }} />
-      <input ref={directoryPicker} type="file" multiple hidden {...{ webkitdirectory: '' }} disabled={archived || importing || !!mapCandidate} onChange={event => { if (event.target.files?.length) void importBatch(Array.from(event.target.files), 'directory'); event.target.value = '' }} />
-      <Button variant="primary" size="sm" disabled={archived || importing || !!mapCandidate} onClick={() => picker.current?.click()}>{t('选择文件')}</Button>
-      <Button variant="outline" size="sm" disabled={archived || importing || !!mapCandidate} onClick={() => directoryPicker.current?.click()}>{t('选择文件夹')}</Button>
+      {groups && <><label>{t('导入任务组')} <select value={destination} disabled={archived || importing || creating || !!mapCandidate} onChange={event => setDestination(event.target.value)}>
+        {choices.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}<option value="new">{t('新建任务组')}</option></select></label>
+        {destination === 'new' && <><Input aria-label={t('任务组名称')} value={newName} maxLength={180} onChange={event => setNewName(event.target.value)} />
+          <Button variant="outline" size="sm" disabled={creating || !newName.trim()} onClick={() => void createGroup()}>{t('创建')}</Button></>}</>}
+      <input ref={picker} type="file" multiple hidden disabled={archived || importing || creating || destination === 'new' || !!mapCandidate} onChange={event => { if (event.target.files?.length) void importBatch(Array.from(event.target.files), 'files'); event.target.value = '' }} />
+      <input ref={directoryPicker} type="file" multiple hidden {...{ webkitdirectory: '' }} disabled={archived || importing || creating || destination === 'new' || !!mapCandidate} onChange={event => { if (event.target.files?.length) void importBatch(Array.from(event.target.files), 'directory'); event.target.value = '' }} />
+      <Button variant="primary" size="sm" disabled={archived || importing || creating || destination === 'new' || !!mapCandidate} onClick={() => picker.current?.click()}>{t('选择文件')}</Button>
+      <Button variant="outline" size="sm" disabled={archived || importing || creating || destination === 'new' || !!mapCandidate} onClick={() => directoryPicker.current?.click()}>{t('选择文件夹')}</Button>
       {(importing || importResult || error) && <Button variant="outline" size="sm" onClick={() => setOpen(true)}>{t(importing ? '查看导入进度' : mapCandidate ? '继续确认映射' : '查看导入结果')}</Button>}
     </div>
     <Modal className={styles.importModal} contentClassName={styles.confirmModalContent} open={open} onClose={() => setOpen(false)} title={t(title)} closeLabel={t(importing ? '收起' : '关闭')} footer={<>

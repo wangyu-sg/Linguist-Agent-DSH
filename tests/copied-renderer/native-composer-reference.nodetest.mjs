@@ -119,7 +119,7 @@ const textOf = send => send.prompt.content.find(part => part.type === 'text').te
 const contextOf = text => JSON.parse(text.match(/\[LA-TURN-CONTEXT v1\]\n([^\n]+)\n\[\/LA-TURN-CONTEXT\]/)[1])
 const tick = () => new Promise(resolve => setTimeout(resolve, 30))
 
-test('CAT reference captures synchronously, preserves another reference and image, and retains the next draft after echo retirement', async () => {
+test('CAT reference captures synchronously, preserves another reference and image, and retains the next draft after echo retirement', async t => {
   const native = nativeComposer()
   let connected
   try {
@@ -138,7 +138,10 @@ test('CAT reference captures synchronously, preserves another reference and imag
     publish(['segment-B'])
     assert.equal(native.input.state.getSnapshot().phase, 'sending')
     releaseFile()
-    await tick()
+    await t.waitFor(() => {
+      assert(native.sends[0]?.prompt)
+      assert.equal(native.input.state.getSnapshot().draft, '')
+    }, { timeout: 10_000 })
     assert.equal(contextOf(textOf(native.sends[0])).context.selectedSegmentIds[0], 'segment-A')
     assert(textOf(native.sends[0]).includes('Original draft original-file'))
     assert.equal(native.sends[0].prompt.content[0].type, 'image')

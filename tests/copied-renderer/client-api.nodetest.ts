@@ -78,7 +78,7 @@ test('Client uploads browser Files separately, reports actual bytes, and keeps P
     return { status: 200, body: { tokens: [`token-${names.length}`] } }
   })
   const files = [new File(['split'], '合成拆分.mxliff'), new File(['master'], '配套原件.xliff')]
-  for (const file of files) Object.defineProperty(file, 'size', { value: 300 * 1024 * 1024 })
+  for (const file of files) Object.defineProperty(file, 'size', { value: 700 * 1024 * 1024 })
   assert.deepEqual(await stageFiles(files, value => progress.push(value)), ['token-1', 'token-2'])
   assert.deepEqual(names, [['合成拆分.mxliff'], ['配套原件.xliff']])
   assert.deepEqual(progress.map(value => value.loadedBytes / value.totalBytes), [0, .25, .5, .5, .75, 1])

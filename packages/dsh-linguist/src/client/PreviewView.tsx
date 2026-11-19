@@ -8,7 +8,7 @@ import styles from './Panels.module.css'
 import workbenchStyles from './Workbench.module.css'
 
 export interface PreviewRequest {
-  operation: 'linguistProjectsPreviewAssetSource' | 'linguistAssetsPreviewContextDoc' | 'linguistReferencesPreviewCandidate'
+  operation: 'linguistLibraryPreview' | 'linguistProjectsPreviewAssetSource' | 'linguistAssetsPreviewContextDoc' | 'linguistReferencesPreviewCandidate'
   input: object
 }
 

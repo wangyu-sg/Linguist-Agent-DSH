@@ -171,8 +171,9 @@ function ScheduledAgentTaskForm({ projectId, sessionId, assetId, selectedSegment
   </form>
 }
 
-export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, jobUpdates, onCancelRun, onOpenSession, onChanged }: {
+export function RunPanel({ projectId, taskGroupId, sessionId, assetId, selectedSegmentIds, uiRevision, workflowStage, archived, mutation, jobUpdates, onCancelRun, onOpenSession, onChanged }: {
   projectId: string
+  taskGroupId?: string
   sessionId: string
   assetId?: string
   selectedSegmentIds: string[]
@@ -206,14 +207,14 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
   React.useEffect(() => {
     let live = true
     const reads: [Promise<LinguistLatestRunSummaryResult>, Promise<LinguistStageDecisionCoverage | undefined>] = [
-      required('linguistCatGetLatestRunSummary', { projectId }),
+      required('linguistCatGetLatestRunSummary', { projectId, taskGroupId }),
       assetId ? required('linguistProjectsGetStageCoverage', { projectId, assetId, workflowStage }) : Promise.resolve(undefined),
     ]
     Promise.all(reads).then(([latest, stage]) => {
       if (live) { setRun(latest); setCoverage(stage); setLoadError('') }
     }).catch((error: unknown) => { if (live) setLoadError(String(error)) })
     return () => { live = false }
-  }, [projectId, assetId, workflowStage, mutation, refresh])
+  }, [projectId, taskGroupId, assetId, workflowStage, mutation, refresh])
 
   React.useEffect(() => {
     let live = true
@@ -239,7 +240,7 @@ export function RunPanel({ projectId, sessionId, assetId, selectedSegmentIds, ui
     setBusy(true)
     try {
       const result = await required<LinguistRunUndoResult>('linguistCatUndoLatestRun', {
-        projectId, sessionId, expectedRunId: summary.runId,
+        projectId, taskGroupId, sessionId, expectedRunId: summary.runId,
       })
       setUndo(result)
       setMessage(t('撤销结果：{status}，已撤销 {reverted} 项，拒绝 {refused} 项', { status: result.status, reverted: result.reverted.length, refused: result.refused.length }))

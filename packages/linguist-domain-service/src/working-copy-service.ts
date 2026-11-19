@@ -4,7 +4,7 @@ import { basename, join, relative, isAbsolute } from 'node:path'
 import type { LinguistGenerationProvenance, LinguistTagProfile } from '@linguist/cat-core'
 import type { ProjectEventInput, RunMutationChange } from '@linguist/cat-store'
 import { writeJsonFileAtomic, writeTextFileAtomic } from './safe-file'
-import { assembleWorkingCopy, prepareWorkingCopy, readWorkingJson, resumeWorkingCopy, workingCopyPath } from './working-copy'
+import { assembleWorkingCopy, bindWorkingBatch, prepareWorkingCopy, readWorkingJson, resumeWorkingCopy, workingCopyPath } from './working-copy'
 import { getWorkingCopyReferences, prefetchWorkingCopyReferences } from './working-copy-references'
 import { buildWorkingReview, workingReviewInput } from './working-review'
 import { copyFileVerified } from './secure-export'
@@ -12,6 +12,8 @@ import type { LinguistProjectService } from './project-service'
 import { readPickedFileWithinLimit } from './project-file-intake'
 import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import { prepareReviewMaterials, type ReviewMaterialsInput } from './review-materials'
+import { getProjectLibraryMaterials, syncProjectLibrary } from './project-library'
+import { prepareReviewVisuals } from './review-visuals'
 
 export interface WorkingCopyActionInput {
   operation: 'prepare' | 'references' | 'assemble' | 'deliver'
@@ -32,6 +34,9 @@ export interface WorkingCopyContext {
   sessionId: string
   taskId?: string
   service?: LinguistProjectService
+  taskGroupId?: string
+  delegatedSegmentIds?: readonly string[]
+  referenceProjectId?: string
   tagProfile?: LinguistTagProfile
   project?: { service: LinguistProjectService; projectId: string }
   provenance?: LinguistGenerationProvenance & { runId: string; toolCallId: string }
@@ -48,13 +53,22 @@ export async function executeWorkingCopyAction(
   if ((input.operation === 'assemble' || input.operation === 'deliver') && input.decisionsPath === undefined) throw new Error(`${input.operation} 需要 decisionsPath`)
   if (input.operation === 'prepare' && input.previousResultPath !== undefined) throw new Error('工作稿接续使用 assemble 和 previousResultPath，sourcePath 仍是原文件')
   const context = resolveContext()
+  const previous = input.previousResultPath === undefined ? undefined : readWorkingJson(context.workspaceRoot, input.previousResultPath)
+  const previousScope = previous?.value as Partial<import('./working-copy').LinguistWorkingCopy> | undefined
   if (context.project && input.operation !== 'prepare' && input.previousResultPath === undefined) throw new Error('请通过 previousResultPath 指定已审读的 prepare 或 assemble 快照')
   if (input.operation === 'deliver' && !context.project) throw new Error('原格式交付需要绑定本地化项目；普通工作区仍可准备和接续工作稿')
+  const scopedSource = context.project && context.delegatedSegmentIds ? await readPickedFileWithinLimit(workingCopyPath(context.workspaceRoot, input.sourcePath), LINGUIST_FILE_MAX_BYTES) : undefined
+  if (scopedSource && context.project && context.delegatedSegmentIds) {
+    const db = context.project.service.openProject(context.project.projectId)
+    const asset = db.assets.findBySource(createHash('sha256').update(scopedSource.bytes).digest('hex'), context.taskGroupId)
+    const allowed = new Set(context.delegatedSegmentIds)
+    if (!asset || db.segments.queryIds({ assetId: asset.id }).some(id => !allowed.has(id))) throw new Error('整份工作稿超过已委派的句段范围，请使用当前句段的审校材料')
+  }
   if (input.operation === 'references' && (!context.project || input.referenceFiles || input.contextFiles || input.outputDir || input.sourcePath.toLowerCase().endsWith('.xlsx'))) {
     const service = context.service ?? context.project?.service
     if (!service) throw new Error('工作稿参考资料需要 Linguist 服务')
-    return prepareReviewMaterials(service, { workspaceRoot: context.workspaceRoot, taskId: context.taskId ?? context.sessionId,
-      ...(context.project ? { projectId: context.project.projectId } : {}), sourcePath: input.sourcePath,
+    return prepareReviewMaterials(service, { workspaceRoot: context.workspaceRoot, taskGroupId: context.taskGroupId, taskId: context.taskId ?? context.sessionId,
+      ...(context.project || context.referenceProjectId ? { projectId: context.project?.projectId ?? context.referenceProjectId } : {}), sourcePath: input.sourcePath,
       sourceLocale: input.sourceLocale, targetLocale: input.targetLocale,
       ...(input.previousResultPath ? { previousResultPath: input.previousResultPath } : {}),
       ...(input.outputDir ? { outputDir: input.outputDir } : {}),
@@ -70,32 +84,39 @@ export async function executeWorkingCopyAction(
   const assertCurrent = (): void => {
     if (signal?.aborted) throw new Error('操作已停止')
     const current = resolveContext()
-    if (current.workspaceRoot !== context.workspaceRoot || current.sessionId !== context.sessionId
-      || current.project?.projectId !== context.project?.projectId || current.project?.service !== context.project?.service) throw new Error('工作区绑定已变化')
+    if (current.workspaceRoot !== context.workspaceRoot || current.sessionId !== context.sessionId || current.taskGroupId !== context.taskGroupId
+      || current.referenceProjectId !== context.referenceProjectId || current.project?.projectId !== context.project?.projectId || current.project?.service !== context.project?.service) throw new Error('工作区绑定已变化')
   }
   let baseline
   if (context.project) {
     const { service, projectId } = context.project
     const project = service.getProject(projectId)
     if (project.sourceLocale !== input.sourceLocale || project.targetLocale !== input.targetLocale) throw new Error('工作稿语言对与绑定项目不一致')
-    const sourceData = await readPickedFileWithinLimit(workingCopyPath(context.workspaceRoot, input.sourcePath), LINGUIST_FILE_MAX_BYTES)
+    const sourceData = scopedSource ?? await readPickedFileWithinLimit(workingCopyPath(context.workspaceRoot, input.sourcePath), LINGUIST_FILE_MAX_BYTES)
     const source = sourceData.bytes
     const sourceSha256 = createHash('sha256').update(source).digest('hex')
     const db = service.openProject(projectId)
-    const existing = db.assets.listByProject().find(asset => asset.sourceSha256 === sourceSha256)
+    const group = context.taskGroupId ?? 'ungrouped'
+    const existing = db.assets.findBySource(sourceSha256, group)
+    if (previousScope && (previousScope.assetId !== existing?.id || (previousScope.taskGroupId ?? 'ungrouped') !== group)) throw new Error('批次归属已变化或工作稿来自其他任务组，请重新准备当前稿件与资料')
     baseline = await prepareWorkingCopy({ ...input, workspaceRoot: context.workspaceRoot, sourceData,
       ...(existing?.formatConfigJson === undefined ? {} : { formatConfigJson: existing.formatConfigJson }) })
     assertCurrent()
     let assetId: string | undefined = existing?.id
     if (assetId === undefined) {
-      const imported = await service.importAsset(projectId, { bytes: source, filename: basename(baseline.sourcePath), onProgress: async () => assertCurrent() })
+      const imported = await service.importAsset(projectId, { bytes: source, taskGroupId: context.taskGroupId, filename: basename(baseline.sourcePath), onProgress: async () => assertCurrent() })
       assetId = imported.assetId
       if (imported.status === 'imported') context.onMutation?.({ kind: 'asset-updated' })
     }
-    baseline = { ...baseline, projectId, assetId, segments: db.segments.query({ assetId, limit: baseline.segments.length }) }
+    baseline = { ...baseline, projectId, taskGroupId: context.taskGroupId ?? 'ungrouped', assetId, segments: db.segments.query({ assetId, limit: baseline.segments.length }) }
   } else baseline = await prepareWorkingCopy({ ...input, workspaceRoot: context.workspaceRoot })
+  if (!context.project && context.referenceProjectId && context.service) {
+    const group = context.taskGroupId ?? 'ungrouped'
+    if (previousScope?.taskGroupId && previousScope.taskGroupId !== group) throw new Error('上阶段工作稿属于其他任务组，请按当前范围准备')
+    if (previousScope?.batchId && context.service.openProject(context.referenceProjectId).taskGroups.groupOf(previousScope.batchId) !== group) throw new Error('工作稿的批次归属已变化，请重新准备')
+    baseline = bindWorkingBatch(context.service, context.referenceProjectId, group, baseline)
+  }
   const decisions = input.operation === 'assemble' || input.operation === 'deliver' ? readWorkingJson(context.workspaceRoot, input.decisionsPath!) : undefined
-  const previous = input.previousResultPath === undefined ? undefined : readWorkingJson(context.workspaceRoot, input.previousResultPath)
   const tagProfile = context.project ? context.project.service.getProject(context.project.projectId).tagProfile : context.tagProfile
   const assembled = input.operation === 'assemble'
     ? assembleWorkingCopy(baseline, decisions!.value, tagProfile, previous)
@@ -103,7 +124,7 @@ export async function executeWorkingCopyAction(
   const result = assembled ?? baseline
   assertCurrent()
   const root = realpathSync(context.workspaceRoot)
-  const parts = ['.linguist', 'working-copies', baseline.sourceSha256, context.sessionId]
+  const parts = ['.linguist', 'working-copies', baseline.sourceSha256, ...(context.taskGroupId ? [context.taskGroupId] : []), context.sessionId]
   let parent = root
   for (const part of parts) {
     const child = join(parent, part)
@@ -119,6 +140,10 @@ export async function executeWorkingCopyAction(
     if (!selectedIds.length || new Set(selectedIds).size !== selectedIds.length || selectedIds.some(id => !allIds.includes(id))) throw new Error('参考资料组必须包含当前工作稿中不重复的句段 ID')
     const currentDraft = resumeWorkingCopy(baseline, previous!.value, tagProfile)
     const { service, projectId } = context.project!
+    await syncProjectLibrary(service, projectId, context.workspaceRoot, [], { taskGroupId: baseline.taskGroupId })
+    const group = baseline.taskGroupId!
+    const groups = service.openProject(projectId).taskGroups
+    const materialVersion = groups.materialVersion(group)
     const { items, semantic } = await getWorkingCopyReferences({ service, projectId, taskId: context.taskId ?? context.sessionId,
       sourceSha256: baseline.sourceSha256, allIds, selectedIds, wait: input.wait !== false, signal })
     assertCurrent()
@@ -141,13 +166,17 @@ export async function executeWorkingCopyAction(
       const { shared: _shared, projectRules: _rules, ...entry } = item
       return { ...entry, currentTarget: targets.get(item.segmentId)! }
     })
-    const reference = { artifactKind: 'linguist-working-references', sourceSha256: baseline.sourceSha256,
+    const library = await getProjectLibraryMaterials(service, projectId, context.workspaceRoot,
+      segments.map(row => ({ id: row.id, text: [row.source, row.target, row.key, JSON.stringify(row.context)].filter(Boolean).join('\n') })), signal, group)
+    const visual = await prepareReviewVisuals(context.workspaceRoot, library.contextFiles, segments)
+    if (groups.materialVersion(group) !== materialVersion || groups.groupOf(baseline.assetId) !== group) throw new Error('资料或批次归属在准备时已变化，请重新读取')
+    const reference = { taskGroupId: group, materialVersion, assetId: baseline.assetId, artifactKind: 'linguist-working-references', sourceSha256: baseline.sourceSha256, library, visual,
       workingCopySha256: previous!.sha256, items: compactItems, shared, projectRules: [...projectRules.values()], semantic: scopedSemantic,
       note: '参考数据须实际读取；预取和本文件路径不证明已阅读。空数组表示按当前条件检索无命中，pending 表示尚未完成。' }
     const artifactSha256 = createHash('sha256').update(JSON.stringify(reference, null, 2)).digest('hex')
     const referenceOutput = join(parent, `references-${artifactSha256}.json`)
     writeJsonFileAtomic(referenceOutput, reference)
-    const review = buildWorkingReview(segments, items, scopedSemantic)
+    const review = buildWorkingReview(segments, items, scopedSemantic, undefined, visual, library)
     const reviewDirectory = join(parent, `review-${artifactSha256}`)
     mkdirSync(reviewDirectory, { recursive: true })
     const within = relative(root, realpathSync(reviewDirectory))
@@ -237,7 +266,7 @@ export async function executeWorkingCopyAction(
     segments: baseline.segments.length,
     format: baseline.formatId,
     warnings: baseline.warnings,
-    ...(context.project ? { projectId: baseline.projectId, assetId: baseline.assetId } : {}),
+    ...(baseline.projectId ? { projectId: baseline.projectId, assetId: baseline.assetId, batchId: baseline.batchId ?? baseline.assetId, taskGroupId: baseline.taskGroupId } : {}),
     ...(input.operation === 'prepare' ? { referenceStatus: context.project ? 'pending' : 'unavailable' } : {}),
     ...(assembled ? { coverage: assembled.coverage, finalChangeCount: assembled.finalChanges.length, submitted: false, nextAction: assembled.nextAction } : {}),
   }

@@ -134,6 +134,13 @@ export class CatDatabase {
     }
   }
 
+  /** Read several tables at the same committed revision, including on a read-only monitor. */
+  readSnapshot<T>(read: () => T): T {
+    if (this.db.isTransaction) return read()
+    this.db.exec('BEGIN')
+    try { return read() } finally { this.db.exec('ROLLBACK') }
+  }
+
   /** Create a consistent SQLite snapshot without requiring a writable source handle. */
   backupInto(destinationPath: string): 'vacuum_into' | 'backup_api' {
     const probe = probeSqliteRuntime()

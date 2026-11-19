@@ -19,6 +19,7 @@ import {
   BACKUP_DIR_NAME_PATTERN,
   LEGACY_BACKUP_FILE_PATTERN,
   PRE_RESTORE_PREFIX,
+  platformSnapshotFiles,
   verifyBackup,
 } from './backup'
 import { LINGUIST_APPLICATION_ID } from './database'
@@ -66,7 +67,10 @@ type DatabaseIdentityRecorder = (input: {
   migrated: boolean
 }) => void
 
-const RESTORED_FILES = ['cat.db', 'project.json'] as const
+const RESTORED_FILES = ['cat.db', 'project.json', 'project-library.json'] as const
+function restoredFiles(...dirs: string[]): string[] {
+  return [...new Set([...RESTORED_FILES, ...dirs.flatMap(platformSnapshotFiles)])]
+}
 const RESTORED_DIRS = ['source', 'blobs'] as const
 let transactionCounter = 0
 
@@ -135,7 +139,7 @@ function snapshotCurrentState(projectDir: string, snapshotDir: string): void {
   }
   mkdirSync(staging)
   try {
-    for (const file of RESTORED_FILES) {
+    for (const file of restoredFiles(projectDir)) {
       const source = join(projectDir, file)
       if (lstatSync(source, { throwIfNoEntry: false }) !== undefined) {
         copyRegularFile(source, join(staging, file), file)
@@ -211,8 +215,8 @@ function installDirectory(
   fault?.('after-install-directory', label)
 }
 
-function cleanupInstallArtifacts(projectDir: string, stamp: string): void {
-  for (const file of RESTORED_FILES) {
+function cleanupInstallArtifacts(projectDir: string, stamp: string, ...snapshotDirs: string[]): void {
+  for (const file of restoredFiles(projectDir, ...snapshotDirs)) {
     rmSync(`${join(projectDir, file)}.restore-${stamp}`, { recursive: true, force: true })
     rmSync(`${join(projectDir, file)}.old-${stamp}`, { recursive: true, force: true })
   }
@@ -231,7 +235,7 @@ function rollbackFromSnapshot(
   fault?.('before-rollback')
   rmSync(join(projectDir, 'cat.db-wal'), { force: true })
   rmSync(join(projectDir, 'cat.db-shm'), { force: true })
-  for (const file of RESTORED_FILES) {
+  for (const file of restoredFiles(projectDir, snapshotDir)) {
     const source = join(snapshotDir, file)
     const target = join(projectDir, file)
     if (lstatSync(source, { throwIfNoEntry: false }) === undefined) rmSync(target, { force: true })
@@ -245,8 +249,8 @@ function rollbackFromSnapshot(
       copyDirectory(source, target, directory)
     }
   }
-  cleanupInstallArtifacts(projectDir, stamp)
-  cleanupInstallArtifacts(projectDir, `${stamp}-rollback`)
+  cleanupInstallArtifacts(projectDir, stamp, snapshotDir)
+  cleanupInstallArtifacts(projectDir, `${stamp}-rollback`, snapshotDir)
 }
 
 function verifyInstalledProject(
@@ -325,6 +329,7 @@ export function restoreProjectBackup(
   expectedProjectId: string,
   fault?: RestoreFaultInjector,
   recordDatabaseIdentity?: DatabaseIdentityRecorder,
+  prepareSnapshot?: () => void,
 ): RestoreBackupResult {
   recoverInterruptedRestore(projectDir, expectedProjectId)
   if (LEGACY_BACKUP_FILE_PATTERN.test(backupName)) throw new StoreBackupLegacyError(backupName)
@@ -339,6 +344,7 @@ export function restoreProjectBackup(
   const stamp = safeTimestamp(now)
   const preRestoreName = `${PRE_RESTORE_PREFIX}${stamp}`
   const snapshotDir = join(projectDir, 'backups', preRestoreName)
+  prepareSnapshot?.()
   snapshotCurrentState(projectDir, snapshotDir)
   const journalPath = join(projectDir, 'backups', RESTORE_TRANSACTION_FILE)
   const journal: RestoreJournal = {
@@ -353,8 +359,10 @@ export function restoreProjectBackup(
   try {
     rmSync(join(projectDir, 'cat.db-wal'), { force: true })
     rmSync(join(projectDir, 'cat.db-shm'), { force: true })
-    for (const file of RESTORED_FILES) {
-      installFile(join(backupDir, file), join(projectDir, file), stamp, file, fault)
+    for (const file of restoredFiles(projectDir, backupDir)) {
+      const source = join(backupDir, file)
+      if (file !== 'cat.db' && file !== 'project.json' && !lstatSync(source, { throwIfNoEntry: false })) rmSync(join(projectDir, file), { force: true })
+      else installFile(source, join(projectDir, file), stamp, file, fault)
     }
     for (const directory of RESTORED_DIRS) {
       installDirectory(join(backupDir, directory), join(projectDir, directory), stamp, directory, fault)

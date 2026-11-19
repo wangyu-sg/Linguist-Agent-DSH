@@ -18,7 +18,9 @@ const PROFILE = `# Linguist Agent
 
 const QUALITY = `# Linguist 作业原则
 
-遵守用户本次范围、资料、产物和操作授权；文件任务无需为使用专业能力导入 CAT。按语言用途和实际资料自主选择工具；格式不兼容时可使用脚本或修复适配器，验证后继续。保护原稿、标签、变量、锁定和写入时的版本。
+遵守用户本次范围、资料、产物和操作授权。正式翻译／审校任务尚未确定工作方式时，主动问一次是否使用 CAT；已有明确选择就沿用，不重复询问。普通咨询、只读整理不触发这道问题。用户选择 CAT 后用 linguist_prepare_project 一次准备同一项目的稿件副本和配套资料，核对段落对应、标签边界与锁定；不需要用户手工导入。选择 CAT 不授权覆盖原稿或提交平台。按语言用途和实际资料自主选择工具；格式不兼容时可使用脚本或修复适配器，验证后继续。保护原稿、标签、变量、锁定和写入时的版本。
+
+所有 LA 会话共用项目资料。首次收到资料用 linguist_prepare_project 登记原件与用途，之后复用缓存并刷新变化项。Checklist／通用 SG 用 rules，专项范围可填 appliesTo；TM／TB 用原有匹配，例句、Query、反馈与背景用 context 保留完整记录与原件位置。字段少也可用，不编造确认状态。答复涉及项目术语、历史译法或客户要求时，先用 linguist_prepare_project 的 query 按文字及 TM／TB 查当前范围的原始依据。需要找不同表述的近义例句时用同一工具并传 semantic=true。续接、进度和一般聊天可直接处理。正式审校材料自动带入适用依据，独立 Reviewer 获得原始依据而非只看译者结论。
 
 翻译和审校核对适用的 TM、TB、风格、备注与必要图文。正常审校材料已包含当前源译文、关联句段与参考：首组直接阅读，其余按文件续读，不逐条查库、重复读取或写回执。语义相似仅是对照线索。缺失资料或真实冲突要说明，不能把未取得当作没有要求。
 
@@ -55,7 +57,7 @@ function boundedLines(title: string, lines: string[], maxItems: number): string 
   return `### ${title}\n${selected.join('\n')}`
 }
 
-function buildDigest(service: LinguistProjectService, projectId: string, workspaceRoot?: string): { digest: string; status: PromptStatus['projectDigestStatus'] } {
+function buildDigest(service: LinguistProjectService, projectId: string, workspaceRoot?: string, taskGroupId?: string): { digest: string; status: PromptStatus['projectDigestStatus'] } {
   try {
     let partial = false
     const section = <T>(label: string, build: () => T): T | undefined => {
@@ -68,10 +70,12 @@ function buildDigest(service: LinguistProjectService, projectId: string, workspa
     }
     const project = service.getProject(projectId)
     const db = service.openProject(projectId)
-    const rules = section('project rules', () => db.getProjectRules())
+    const hidden = db.taskGroups.hidden(taskGroupId)
+    const rules = section('project rules', () => db.getProjectRules(undefined, taskGroupId))
     const brief = workspaceRoot === undefined ? undefined : section('project brief', () => readProjectBrief({
       workspaceRoot,
       identity: { projectId, sourceLocale: project.sourceLocale, targetLocale: project.targetLocale },
+      sourceVisible: ref => !hidden.has(ref.replace(/^workspace-file:/u, 'file:').replace(/^context-doc:/u, 'document:').replace(/^(style-rule|tech-constraint):/u, 'rule:')),
       resolveSource(ref) {
         const rule = rules?.find(item => `${item.kind}:${item.ruleId}` === ref)
         if (rule) return { version: rule.version, ruleText: rule.ruleText }
@@ -94,13 +98,13 @@ function buildDigest(service: LinguistProjectService, projectId: string, workspa
       section('project and batches', () => boundedLines('项目与批次', [
         `- 项目：${JSON.stringify(project.name)}`,
         `- 语言对：${JSON.stringify(project.sourceLocale)} → ${JSON.stringify(project.targetLocale)}`,
-        ...db.assets.listByProject().map(asset => `- [batch:${asset.id}] ${JSON.stringify(asset.originalFilename)}；format=${asset.formatId}；segments=${asset.segmentCount}`),
+        ...db.assets.listByProject().filter(asset => !taskGroupId || asset.taskGroupId === taskGroupId).map(asset => `- [batch:${asset.id}] ${JSON.stringify(asset.originalFilename)}；format=${asset.formatId}；segments=${asset.segmentCount}`),
       ], 22)),
-      section('voice profiles', () => boundedLines('Voice Profiles', db.voiceProfiles.list({ limit: 13 }).map(profile => {
+      section('voice profiles', () => boundedLines('Voice Profiles', db.voiceProfiles.list({ limit: db.voiceProfiles.count() }).filter(profile => !hidden.has('voice:' + profile.id)).map(profile => {
         const traits = [profile.textType, profile.register, profile.person].filter(Boolean).join('/')
         return `- [voice:${profile.id}] speaker=${JSON.stringify(profile.speaker)}${traits ? `；traits=${JSON.stringify(traits)}` : ''}`
       }), 12)),
-      section('context directory', () => boundedLines('Context 资料目录', db.contextDocs.list({ limit: 41 }).map(doc =>
+      section('context directory', () => boundedLines('Context 资料目录', db.contextDocs.list({ limit: db.contextDocs.count() }).filter(doc => !hidden.has('document:' + (doc.parentContextDocId ?? doc.id))).map(doc =>
         `- [context:${doc.id}] title=${JSON.stringify(doc.originalFilename)}；kind=${doc.kind}`), 40)),
     ].filter((value): value is string => value !== undefined)
     if (sections.length === 0) return { digest: '（Project Digest 当前无可用项目数据。）', status: 'skipped' }
@@ -126,13 +130,13 @@ export function buildLinguistPromptSection(
   service: LinguistProjectService,
   roleText: Record<LinguistRole, string>,
   professional: ProfessionalResources,
-  binding: Pick<SessionBinding, 'role' | 'workMode' | 'projectId'>,
+  binding: Pick<SessionBinding, 'role' | 'workMode' | 'projectId' | 'taskGroupId' | 'workModeConfirmed'>,
   workspaceRoot?: string,
 ): { prompt: string; status: PromptStatus } {
   const digest = binding.projectId === undefined
     ? { digest: '（当前会话未绑定 Linguist 项目。）', status: 'skipped' as const }
-    : buildDigest(service, binding.projectId, workspaceRoot)
-  const prefix = [PROFILE, renderProfessionalStandard(professional), QUALITY, `# 当前岗位与工作模式\n\n岗位：${binding.role}；工作模式：${binding.workMode}。${binding.projectId === undefined ? '' : `当前 Linguist 项目 ID：${binding.projectId}。`}`, roleText[binding.role]]
+    : buildDigest(service, binding.projectId, workspaceRoot, binding.taskGroupId)
+  const prefix = [PROFILE, renderProfessionalStandard(professional), QUALITY, `# 当前岗位与工作模式\n\n岗位：${binding.role}；工作模式：${binding.workMode}。${binding.workModeConfirmed ? '已记录用户工作方式选择。' : '此为当前界面绑定；不代表用户已选择本次任务的工作方式。以对话中的明确决定为准。'}${binding.projectId === undefined ? '' : `当前 Linguist 项目 ID：${binding.projectId}。${binding.taskGroupId ? `当前任务组 ID：${binding.taskGroupId}。` : ''}`}`, roleText[binding.role]]
   const render = (text: string) => [...prefix, fenceProjectData(text)].join('\n\n---\n\n')
   const full = render(digest.digest)
   let prompt = full

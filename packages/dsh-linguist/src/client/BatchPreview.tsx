@@ -5,6 +5,7 @@ import { required } from './api'
 import { describeLinguistFormat } from './format-labels'
 import { PreviewView } from './PreviewView'
 import { splitProtectedText } from './TargetEditor'
+import { InlineTaggedText } from './InlineTaggedText'
 import { useT } from './ui-locale'
 import { stageFilterOptions, stageName, stageProgressLabel } from './workflow-ui'
 import styles from './BatchPreview.module.css'
@@ -29,6 +30,7 @@ export function BatchPreview({ projectId, asset, onClose }: { projectId: string;
   const [offset, setOffset] = React.useState(0)
   const [refresh, setRefresh] = React.useState(0)
   const [rawOpen, setRawOpen] = React.useState(false)
+  const [formatCodes, setFormatCodes] = React.useState(false)
   const [error, setError] = React.useState('')
   const rawRequest = React.useMemo(() => ({ operation: 'linguistProjectsPreviewAssetSource' as const, input: { projectId, assetId: asset.assetId } }), [projectId, asset.assetId])
 
@@ -52,7 +54,7 @@ export function BatchPreview({ projectId, asset, onClose }: { projectId: string;
     return missing.length ? [{ segment, missing }] : []
   }) ?? []
   return <section className={styles.preview} aria-label={t('批次语义预览')}>
-    <div className={styles.toolbar}><strong>{asset.filename}</strong><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t('刷新')}</Button><Button variant="ghost" size="sm" onClick={onClose}>{t('关闭预览')}</Button></div>
+    <div className={styles.toolbar}><strong>{[summary?.project.name, summary?.taskGroups?.find(group => group.id === currentAsset.taskGroupId)?.name, currentAsset.filename].filter(Boolean).join(' / ')}</strong>{currentAsset.formatId === 'phrase_mxliff_1_2' && <Button variant="ghost" size="sm" aria-pressed={formatCodes} title={t('显示原生格式码；不改变文本')} onClick={() => setFormatCodes(value => !value)}>{t('格式码')}</Button>}<Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t('刷新')}</Button><Button variant="ghost" size="sm" onClick={onClose}>{t('关闭预览')}</Button></div>
     <p>{t(describeLinguistFormat(currentAsset.formatId))} · {summary?.project.sourceLocale ?? '—'} → {summary?.project.targetLocale ?? '—'} · {currentAsset.segmentCount} {t('段')}</p>
     <p>{t('批次当前统计')}：{t('未翻译')} {currentAsset.segmentCounts.untranslated} · {t('草稿')} {currentAsset.segmentCounts.draft} · {t('已翻译')} {currentAsset.segmentCounts.translated} · {t('已审校')} {currentAsset.segmentCounts.reviewed} · QA {currentAsset.openQaCount}</p>
     <p>{t('当前阶段')}：{t(stageName(workflowStage))} · {stageFilterOptions(workflowStage).map((option) => `${t(option.label)} ${currentAsset.currentStageCounts[option.value]}`).join(' · ')}</p>
@@ -66,7 +68,7 @@ export function BatchPreview({ projectId, asset, onClose }: { projectId: string;
         <div className={styles.heading} role="row"><span role="columnheader">#</span><span role="columnheader">{t("源文")}</span><span role="columnheader">{t("译文")}</span><span role="columnheader">{t('状态')}</span></div>
         {page.segments.map((segment) => <div className={styles.row} role="row" key={segment.id}>
           <span role="cell">#{segment.ordinal + 1}{segment.locked ? ` · ${t('锁定')}` : ''}</span>
-          {[segment.source, segment.target].map((value, index) => <span role="cell" key={index} data-label={t(index ? "译文" : "源文")} lang={index ? segment.targetLocale : segment.sourceLocale} dir="auto">{splitProtectedText(value, profile).map((part, partIndex) => <span key={partIndex} className={part.kind === 'text' ? undefined : styles.token}>{part.value}</span>)}</span>)}
+          {[segment.source, segment.target].map((value, index) => <span role="cell" key={index} data-label={t(index ? "译文" : "源文")} lang={index ? segment.targetLocale : segment.sourceLocale} dir="auto"><InlineTaggedText text={value} sourceText={segment.source} tagProfile={profile} formatId={currentAsset.formatId} targetLocale={segment.targetLocale} showFormatCodes={formatCodes} formatIssueLabel={t('存在未识别或未配对的格式码；已保留原文显示。')} /></span>)}
           <span role="cell">{t(segment.status)} · {t(stageProgressLabel(workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span>
         </div>)}
       </div>}

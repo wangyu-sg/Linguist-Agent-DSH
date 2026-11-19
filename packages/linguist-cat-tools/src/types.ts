@@ -215,6 +215,7 @@ export interface CatReviewMaterials {
 }
 
 export interface LinguistCatToolsDeps {
+  taskGroupId?: string
   professionalJudgment?: ProfessionalResources
   /** Internal working-file producer: return complete evidence instead of a model response page. */
   contextOutput?: 'artifact'
@@ -312,6 +313,7 @@ export type LinguistIntakeResourceKind = 'batch' | 'tm' | 'terms' | 'context'
 export type LinguistImportResourceKind = 'auto' | 'batch' | 'tm' | 'tb' | 'context'
 
 export interface LinguistImportResourcesInput {
+  taskGroupId?: string
   paths: string[]
   recursive: boolean
   kind: LinguistImportResourceKind
@@ -572,6 +574,7 @@ export interface CatConfirmSegmentsResult {
 }
 
 export interface CatBatchListItem {
+  taskGroupId?: string
   batchId: string
   /** Import-time file basename (metadata, never a path). */
   filename: string

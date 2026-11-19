@@ -61,31 +61,19 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
   const step = (action, outcome, detail) => trace.push({ at: new Date().toISOString(), action, outcome, ...(detail ? { detail } : {}) })
   const current = readJson(currentFile)
   const baseline = readJson(join(root, 'integrations/browser-skill/BASELINE.json'))
-  const pack = readJson(join(root, 'artifacts/pack.json'))
-  const extensionArchive = join(root, '.toolchain/browser-skill/downloads', baseline.cliRelease.version, baseline.extensionRelease.archive)
-  const extensionManifest = readJson(join(productRoot, `runtime/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}/manifest.json`))
   const checks = {}
   const evidence = {
     schemaVersion: 1, generatedBy: 'scripts/test-browser-skill.mjs', startedAt: new Date().toISOString(),
     mode: serveDsh ? 'dsh-fixture' : 'cli-chain', currentSha256: hash(readFileSync(currentFile)),
     installationId: current.installationId, status: 'FAILED', checks,
     fixtureSha256: hash(fixture), synthetic: true, customerDataTouched: false,
-    pluginSha256: current.plugins.browserSkill.sha256,
+    channel: current.browserSkill.channel,
     cliSha256: hash(readFileSync(current.bskPath)),
-    extensionArchiveSha256: hash(readFileSync(extensionArchive)),
     bskHome: current.bskHome,
     pluginToolInvocation: 'NOT_VERIFIED',
   }
   assert.equal(current.profile, 'desktop', 'BrowserSkill check must use the installed official Desktop profile')
   assert.equal(current.bskHome, join(productRoot, 'browser-skill/home'), 'BrowserSkill home is not the new product home')
-  assert.equal(evidence.cliSha256, baseline.cliRelease.binarySha256, 'installed BrowserSkill CLI differs from the pinned binary')
-  assert.equal(evidence.pluginSha256, baseline.adaptedTarballSha256, 'installed BrowserSkill plugin differs from pinned adapter')
-  assert.equal(evidence.pluginSha256, pack.browserSkill.sha256, 'installed BrowserSkill plugin differs from current pack')
-  assert.equal(evidence.extensionArchiveSha256, baseline.extensionRelease.archiveSha256, 'BrowserSkill extension ZIP differs from the pinned official release')
-  assert.equal(extensionManifest.name, 'BrowserSkill')
-  assert.equal(extensionManifest.version, baseline.extensionRelease.manifestVersion)
-  assert.equal(hash(readFileSync(current.plugins.browserSkill.tarball)), pack.browserSkill.sha256, 'installed BrowserSkill tarball bytes differ from current pack')
-  assert.equal(hash(readFileSync(pack.browserSkill.path)), pack.browserSkill.sha256, 'BrowserSkill build tarball bytes differ from current pack')
   const state = { saved: null, otherTarget: 'Einstellungen öffnen', uploadSha256: null, uploadFilename: null, downloadRequests: 0 }
   const serverEvents = []
   const server = createServer(async (request, response) => {
@@ -128,12 +116,11 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     checks.fixtureHttp = 'PASS'
     step('localhost fixture', 'PASS', url)
 
-    assert.equal(await bsk(current, ['--version']), `bsk ${baseline.cliRelease.version}`)
+    const cliVersion = (await bsk(current, ['--version'])).replace(/^bsk /, '')
     checks.cli = 'PASS'
-    step('pinned BrowserSkill CLI', 'PASS', evidence.cliSha256)
+    step('installed BrowserSkill CLI', 'PASS', evidence.cliSha256)
     const daemon = JSON.parse(await bsk(current, ['status', '--json']))
-    assert.equal(daemon.daemon_version, baseline.cliRelease.version)
-    assert.equal(daemon.protocol_version, '1.8')
+    assert.equal(daemon.daemon_version, cliVersion)
     assert(Number.isInteger(daemon.ws_port) && daemon.ws_port > 0)
     checks.daemon = 'PASS'
     evidence.bskPort = daemon.ws_port
@@ -142,7 +129,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     step('product daemon status', 'PASS', `v${daemon.daemon_version} protocol ${daemon.protocol_version} port ${daemon.ws_port}`)
     if (daemon.browsers.length === 0) {
       evidence.status = 'BLOCKED_ENV'
-      evidence.blocker = `BrowserSkill extension ${baseline.extensionRelease.manifestVersion} is not connected to the new product daemon on port ${daemon.ws_port}; load the unpacked extension from ${join(productRoot, `runtime/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}`)} and connect it to this daemon with browser authorization`
+      evidence.blocker = `Install or enable the official BrowserSkill extension from ${baseline.extension.storeUrl} and connect it to port ${daemon.ws_port}`
       checks.extension = 'BLOCKED_ENV'
       step('extension-connected browser', 'BLOCKED_ENV', 'daemon reports zero connected browsers')
       return evidence
@@ -157,7 +144,7 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
       step('extension-connected browser', 'BLOCKED_ENV', 'browser instance choice is ambiguous')
       return evidence
     }
-    assert.equal(selected.extension_version, baseline.extensionRelease.manifestVersion)
+    assert.equal(selected.version_skew, false, 'connected extension and daemon are incompatible')
     evidence.extensionVersion = selected.extension_version
     evidence.browserInstanceId = selected.instance_id
     checks.extension = 'PASS'
@@ -229,6 +216,12 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     checks.taskIdentityAndSave = 'PASS'
     step('edit and server-side save', 'PASS', 'LA-001 Chinese target saved; LA-002 German target untouched')
 
+    const screenshotPath = join(evidenceRoot, `browser-skill-screenshot-${randomUUID()}.png`)
+    await bsk(current, ['screenshot', '--out', screenshotPath, '--session', sessionId, '--json'])
+    assert.equal(readFileSync(screenshotPath).subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
+    evidence.screenshotPath = screenshotPath
+    checks.screenshot = 'PASS'
+
     const uploadPath = join(evidenceRoot, 'browser-skill-upload.txt')
     await writeFile(uploadPath, uploadBytes)
     await bsk(current, ['upload', '#upload', '--file', uploadPath, '--session', sessionId, '--context', control.context_id, '--json'])
@@ -251,11 +244,11 @@ export async function testBrowserSkill({ serveDsh = false } = {}) {
     step('AgentWindow download', 'PASS', `${downloadBytes.length} exact synthetic bytes saved without overwrite`)
 
     evidence.status = 'CLI_CHAIN_PASS'
-    evidence.blocker = 'The localhost AgentWindow CLI chain passed; an installed DSH Agent browser_* tool invocation and native skill discovery trace are still required for G08'
     return evidence
   } catch (error) {
     evidence.status = 'FAILED'
     evidence.error = error instanceof Error ? error.message : String(error)
+    evidence.commandError = error.stdout || error.stderr
     step('browser chain', 'FAILED', evidence.error)
     return evidence
   } finally {

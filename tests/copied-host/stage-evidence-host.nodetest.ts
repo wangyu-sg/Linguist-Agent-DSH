@@ -141,6 +141,25 @@ test('宿主冻结独立 Stage Plan，恢复本轮状态，并把未映射数据
     })!
     assert.equal(resumed.baseline.baselineHash, first.baseline.baselineHash)
 
+    const otherGroup = db.taskGroups.change({ action: 'create', name: 'Synthetic B' })
+    db.taskGroups.ref('file:b-rules.txt', otherGroup, 'file-version:B')
+    assert.notEqual(db.stageEvidence.getCompletion(first.stageRunId).status, 'stale', '另一组的新增资料不改变本组冻结依据')
+    const scopedInput = { session: { id: 'scoped-synthetic', linguistRole: 'reviewer' as const }, db, discoveryScope: scope, fallbackSegmentIds: [imported.segments[0]!.id] }
+    const prior = ensureStageEvidenceForSession(scopedInput)!
+    const currentGroup = db.taskGroups.groupOf(imported.asset.id)!
+    db.taskGroups.ref('file:a-rules.txt', currentGroup, 'file-version:A1')
+    assert.equal(db.stageEvidence.getCompletion(prior.stageRunId).status, 'stale', '有效资料变化须更新依据')
+    const after = ensureStageEvidenceForSession(scopedInput)!
+    assert.notEqual(after.plan.materialVersion, prior.plan.materialVersion)
+    db.taskGroups.ref('file:a-rules.txt', currentGroup, 'file-version:A2')
+    assert.equal(db.stageEvidence.getCompletion(after.stageRunId).status, 'stale', '同一份资料的新内容版本也须重读')
+    db.taskGroups.removeRef('file:a-rules.txt', currentGroup)
+    db.taskGroups.change({ action: 'moveBatches', id: otherGroup, batchIds: [imported.asset.id] })
+    assert.equal(db.stageEvidence.getCompletion(first.stageRunId).status, 'stale', '保留原批次与审校记录，归属变化使旧依据过期')
+    assert.equal(db.stageEvidence.get(first.stageRunId)?.plan.taskGroupId, currentGroup)
+    db.taskGroups.change({ action: 'moveBatches', id: currentGroup, batchIds: [imported.asset.id] })
+
+
     db.segments.applyTargetEdit(imported.segments[0]!.id, 'pulled down', 0)
     assert.notEqual(ensureStageEvidenceForSession({
       session: { id: 'child-1', linguistRole: 'reviewer' },

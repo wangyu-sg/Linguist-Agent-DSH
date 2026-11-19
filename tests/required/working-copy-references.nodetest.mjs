@@ -269,7 +269,7 @@ test('file and online delegation use the selected role and task-specific referen
     assert.match(prompt, /另一译/)
     assert.match(prompt, /本批术语说明/)
     assert.match(prompt, /使用10个新名称/)
-    assert.doesNotMatch(prompt, /旧名称/)
+    assert.match(prompt, /旧名称/, 'temporary terms supplement applicable project terminology and preserve conflicts')
     assert.equal(db.assets.listByProject().length, 0)
     assert.equal(imports.mock.calls.length, 2)
 
@@ -307,14 +307,14 @@ test('file and online delegation use the selected role and task-specific referen
     assert.match(prompt, /关联译文/)
     assert.match(prompt, /本批术语说明/)
     assert.match(prompt, /平台 TM／TB/)
-    assert.equal(imports.mock.calls.length, afterWorkingImports + 2, 'online materials retain their distinct platform warning')
+    assert.equal(imports.mock.calls.length, afterWorkingImports, 'the same temporary sources are reused for online review; platform warnings are supplied anew')
     assert.equal(db.assets.listByProject().length, 0)
     writeFileSync(join(root, 'terms.csv'), 'term,target,note\npotion,更新名称,术语已更新\n')
     await delegate.tool.execute({ role: 'reviewer', objective: 'Review updated references', scope: {
       sourcePath: 'source.csv', sourceLocale: 'en', targetLocale: 'zh-CN', referenceFiles,
     } }, exec)
     assert.match(prompt, /术语已更新/)
-    assert.equal(imports.mock.calls.length, afterWorkingImports + 4, 'changed reference bytes invalidate the cached matches')
+    assert.equal(imports.mock.calls.length, afterWorkingImports + 2, 'changed reference bytes invalidate the cached matches')
     const incomplete = [{ path: 'terms.csv', kind: 'terms' }, { path: 'missing.csv', kind: 'tm' }]
     await delegate.tool.execute({ role: 'reviewer', objective: 'Review remaining available evidence', scope: {
       sourcePath: 'source.csv', sourceLocale: 'en', targetLocale: 'zh-CN', referenceFiles: incomplete,

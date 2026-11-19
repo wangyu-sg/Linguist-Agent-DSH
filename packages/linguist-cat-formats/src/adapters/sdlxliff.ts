@@ -325,7 +325,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
                 `segment ${JSON.stringify(seg.key)} is confirmed for ${workflow.stage} but has no writable sdl:seg definition`,
               )
             }
-            if (seg.locked) {
+            if (seg.locked || segment.locked) {
               throw new FormatExportError(
                 this.id,
                 `segment ${JSON.stringify(seg.key)} is locked but its workflow status was changed`,
@@ -336,7 +336,7 @@ export class SdlXliffAdapter implements CatFormatAdapter {
           }
         }
         if (segment.target === seg.targetText) continue
-        if (seg.locked) {
+        if (seg.locked || segment.locked) {
           throw new FormatExportError(
             this.id,
             `segment ${JSON.stringify(seg.key)} is locked (translate="no"/sdl:seg locked) but its target was changed; refusing to write or skip it`,
@@ -419,11 +419,11 @@ export class SdlXliffAdapter implements CatFormatAdapter {
       const seg = unit.segs.find((candidate) => changed.has(candidate.key))
       if (!seg) return unit.full // defensive; the caller only passes units with changes
       const newTarget = changed.get(seg.key)!
-      return this.rewritePlainTarget(unit.full, encodeXmlInline(newTarget), newTarget !== '')
+      return this.rewritePlainTarget(unit.full, encodeXmlInline(newTarget, unit.full), newTarget !== '')
     }
     const entries = unit.segs
       .filter((seg) => changed.has(seg.key))
-      .map((seg) => ({ mid: seg.key, encoded: encodeXmlInline(changed.get(seg.key)!) }))
+      .map((seg) => ({ mid: seg.key, encoded: encodeXmlInline(changed.get(seg.key)!, unit.full) }))
     const withTargets = entries.length === 0 ? unit.full : this.rewriteSegmentedTarget(unit.full, entries)
     return this.rewriteSegmentStatuses(withTargets, statusChanges)
   }

@@ -1,5 +1,7 @@
 import {
   createAsset,
+  asAssetId,
+  deriveStableIdV2,
   DETERMINISTIC_HARD_RULE_CODES,
   nativeStatusForStage,
   normalizeWorkflowStage,
@@ -32,6 +34,7 @@ import {
   StoreNotFoundError,
   type ProjectDatabase,
 } from '@linguist/cat-store'
+import { randomUUID } from 'node:crypto'
 import { lstatSync, rmSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import {
@@ -618,11 +621,8 @@ export class ProjectDelivery {
     }
     const sourceSha256 = sha256Hex(input.bytes)
     const db = this.context.openProject(projectId)
-    // ponytail: O(n) scan is enough for the current single-file Alpha; add an indexed lookup with batch intake.
-    const duplicate = this.context.call(
-      () => db.assets.listByProject().find((asset) => asset.sourceSha256 === sourceSha256),
-      projectId,
-    )
+    db.taskGroups.requireActive(input.taskGroupId ?? 'ungrouped')
+    const duplicate = db.assets.findBySource(sourceSha256, input.taskGroupId)
     if (duplicate !== undefined) {
       const storedMaster = adapter.id === PHRASE_MXLIFF_ADAPTER_ID
         ? parsePhraseMxliffFormatConfig(duplicate.formatConfigJson, duplicate.originalFilename)
@@ -726,7 +726,7 @@ export class ProjectDelivery {
     if (prepared.duplicate !== undefined) {
       const { duplicate } = prepared
       console.log(
-        `[Linguist] 跳过项目内重复批次: 项目 ${projectId} 批次 ${duplicate.id}`,
+        `[Linguist] 跳过组内重复批次: 项目 ${projectId} 批次 ${duplicate.id}`,
       )
       // 重复跳过零写入：回读验证仍跑一遍并随结果带回（只读；不抛——
       // 本调用没有可回滚的写入，既有批次的问题由健康检查/完整性扫描负责）。
@@ -747,42 +747,36 @@ export class ProjectDelivery {
     }
     const { imported } = prepared
     await input.onProgress?.('writing')
-    const assetPreview = createAsset({
-      projectId: project.id,
-      formatId: imported.asset.formatId,
-      originalFilename: imported.asset.originalFilename,
-      sourceSha256: imported.asset.sourceSha256,
-      segmentCount: imported.asset.segmentCount,
-      ...(imported.asset.formatConfigJson === undefined
-        ? {}
-        : { formatConfigJson: imported.asset.formatConfigJson }),
-    })
-    this.context.call(
-      () => db.saveAssetSourceForImport(assetPreview, input.bytes),
-      projectId,
-    )
-    // 插入 + 回读验证同一事务：验证失败抛 typed error，整批回滚，
-    // 项目内绝不留「半个批次」（崩溃窗口只留可幂等覆盖的孤儿 blob）。
-    const { asset, verification } = this.context.call(
-      () =>
-        db.catDb.transaction(`import + verify asset`, () => {
-          const inserted = db.assets.insertImported(imported)
-          const report = this.verifyImport(
-            db,
-            project,
-            inserted.asset,
-            inserted.segments.length,
-          )
-          if (!report.ok) {
-            throw new LinguistImportVerificationFailedError(
-              projectId,
-              report.checks.filter((check) => !check.passed).map((check) => check.id),
-            )
-          }
-          return { asset: inserted.asset, verification: report }
-        }),
-      projectId,
-    )
+    const group = input.taskGroupId ?? 'ungrouped'
+    const insertedResult = this.context.call(() => {
+      let createdSource: string | undefined
+      try {
+        return db.catDb.transaction('import + verify asset', () => {
+          db.taskGroups.requireActive(group)
+          if (db.assets.findBySource(sourceSha256, group)) return undefined
+          const linked = db.catDb.db.prepare(`SELECT id FROM external_batches
+            WHERE group_id=? AND kind='working-copy' AND locator=? AND asset_id IS NULL`).get(group, sourceSha256) as { id: string } | undefined
+          const assetPreview = createAsset({
+            id: asAssetId(linked?.id ?? deriveStableIdV2('ast', [projectId, randomUUID()])),
+            taskGroupId: group,
+            projectId: project.id,
+            ...imported.asset,
+          })
+          const { asset, segments } = db.assets.insertImported(imported, assetPreview)
+          db.saveAssetSource(asset.id, input.bytes)
+          createdSource = join(db.sourceDir, assetSourceFileName(asset))
+          const verification = this.verifyImport(db, project, asset, segments.length)
+          if (!verification.ok) throw new LinguistImportVerificationFailedError(projectId, verification.checks.filter(check => !check.passed).map(check => check.id))
+          if (linked) db.catDb.db.prepare('UPDATE external_batches SET asset_id=? WHERE id=?').run(asset.id, linked.id)
+          return { asset, verification }
+        })
+      } catch (error) {
+        if (createdSource) rmSync(createdSource, { force: true })
+        throw error
+      }
+    }, projectId)
+    if (!insertedResult) return this.importAsset(projectId, input)
+    const { asset, verification } = insertedResult
     console.log(
       `[Linguist] 已导入批次: 项目 ${projectId} 批次 ${asset.id}（${adapter.id}，${imported.segments.length} 段，${imported.warnings.length} 警告）`,
     )
@@ -902,8 +896,7 @@ export class ProjectDelivery {
       return count
     }, projectId)
 
-    // source blob 在行删除之后清尾；失败只留孤儿 blob（健康检查不扫、
-    // 重导入幂等覆盖），绝不阻碍已完成的行级撤销
+    // Delete this batch’s source blob only after the database removal succeeds.
     let sourceBlobRemoved = false
     try {
       rmSync(join(db.sourceDir, assetSourceFileName(asset)), { force: true })

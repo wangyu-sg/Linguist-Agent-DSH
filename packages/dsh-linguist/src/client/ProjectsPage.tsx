@@ -11,6 +11,9 @@ import { LegacyMigrationPanel } from './LegacyMigrationPanel'
 import { describeHealthCheck, describeProjectError } from './project-errors'
 import { useT } from './ui-locale'
 import { stageName } from './workflow-ui'
+import { TaskGroupsPage } from './TaskGroupsPage'
+import type { TaskGroup } from '@linguist/domain-service/contracts'
+import { ProjectLibraryPage } from './ProjectLibraryPage'
 import { ProjectSessions } from './ProjectSessions'
 import { DEFAULT_PROJECT_SETUP, ProjectCreateForm, type ProjectSetup } from './ProjectCreateForm'
 import styles from './ProjectsPage.module.css'
@@ -26,8 +29,8 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   capabilities: React.ReactNode
   onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
-  onEnter: (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
-  onOpenProject: (projectId: string, dock?: 'qa' | 'proposals') => Promise<void>
+  onEnter: (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
+  onOpenProject: (projectId: string, dock?: 'qa' | 'proposals', taskGroupId?: string, assetId?: string) => Promise<void>
   onOpenSession: (binding: LinguistBinding) => Promise<void>
 }): React.ReactElement {
   const t = useT()
@@ -50,6 +53,9 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   const [refresh, setRefresh] = React.useState(0)
   const [formats, setFormats] = React.useState<LinguistFormatQualification[]>([])
   const [formatError, setFormatError] = React.useState('')
+  const [groupsProjectId, setGroupsProjectId] = React.useState<string>()
+  const [libraryGroup, setLibraryGroup] = React.useState<TaskGroup>()
+  const [libraryProjectId, setLibraryProjectId] = React.useState<string>()
   const [settingsProjectId, setSettingsProjectId] = React.useState<string>()
   const [projectMenuId, setProjectMenuId] = React.useState<string>()
   const [draggingProjectId, setDraggingProjectId] = React.useState<string>()
@@ -158,6 +164,13 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     orderedProjectIds.splice(orderedProjectIds.indexOf(projectId) + (position === 'after' ? 1 : 0), 0, draggingProjectId)
     void saveOrder(orderedProjectIds)
   }
+  const libraryProject = projects.find(project => project.id === libraryProjectId)
+  if (libraryProject) return <ProjectLibraryPage key={libraryProject.id} project={libraryProject} initialGroup={libraryGroup} onBack={() => { setLibraryProjectId(undefined); setRefresh(value => value + 1) }} />
+  const groupsProject = projects.find(project => project.id === groupsProjectId)
+  if (groupsProject) return <TaskGroupsPage project={groupsProject} initialGroup={libraryGroup} onBack={() => { setLibraryGroup(undefined); setGroupsProjectId(undefined) }}
+    onOpenBatch={(group, assetId) => onOpenProject(groupsProject.id, undefined, group.id, assetId)}
+    onLibrary={group => { setLibraryGroup(group); setLibraryProjectId(groupsProject.id) }}
+    onSession={group => onEnter({ projectId: groupsProject.id, workspaceId: groupsProject.workspaceId as WorkspaceId, role, workMode, taskGroupId: group.id })} />
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
       <div className={styles.title}><h1>{t('本地化工作台')}</h1><p>{t("项目、岗位与工作方式")}</p></div>
@@ -191,7 +204,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
           }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined) }} onDrop={(event) => { if (!project.archivedAt) dropProject(event, project.id) }}>
             <div className={styles.projectIdentity}>
               <div className={styles.projectTitleRow}>
-                <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} title={project.name} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => void openProject(project)} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}><span className={styles.projectNameText}>{project.name}</span></Button></Tooltip>
+                <Tooltip portal label={`${t('更新于 {time}', { time: new Date(project.updatedAt).toLocaleString() })} · ${t('创建于 {time}', { time: new Date(project.createdAt).toLocaleString() })} · ${project.archivedAt ? t('归档于 {time}', { time: new Date(project.archivedAt).toLocaleString() }) : t('拖动调整项目顺序')}`}><Button variant="ghost" size="sm" className={styles.projectName} title={project.name} disabled={busy || !project.workspaceId} draggable={!project.archivedAt && !busy} onClick={() => { setLibraryGroup(undefined); setGroupsProjectId(project.id) }} onDragStart={(event) => { setDraggingProjectId(project.id); setProjectMenuId(undefined); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', project.id) }} onDragEnd={() => { setDraggingProjectId(undefined); setDropTarget(undefined) }}><span className={styles.projectNameText}>{project.name}</span></Button></Tooltip>
                 <span className={styles.projectStage}>{t(stageName(project.workflowStage ?? 'translation'))}</span>
                 {project.archivedAt && <span className={styles.archived}>{t('已归档，只读')}</span>}
               </div>
@@ -212,6 +225,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
                 { id: 'down', label: t('下移 {name}', { name: project.name }), disabled: busy || activeVisible.at(-1)?.id === project.id },
               ]} onSelect={(id) => { setProjectMenuId(undefined); void reorder(project.id, id === 'up' ? -1 : 1) }} />}
               {!project.workspaceId && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => { if (!workspaceId) return; setBusy(true); void required('linguistProjectsAssociateWorkspace', { projectId: project.id, workspaceId }).then(() => { setRefresh((value) => value + 1); showMessage(t("工作区已关联")) }).catch((error: unknown) => showMessage(describeProjectError(error, t), true)).finally(() => setBusy(false)) }}>{t("关联所选工作区")}</Button>}
+              <Button variant="outline" size="sm" disabled={busy || !workspace} onClick={() => { setLibraryGroup(undefined); setLibraryProjectId(project.id) }}>{t('项目资料')}</Button>
               <Button variant="outline" size="sm" aria-pressed={settingsProjectId === project.id} onClick={() => setSettingsProjectId((current) => current === project.id ? undefined : project.id)}>{t('设置')}</Button>
               <Button variant="outline" size="sm" disabled={busy || !project.workspaceId} onClick={() => void enter(project)}>{project.archivedAt ? t('只读查看') : t('新建 LA 会话')}</Button>
             </div>

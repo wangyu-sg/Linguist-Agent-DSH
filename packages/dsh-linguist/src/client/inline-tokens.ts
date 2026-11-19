@@ -23,16 +23,142 @@ export interface InlineAnnotation {
   title?: string
   active?: boolean
 }
-/** Split text only; annotations overlapping chips are intentionally clipped to text runs. */
-export function annotatedTextRuns(text: string, start: number, annotations: readonly InlineAnnotation[] = []): Array<{ raw: string; start: number; annotations: readonly InlineAnnotation[] }> {
+export type PhraseFormatFlag = 'b' | 'i' | 'u'
+export interface InlineUnderlineRange { start: number; end: number }
+export interface InlineFormatRange extends InlineUnderlineRange { flags: readonly PhraseFormatFlag[] }
+export interface InlineFormatCode extends InlineUnderlineRange { opening: boolean; flags: string }
+export interface PhraseFormatting {
+  supported: boolean
+  valid: boolean
+  text: string
+  codes: InlineFormatCode[]
+  ranges: InlineFormatRange[]
+}
+
+/** Parse the complete field; never infer formatting inside an opaque runtime chip. */
+export function phraseFormatting(text: string, formatId: string | undefined, tokens: readonly Pick<InlineToken, 'kind' | 'start' | 'end'>[] = []): PhraseFormatting {
+  const supported = formatId === 'phrase_mxliff_1_2'
+  const literal = (valid: boolean): PhraseFormatting => ({ supported, valid, text, codes: [], ranges: [] })
+  if (!supported) return literal(true)
+  const ranges: InlineFormatRange[] = [], codes: InlineFormatCode[] = []
+  let active: { start: number; flags: string } | undefined
+  for (const match of text.matchAll(/\{([biu_^]{1,4})>|<([biu_^]{1,4})\}/g)) {
+    const end = match.index + match[0].length, flags = (match[1] ?? match[2])!
+    if (/[_^]/.test(flags) || new Set(flags).size !== flags.length) return literal(false)
+    if (tokens.some(token => token.kind === 'tag' && token.start < end && token.end > match.index
+      && (token.start !== match.index || token.end !== end))) return literal(false)
+    const opening = match[1] !== undefined
+    if (opening) {
+      if (active) return literal(false)
+      active = { start: end, flags }
+    } else {
+      if (!active || active.flags !== flags) return literal(false)
+      if (active.start < match.index) ranges.push({ start: active.start, end: match.index, flags: [...flags] as PhraseFormatFlag[] })
+      active = undefined
+    }
+    codes.push({ start: match.index, end, opening, flags })
+  }
+  if (active) return literal(false)
+  let plain = '', cursor = 0
+  for (const code of codes) { plain += text.slice(cursor, code.start); cursor = code.end }
+  return { supported, valid: true, text: plain + text.slice(cursor), codes, ranges }
+}
+
+export function formattingTextOffset(model: PhraseFormatting, rawOffset: number): number {
+  let removed = 0
+  for (const code of model.codes) {
+    if (rawOffset <= code.start) break
+    removed += Math.min(rawOffset, code.end) - code.start
+  }
+  return Math.max(0, Math.min(model.text.length, rawOffset - removed))
+}
+
+/** Affinity disambiguates the two sides of a zero-width formatting boundary. */
+export function formattingRawOffset(model: PhraseFormatting, plainOffset: number, affinity: 'start' | 'end' = 'start'): number {
+  const at = Math.max(0, Math.min(model.text.length, plainOffset))
+  let rawStart = 0, plainStart = 0
+  const candidates: number[] = []
+  for (const code of [...model.codes, { start: model.text.length + model.codes.reduce((sum, item) => sum + item.end - item.start, 0), end: 0, opening: false }]) {
+    const length = code.start - rawStart
+    if (at >= plainStart && at <= plainStart + length) candidates.push(rawStart + at - plainStart)
+    plainStart += length
+    rawStart = code.end
+  }
+  return affinity === 'start' ? candidates.at(-1) ?? 0 : candidates[0] ?? 0
+}
+
+function plainFormattingRanges(model: PhraseFormatting): InlineFormatRange[] {
+  return model.ranges.map(range => ({ ...range, start: formattingTextOffset(model, range.start), end: formattingTextOffset(model, range.end) }))
+}
+
+function serializeFormatting(text: string, ranges: readonly InlineFormatRange[]): string {
+  const boundaries = [...new Set([0, text.length, ...ranges.flatMap(range => [range.start, range.end])])].sort((a, b) => a - b)
+  let raw = '', active = ''
+  for (let index = 0; index < boundaries.length - 1; index++) {
+    const start = boundaries[index]!, end = boundaries[index + 1]!
+    const flags = (['b', 'i', 'u'] as const).filter(flag => ranges.some(range => range.start <= start && range.end >= end && range.flags.includes(flag))).join('')
+    if (flags !== active) { if (active) raw += `<${active}}`; if (flags) raw += `{${flags}>`; active = flags }
+    raw += text.slice(start, end)
+  }
+  return raw + (active ? `<${active}}` : '')
+}
+
+export function phraseFormatSelection(model: PhraseFormatting, selection: InlineSelection, flag: PhraseFormatFlag): boolean | 'mixed' {
+  const start = formattingTextOffset(model, selection.start), end = formattingTextOffset(model, selection.end)
+  const ranges = plainFormattingRanges(model).filter(range => range.flags.includes(flag) && range.start < end && range.end > start)
+  let covered = start
+  for (const range of ranges) if (range.start <= covered) covered = Math.max(covered, range.end)
+  return start !== end && covered >= end ? true : ranges.length > 0 ? 'mixed' : false
+}
+
+export interface InlineFormatEdit { value: string; selection: InlineSelection }
+export function togglePhraseFormat(value: string, selection: InlineSelection, flag: PhraseFormatFlag, formatId: string | undefined, tokens: readonly InlineToken[]): InlineFormatEdit | undefined {
+  const model = phraseFormatting(value, formatId, tokens)
+  if (!model.supported || !model.valid) return undefined
+  const start = formattingTextOffset(model, selection.start), end = formattingTextOffset(model, selection.end)
+  if (start === end) return undefined
+  const ranges = plainFormattingRanges(model), remove = phraseFormatSelection(model, selection, flag) === true
+  const next: InlineFormatRange[] = remove ? ranges.flatMap(range => [
+    ...(range.start < start ? [{ ...range, end: Math.min(start, range.end) }] : []),
+    ...(range.end > start && range.start < end ? [{ start: Math.max(start, range.start), end: Math.min(end, range.end), flags: range.flags.filter(item => item !== flag) }] : []),
+    ...(range.end > end ? [{ ...range, start: Math.max(end, range.start) }] : []),
+  ]) : [...ranges, { start, end, flags: [flag] }]
+  const raw = serializeFormatting(model.text, next), updated = phraseFormatting(raw, formatId)
+  return { value: raw, selection: { start: formattingRawOffset(updated, start, 'start'), end: formattingRawOffset(updated, end, 'end'), backward: selection.backward } }
+}
+
+/** Rich-view text edits operate on visible text while retaining the surrounding style. */
+export function replacePhraseFormattedText(value: string, selection: InlineSelection, replacement: string, formatId: string | undefined, tokens: readonly InlineToken[]): InlineFormatEdit | undefined {
+  const model = phraseFormatting(value, formatId, tokens), inserted = phraseFormatting(replacement, formatId)
+  if (!model.supported || !model.valid || !inserted.valid) return undefined
+  const start = formattingTextOffset(model, selection.start), end = formattingTextOffset(model, selection.end)
+  if (start === end && replacement === '') return { value, selection }
+  const delta = inserted.text.length - (end - start)
+  const inherit = model.ranges.find(range => range.start <= selection.start && range.end >= selection.start)?.flags ?? []
+  const ranges = plainFormattingRanges(model).flatMap(range => [
+    ...(range.start < start ? [{ ...range, end: Math.min(range.end, start) }] : []),
+    ...(range.end > end ? [{ ...range, start: Math.max(range.start, end) + delta, end: range.end + delta }] : []),
+  ])
+  ranges.push({ start, end: start + inserted.text.length, flags: inherit }, ...plainFormattingRanges(inserted).map(range => ({ ...range, start: start + range.start, end: start + range.end })))
+  const raw = serializeFormatting(model.text.slice(0, start) + inserted.text + model.text.slice(end), ranges)
+  const updated = phraseFormatting(raw, formatId), at = formattingRawOffset(updated, start + inserted.text.length, 'end')
+  return { value: raw, selection: { start: at, end: at } }
+}
+
+/** Split text at both annotation and presentation boundaries; never split chips. */
+export function annotatedTextRuns(text: string, start: number, annotations: readonly InlineAnnotation[] = [], formatting: readonly InlineFormatRange[] = [], codes: readonly InlineFormatCode[] = []): Array<{ raw: string; start: number; annotations: readonly InlineAnnotation[]; flags: readonly PhraseFormatFlag[]; formatCode: boolean }> {
   const end = start + text.length
   const relevant = annotations.filter(annotation => annotation.start < end && annotation.end > start).map(annotation => ({ ...annotation,
     start: start + unicodeBoundary(text, annotation.start - start, false),
     end: start + unicodeBoundary(text, annotation.end - start, true),
   }))
-  const boundaries = [...new Set([start, end, ...relevant.flatMap(annotation => [Math.max(start, annotation.start), Math.min(end, annotation.end)])])].sort((a, b) => a - b)
+  const decorations = formatting.filter(range => range.start < end && range.end > start)
+  const formatCodes = codes.filter(code => code.start < end && code.end > start)
+  const boundaries = [...new Set([start, end, ...[...relevant, ...decorations, ...formatCodes].flatMap(range => [Math.max(start, range.start), Math.min(end, range.end)])])].sort((a, b) => a - b)
   return boundaries.slice(0, -1).map((at, index) => ({ raw: text.slice(at - start, boundaries[index + 1]! - start), start: at,
-    annotations: relevant.filter(annotation => annotation.start <= at && annotation.end >= boundaries[index + 1]!) }))
+    annotations: relevant.filter(annotation => annotation.start <= at && annotation.end >= boundaries[index + 1]!),
+    flags: decorations.find(range => range.start <= at && range.end >= boundaries[index + 1]!)?.flags ?? [],
+    formatCode: formatCodes.some(code => code.start <= at && code.end >= boundaries[index + 1]!) }))
 }
 export interface InlineSelection { start: number; end: number; backward?: boolean }
 
@@ -226,12 +352,26 @@ export function inlineDomSelection(root: Node, selection: Selection | null): Inl
   if (anchor === undefined || focus === undefined) return undefined
   return { start: Math.min(anchor, focus), end: Math.max(anchor, focus), backward: anchor > focus }
 }
+/** Rich-view clipboard text carries balanced native styles; code view copies exact raw. */
+export function inlineSelectionText(root: HTMLElement, selection: InlineSelection): string {
+  const { text, spans } = mapInlineDom(root)
+  const raw = text.slice(selection.start, selection.end)
+  if (root.getAttribute('data-inline-format-view') !== 'rich' || selection.start === 0 && selection.end === text.length) return raw
+  const opaque = [...spans].filter(([node, span]) => span.atomic && !(node as Element).hasAttribute('data-inline-format-code'))
+    .map(([, span]) => ({ kind: 'tag' as const, start: span.start, end: span.end }))
+  const model = phraseFormatting(text, root.getAttribute('data-inline-format-id') ?? undefined, opaque)
+  if (!model.supported || !model.valid) return raw
+  const start = formattingTextOffset(model, selection.start), end = formattingTextOffset(model, selection.end)
+  const ranges = plainFormattingRanges(model).filter(range => range.start < end && range.end > start)
+    .map(range => ({ ...range, start: Math.max(start, range.start) - start, end: Math.min(end, range.end) - start }))
+  return serializeFormatting(model.text.slice(start, end), ranges)
+}
 export function copyInlineSelection(root: HTMLElement, event: { clipboardData: DataTransfer; preventDefault(): void }): void {
   const selection = root.ownerDocument.getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
   const own = inlineDomSelection(root, selection)
   // cloneContents also retains data-inline-raw when a selection crosses two inline views.
-  const raw = own ? readInlineDomText(root).slice(own.start, own.end)
+  const raw = own ? inlineSelectionText(root, own)
     : readInlineDomText(selection.getRangeAt(0).cloneContents())
   event.clipboardData.setData('text/plain', raw)
   event.preventDefault()

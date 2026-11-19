@@ -27,6 +27,7 @@ import {
 } from '@linguist/cat-core'
 
 export interface AssetRow {
+  task_group_id?: string
   id: string
   project_id: string
   format_id: string
@@ -40,6 +41,7 @@ export interface AssetRow {
 export function assetFromRow(row: AssetRow): Asset {
   return {
     id: row.id as AssetId,
+    taskGroupId: row.task_group_id ?? 'ungrouped',
     projectId: row.project_id as ProjectId,
     formatId: row.format_id,
     originalFilename: row.original_filename,

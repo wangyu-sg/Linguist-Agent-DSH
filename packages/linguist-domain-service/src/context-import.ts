@@ -33,6 +33,8 @@ export async function importContextInWorker({ projectId, projectDir, input }: Co
     return db.catDb.transaction(`import Context extraction ${input.filename}`, () => {
       const blobName = `ctx-${sha256.slice(0, 16)}${extension}`
       saveProjectBlob(db.blobsDir, blobName, input.bytes)
+      const existing = db.catDb.db.prepare('SELECT id FROM context_docs WHERE project_id=? AND sha256=? AND original_filename=? AND parent_context_doc_id IS NULL')
+        .get(projectId, sha256, input.filename) as { id: string } | undefined
       const doc = db.contextDocs.insert({
         kind,
         originalFilename: input.filename,
@@ -42,6 +44,10 @@ export async function importContextInWorker({ projectId, projectDir, input }: Co
         ...(textExtract !== undefined ? { textExtract } : {}),
         extractionWarnings: extraction.warnings,
       })
+      const key = 'document:' + doc.id
+      if (existing && input.taskGroupId && !db.taskGroups.refs().some(ref => ref.resource_key === key)) db.taskGroups.ref(key, '', key)
+      db.catDb.db.prepare("DELETE FROM task_resource_refs WHERE resource_key=? AND scope='@retired'").run(key)
+      db.taskGroups.ref(key, input.taskGroupId ?? '', key)
       const mediaDocIds = new Map<string, string>()
       for (const media of extraction.media) {
         if (kind === 'image' && media.sha256 === sha256) {

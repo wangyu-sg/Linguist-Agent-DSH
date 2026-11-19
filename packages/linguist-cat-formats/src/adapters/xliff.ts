@@ -8,8 +8,8 @@
  *   `<bpt>/<ept>`, namespaced variants) preserved VERBATIM in the segment
  *   strings (entities decoded, CDATA unwrapped — see xliff-xml.ts);
  * - segment key = trans-unit `id`, else `resname`, else synthesized
- *   `#tu-<ordinal>` (recorded as an import warning); native ids reused by
- *   another `<file>` are scoped without changing the source file;
+ *   `#tu-<ordinal>` (recorded as an import warning); repeated native IDs
+ *   are scoped by file and unit position without changing the source file;
  * - `translate="no"` (trans-unit or file level) or a truthy `mq:locked`
  *   (1/true/yes/locked) -> `locked: true`;
  * - direct notes and context groups -> `context.note` with attribute labels;
@@ -220,7 +220,7 @@ export class XliffAdapter implements CatFormatAdapter {
         )
       }
       if (segment.target === unit.targetText) continue
-      if (unit.locked) {
+      if (unit.locked || segment.locked) {
         throw new FormatExportError(
           this.id,
           `segment ${JSON.stringify(unit.key)} is locked (translate="no"/mq:locked) but its target was changed; refusing to write or skip it`,
@@ -256,8 +256,8 @@ export class XliffAdapter implements CatFormatAdapter {
     return decodeXmlInline(value)
   }
 
-  protected encodeTarget(value: string, _unit: XliffParsedUnit): string {
-    return encodeXmlInline(value)
+  protected encodeTarget(value: string, unit: XliffParsedUnit): string {
+    return encodeXmlInline(value, unit.source.inner + (unit.target?.inner ?? ''))
   }
 
   protected decode(bytes: Uint8Array, filename: string): string {
@@ -298,11 +298,9 @@ export class XliffAdapter implements CatFormatAdapter {
         const resname = attrs.resname?.trim() || undefined
         const nativeKey = id ?? resname ?? `#tu-${ordinal}`
         const nativeKeyFile = nativeKeyFiles.get(nativeKey)
-        if (nativeKeyFile === fileOrdinal) {
-          throw new FormatParseError(this.id, filename, `trans-unit #${ordinal}: duplicate key ${JSON.stringify(nativeKey)}`)
-        }
-        let key = nativeKeyFile === undefined ? nativeKey : `#file-${fileOrdinal}:${nativeKey}`
-        if (seenKeys.has(key)) key = `${key}:#tu-${ordinal}`
+        let key = nativeKeyFile === undefined ? nativeKey : nativeKeyFile === fileOrdinal
+          ? `${nativeKey}:#tu-${ordinal}` : `#file-${fileOrdinal}:${nativeKey}`
+        while (seenKeys.has(key)) key = `${key}:#tu-${ordinal}`
         if (id === undefined && resname === undefined) {
           warnings.push({
             code: 'xliff.missing_id',
@@ -313,7 +311,7 @@ export class XliffAdapter implements CatFormatAdapter {
         if (key !== nativeKey) {
           warnings.push({
             code: 'xliff.file_scoped_id',
-            message: `trans-unit #${ordinal}: native id ${JSON.stringify(nativeKey)} is reused in another <file>; scoped as ${JSON.stringify(key)}`,
+            message: `trans-unit #${ordinal}: repeated native id ${JSON.stringify(nativeKey)}; scoped as ${JSON.stringify(key)} without changing the original ID`,
             segmentKey: key,
           })
         }

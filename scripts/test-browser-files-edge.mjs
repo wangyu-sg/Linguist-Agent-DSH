@@ -12,14 +12,12 @@ assert(process.argv.length === 2 || (process.argv.length === 3 && process.argv[2
 const managed = process.argv[2] === '--managed'
 const root = new URL('..', import.meta.url)
 const current = JSON.parse(await readFile(join(homedir(), 'Library/Application Support/Linguist-Agent-DSH/current.json'), 'utf8'))
-const baseline = JSON.parse(await readFile(new URL('integrations/browser-skill/BASELINE.json', root), 'utf8'))
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
-assert.equal(hash(await readFile(current.bskPath)), baseline.cliRelease.binarySha256)
 const directory = new URL(`artifacts/evidence/browser-files-edge-${randomUUID()}/`, root)
 await mkdir(directory, { recursive: true })
-const evidence = { installationId: current.installationId, browserSkillSha256: current.plugins.browserSkill.sha256,
+const evidence = { installationId: current.installationId, channel: current.browserSkill.channel,
   lifecycle: managed ? 'DSH recoverable request protocol' : 'direct CLI stop',
-  startedAt: new Date().toISOString(), synthetic: true, scope: 'Real pinned CLI/extension only; installed DSH tool cancellation and reload are not covered',
+  startedAt: new Date().toISOString(), synthetic: true, scope: 'Installed CLI/extension only; installed DSH tool cancellation and reload are not covered',
   status: 'FAILED', checks: {}, trace: [] }
 const bsk = async args => {
   const { stdout } = await exec(current.bskPath, [...args, '--json'], {
@@ -63,11 +61,9 @@ const server = createServer((req, res) => {
 })
 try {
   const status = await bsk(['status'])
-  assert.equal(status.daemon_version, baseline.cliRelease.version)
-  assert.equal(status.protocol_version, '1.8')
   if (status.browsers.length !== 1) throw new Error('Expected one authorized BrowserSkill browser instance')
   evidence.browser = status.browsers[0].instance_id
-  assert.equal(status.browsers[0].extension_version, baseline.extensionRelease.manifestVersion)
+  assert.equal(status.browsers[0].version_skew, false, 'connected extension and daemon are incompatible')
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const url = `http://127.0.0.1:${server.address().port}/`
   evidence.fixtureUrl = url

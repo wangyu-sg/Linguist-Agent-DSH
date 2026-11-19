@@ -33,7 +33,7 @@ export function createVoiceTools(runtime: CatToolRuntime) {
         taboos: params.taboos,
         notes: params.notes,
         updatedBy: deps.sessionId,
-      })
+      }, deps.taskGroupId)
       notifyMutation({ kind: 'project-updated' })
       return toolResult(profile, deps.resultProjectId)
     },
@@ -53,6 +53,7 @@ export function createVoiceTools(runtime: CatToolRuntime) {
     }),
     async execute(toolCallId, params) {
       const { project, db } = resolveBoundProject('cat_add_approved_exemplar', toolCallId)
+      if (deps.delegatedScopeSegmentIds && !deps.delegatedScopeSegmentIds.includes(params.segmentId)) throw new LinguistCatInvalidArgumentError('segmentId', 'outside the delegated task scope')
       const segment = db.segments.getById(params.segmentId)
       if (!segment) throw new LinguistCatInvalidArgumentError('segmentId', 'segment does not exist in the bound project')
       if (segment.target.trim() === '') {
@@ -92,15 +93,17 @@ export function createVoiceTools(runtime: CatToolRuntime) {
     }),
     async execute(toolCallId, params) {
       const { db } = resolveBoundProject('cat_get_voice_context', toolCallId)
+      const hidden = db.taskGroups.hidden(deps.taskGroupId)
       const profiles = db.voiceProfiles.list({
         query: params.speaker,
         ...(params.textType === undefined ? {} : { textType: params.textType }),
-        limit: 50,
-      }).filter((profile) => profile.speaker.toLocaleLowerCase() === params.speaker.toLocaleLowerCase())
+        limit: db.voiceProfiles.count(),
+      }).filter((profile) => !hidden.has('voice:' + profile.id) && profile.speaker.toLocaleLowerCase() === params.speaker.toLocaleLowerCase())
       const profile = profiles.find((candidate) => candidate.textType === params.textType)
         ?? profiles.find((candidate) => candidate.textType === undefined)
         ?? profiles[0]
       const exemplars = db.tmUnits.listApprovedExemplars({
+        taskGroupId: deps.taskGroupId,
         speaker: params.speaker,
         textType: params.textType,
         module: params.module,

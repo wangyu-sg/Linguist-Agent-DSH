@@ -5,8 +5,8 @@ import { stageCompletionLabel, stageName, stageProgressLabel } from './workflow-
 import { useT } from './ui-locale'
 import styles from './CatStatusBar.module.css'
 
-export function CatStatusBar({ projectId, assetId, summary, active, selectedCount, revision }: {
-  projectId: string; assetId?: string; summary?: LinguistProjectSummary; active?: LinguistSegmentInfo; selectedCount: number; revision: string
+export function CatStatusBar({ projectId, taskGroupId, assetId, summary, active, selectedCount, revision }: {
+  projectId: string; taskGroupId?: string; assetId?: string; summary?: LinguistProjectSummary; active?: LinguistSegmentInfo; selectedCount: number; revision: string
 }): React.ReactElement {
   const t = useT()
   const stage = summary?.project.workflowStage ?? 'translation'
@@ -22,9 +22,9 @@ export function CatStatusBar({ projectId, assetId, summary, active, selectedCoun
   }, [projectId, assetId, stage, scope])
 
   const batch = summary?.assets.find((item) => item.assetId === assetId)
-  const assets = assetId ? batch && [batch] : summary?.assets
-  const counts = assetId ? batch?.currentStageCounts : summary?.currentStageCounts
-  const total = assetId ? batch?.segmentCount : summary?.totalSegments
+  const assets = assetId ? batch && [batch] : taskGroupId ? summary?.assets.filter(asset => asset.taskGroupId === taskGroupId) : summary?.assets
+  const counts = assets && { confirmed: assets.reduce((sum, asset) => sum + asset.currentStageCounts.confirmed, 0), draft: assets.reduce((sum, asset) => sum + asset.currentStageCounts.draft, 0) }
+  const total = assets?.reduce((sum, asset) => sum + asset.segmentCount, 0)
   const coverage = result?.scope === scope ? result.coverage : undefined
   const error = result?.scope === scope ? result.error : undefined
   return <footer className={styles.statusBar} aria-label={t('本地化工作台状态栏')}>

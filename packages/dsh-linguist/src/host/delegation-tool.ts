@@ -32,7 +32,7 @@ const parameters = Type.Object({
     referenceFiles: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1 }), kind: Type.Union([Type.Literal('tm'), Type.Literal('terms')]),
       xlsxMapping: Type.Optional(Type.Object({ sheetName: Type.String({ minLength: 1 }), columns: Type.Object({ source: Type.String({ minLength: 1 }), target: Type.String({ minLength: 1 }) }) })) }))),
     contextFiles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Original spreadsheets, presentations or images with visual context, relative to the Workspace.' })),
-    online: Type.Optional(Type.Object({ url: Type.String({ minLength: 1 }), expectedSegments: Type.Integer({ minimum: 1 }), observedAt: Type.String({ minLength: 1 }) })),
+    online: Type.Optional(Type.Object({ fileId: Type.Optional(Type.String({ minLength: 1, description: 'Stable platform file or job identifier for this batch.' })), url: Type.String({ minLength: 1 }), expectedSegments: Type.Integer({ minimum: 1 }), observedAt: Type.String({ minLength: 1 }) })),
   })),
   inputs: Type.Optional(Type.Array(Type.Object({
     path: Type.String({ minLength: 1 }),
@@ -93,8 +93,8 @@ export function createLinguistDelegationTool(input: {
       const referencePaths = new Set(scope.referenceFiles?.map(file => file.path))
       const contextFiles = [...new Set([...(scope.contextFiles ?? []), ...receipts.filter(item => item.usablePath && !referencePaths.has(item.requestedPath))
         .map(item => isAbsolute(item.usablePath!) ? relative(realpathSync(workspaceRoot), item.usablePath!) : item.usablePath!)])]
-      const review = fileTask || childBinding.delegatedScope ? await prepareReviewMaterials(input.service, {
-        ...scope, contextFiles, workspaceRoot, taskId: String(input.agent.id),
+      const review = fileTask || childBinding.delegatedScope?.segmentIds.length ? await prepareReviewMaterials(input.service, {
+        ...scope, contextFiles, workspaceRoot, taskGroupId: childBinding.taskGroupId, taskId: String(input.agent.id),
         ...(childBinding.projectId ? { projectId: childBinding.projectId } : {}),
         ...(childBinding.delegatedScope ? { batchIds: undefined, segmentIds: [...childBinding.delegatedScope.segmentIds] } : {}),
       }, exec.signal, (id, versions) => { childBinding.reviewSnapshot = { id, versions } }) : undefined
@@ -106,8 +106,9 @@ export function createLinguistDelegationTool(input: {
           `Objective: ${call.objective}`,
           ...(call.expectedOutcome ? [`Expected outcome: ${call.expectedOutcome}`] : []),
           `Linguist role: ${childBinding.role}; mode: ${childBinding.workMode}.`,
-          ...(childBinding.delegatedScope ? [`Scope: ${childBinding.delegatedScope.segmentIds.length} segments.`] : []),
+          ...(childBinding.delegatedScope?.segmentIds.length ? [`Scope: ${childBinding.delegatedScope.segmentIds.length} segments.`] : []),
           ...(review ? [
+            '[LA prepared review materials]',
             `${review.readingContent ? 'The first normal review group is included below; do not fetch it again.' : 'The first group is too long for inline delivery; read it from the files below.'} These materials contain exact IDs, current bilingual text, related comparisons and references. Read these files in order: ${JSON.stringify(review.continuationPaths)}. Do not separately query semantic groups. Full index: ${review.readingPath}.`,
             review.readingContent,
           ] : []),

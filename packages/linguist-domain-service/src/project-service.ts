@@ -1,3 +1,4 @@
+import { prepareLibraryBackup, resetLibraryForRestore } from './project-library'
 /**
  * LinguistProjectService — DSH Host 内的 CAT 项目服务。
  *
@@ -179,6 +180,7 @@ const ASSET_SOURCE_SPOT_CHECK_LIMIT = 20
 export class LinguistProjectService {
   readonly rootDir: string
   readonly reviewCache: ReviewCache
+  private readonly workspaceRootForProject?: LinguistProjectServiceOptions['workspaceRootForProject']
   private readonly entropy?: EntropySource
   private readonly now: () => string
   private readonly applicationVersion: string
@@ -193,6 +195,7 @@ export class LinguistProjectService {
   private readonly delivery: ProjectDelivery
 
   constructor(options: LinguistProjectServiceOptions) {
+    this.workspaceRootForProject = options.workspaceRootForProject
     this.rootDir = options.rootDir
     this.reviewCache = new ReviewCache(options.rootDir)
     this.now = options.now ?? (() => new Date().toISOString())
@@ -459,7 +462,7 @@ export class LinguistProjectService {
       this.closeProject(projectId)
     }
     try {
-      const db = this.store.openProject(projectId, { readOnly })
+      const db = this.store.openProject(projectId, { readOnly, prepareMigrationBackup: () => prepareLibraryBackup(this, projectId, this.workspaceRootForProject?.(projectId)) })
       const opened = lstatSync(catDbPath)
       this.handles.set(projectId, { db, ino: opened.ino, dev: opened.dev })
       return db
@@ -583,8 +586,10 @@ export class LinguistProjectService {
    * VACUUM INTO + project.json + source/ + blobs/ + manifest），返回
    * 备份名 + 根相对目录 + manifest 摘要。归档项目同样可备份（只读语义）。
    */
-  backupProject(projectId: string): LinguistBackupResult {
+  backupProject(projectId: string, workspaceRoot = this.workspaceRootForProject?.(projectId)): LinguistBackupResult {
     this.getProject(projectId)
+    if (this.contextImports.has(projectId)) throw new Error('项目正在导入参考资料，请完成后再备份。')
+    prepareLibraryBackup(this, projectId, workspaceRoot)
     const result = this.call(() => this.store.backupProject(projectId), projectId)
     const totalSizeBytes = result.manifest.files.reduce((sum, f) => sum + f.sizeBytes, 0)
     console.log(
@@ -665,7 +670,7 @@ export class LinguistProjectService {
     if (!isLegacy && !BACKUP_DIR_NAME_PATTERN.test(backupName)) {
       throw new StoreNotFoundError('backup', backupName)
     }
-    const { backupsDir } = this.getProjectPaths(projectId)
+    const { backupsDir, projectDir } = this.getProjectPaths(projectId)
     if (!existsSync(join(backupsDir, backupName))) {
       throw new StoreNotFoundError('backup', backupName)
     }
@@ -716,7 +721,7 @@ export class LinguistProjectService {
 
     const restorable = !isLegacy && verification?.ok === true
     const willMigrate = backupSchemaVersion !== undefined && backupSchemaVersion < SCHEMA_VERSION
-    const notice = isLegacy
+    let notice = isLegacy
       ? '旧格式备份（缺 manifest 与 source/blobs）：仅可预览数据库摘要，不支持恢复'
       : verification?.ok === false
         ? `备份未通过完整性校验（${verification.problems.length} 项问题），不可恢复`
@@ -725,6 +730,9 @@ export class LinguistProjectService {
           : willMigrate
             ? '备份由旧版本 schema 生成，恢复后首次打开将自动迁移'
             : undefined
+    if (restorable && existsSync(join(projectDir, 'project-library.json')) && !existsSync(join(backupsDir, backupName, 'project-library.json'))) {
+      notice = [notice, '这份备份缺少项目资料登记。恢复后，当前登记仅保留在恢复前快照中。'].filter(Boolean).join('。')
+    }
     console.log(`[Linguist] 恢复预览: 项目 ${projectId} 备份 ${isLegacy ? 'legacy' : 'directory'}（restorable=${restorable}）`)
     return {
       backupName,
@@ -748,11 +756,12 @@ export class LinguistProjectService {
    * 首次可写打开时自动迁移）→ 返回恢复报告（含快照名）。
    */
   restoreProject(projectId: string, backupName: string): LinguistRestoreResult {
-    const project = this.getProject(projectId)
-    if (project.archivedAt !== undefined) throw new LinguistProjectArchivedError(projectId)
+    this.assertProjectWritable(projectId)
+    resetLibraryForRestore(this, projectId)
     this.closeProject(projectId)
     try {
-      const result = this.call(() => this.store.restoreProject(projectId, backupName), projectId)
+      const result = this.call(() => this.store.restoreProject(projectId, backupName,
+        () => prepareLibraryBackup(this, projectId, this.workspaceRootForProject?.(projectId), 'pre-restore')), projectId)
       // 重开：刷新缓存句柄；旧 schema 备份在此自动迁移。
       this.closeProject(projectId)
       const db = this.openProject(projectId)
@@ -778,12 +787,12 @@ export class LinguistProjectService {
    * 只读句柄，不迁移项目或替换工作中的缓存句柄；项目不存在抛 PROJECT_NOT_FOUND，
    * 项目数据库不可读时抛 PROJECT_UNHEALTHY。
    */
-  getProjectSummary(projectId: string): LinguistProjectSummary {
+  getProjectSummary(projectId: string, taskGroupId?: string): LinguistProjectSummary {
     const project = this.getProject(projectId)
     let db: ProjectDatabase
     try { db = this.store.openProject(projectId, { readOnly: true }) }
     catch (error) { throw new LinguistProjectUnhealthyError(projectId, errorCodeOf(error)) }
-    try { return { project, ...this.summarizeHandle(db) } }
+    try { return { project, taskGroups: db.taskGroups.list(), ...this.summarizeHandle(db, db.schemaVersion < 21 && taskGroupId === 'ungrouped' ? undefined : taskGroupId) } }
     finally { db.close() }
   }
 
@@ -792,14 +801,13 @@ export class LinguistProjectService {
    * 资产元数据行（不加载段行 / source blob）。getProjectSummary 与
    * PB-111 恢复预览（对备份库句柄重跑）共用。
    */
-  private summarizeHandle(db: ProjectDatabase): LinguistBackupSummary {
-    const assetCount = this.call(() => db.assets.countByProject(), db.projectId)
-    const segmentCounts = this.call(() => db.segments.countByStatus(), db.projectId)
+  private summarizeHandle(db: ProjectDatabase, taskGroupId?: string): LinguistBackupSummary {
+    const segmentCounts = this.call(() => db.segments.countByStatus(taskGroupId), db.projectId)
     const currentStageCounts = this.call(
-      () => db.segments.countByCurrentStageState(),
+      () => db.segments.countByCurrentStageState(taskGroupId),
       db.projectId,
     )
-    const assetRows = this.call(() => db.assets.listByProject(), db.projectId)
+    const assetRows = this.call(() => db.assets.listByProject(), db.projectId).filter(asset => !taskGroupId || asset.taskGroupId === taskGroupId)
     const segmentCountsByAsset = this.call(() => db.segments.countByAssetAndStatus(), db.projectId)
     const currentStageCountsByAsset = this.call(
       () => db.segments.countByAssetAndCurrentStageState(),
@@ -816,6 +824,7 @@ export class LinguistProjectService {
       const assetId = asset.id as string
       return {
         assetId,
+        taskGroupId: asset.taskGroupId,
         filename: asset.originalFilename,
         formatId: asset.formatId,
         segmentCount: asset.segmentCount,
@@ -838,7 +847,7 @@ export class LinguistProjectService {
         openQaCount: openQaCountsByAsset.get(assetId) ?? 0,
       }
     })
-    return { assetCount, totalSegments, segmentCounts, currentStageCounts, assets }
+    return { assetCount: assets.length, totalSegments, segmentCounts, currentStageCounts, assets }
   }
 
   /** PB-080：所有 reference 写入共享的归档前置守卫。 */
@@ -1226,6 +1235,7 @@ export class LinguistProjectService {
   listQaFindings(
     projectId: string,
     filter: {
+      taskGroupId?: string
       assetId?: string
       segmentId?: string
       code?: string

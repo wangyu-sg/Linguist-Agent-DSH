@@ -16,9 +16,13 @@ export type ReadyReference = Omit<SegmentTranslationContext, 'currentTarget' | '
 export type ReferenceItem = ReadyReference | { segmentId: string; status: 'failed'; error: string } | { segmentId: string; status: 'platform'; note: string }
 type ReferenceJob = {
   projectId: string
+  taskGroupId?: string
   ids: string[]
   monitor: ProjectDatabase
   version: number
+  materialVersion: string
+  assetIds: string[]
+  tagProfile: string | undefined
   file: { dev: number; ino: number }
   worker: Worker
   active: boolean
@@ -40,10 +44,10 @@ function stop(job: ReferenceJob): void {
   notify(job)
 }
 
-export function disposeWorkingCopyReferences(service: LinguistProjectService, projectId?: string): void {
+export function disposeWorkingCopyReferences(service: LinguistProjectService, projectId?: string, taskGroupId?: string): void {
   const entries = jobs.get(service)
   if (!entries) return
-  for (const [key, job] of entries) if (projectId === undefined || projectId === job.projectId) {
+  for (const [key, job] of entries) if ((projectId === undefined || projectId === job.projectId) && (taskGroupId === undefined || taskGroupId === job.taskGroupId)) {
     entries.delete(key)
     stop(job)
   }
@@ -52,28 +56,39 @@ export function disposeWorkingCopyReferences(service: LinguistProjectService, pr
 function getJob(service: LinguistProjectService, projectId: string, taskId: string, sourceSha256: string, ids: string[]): ReferenceJob {
   let entries = jobs.get(service)
   if (!entries) { entries = new Map(); jobs.set(service, entries) }
-  const key = JSON.stringify([projectId, taskId, sourceSha256])
+  const key = JSON.stringify([projectId, taskId, sourceSha256, ids])
   let job = entries.get(key)
   if (job) {
     const file = lstatSync(job.monitor.catDb.path, { throwIfNoEntry: false })
-    if (!file || file.dev !== job.file.dev || file.ino !== job.file.ino || version(job.monitor) !== job.version
-      || JSON.stringify(job.ids) !== JSON.stringify(ids)) {
+    const dbVersion = version(job.monitor)
+    const changed = dbVersion !== job.version && (job.monitor.schemaVersion < 21
+      || job.monitor.taskGroups.materialVersion(job.taskGroupId ?? '', job.assetIds) !== job.materialVersion)
+    if (!file || file.dev !== job.file.dev || file.ino !== job.file.ino || changed
+      || JSON.stringify(service.getProject(projectId).tagProfile) !== job.tagProfile) {
       entries.delete(key)
       stop(job)
       job = undefined
-    }
+    } else job.version = dbVersion
   }
   if (job) return job
   const monitor = new CatStore({ rootDir: service.rootDir }).openProject(projectId, { readOnly: true })
   const file = lstatSync(monitor.catDb.path)
+  // Capture dependencies before the worker is allowed to read. The next poll sees any later commit.
+  const dbVersion = version(monitor)
+  const { segments, assetIds, taskGroupId, materialVersion } = monitor.catDb.readSnapshot(() => {
+    const segments = monitor.segments.getByIds(ids)
+    const assetIds = [...new Set(segments.map(row => row.assetId))]
+    const taskGroupId = monitor.taskGroups.forAssets(assetIds)
+    return { segments, assetIds, taskGroupId, materialVersion: monitor.taskGroups.materialVersion(taskGroupId ?? '', assetIds) }
+  })
+  const tagProfile = JSON.stringify(service.getProject(projectId).tagProfile)
   const worker = new Worker(workerEntry(), { workerData: {
-    kind: 'working-references', request: { rootDir: service.rootDir, projectId, taskId, segmentIds: ids },
+    kind: 'working-references', request: { rootDir: service.rootDir, projectId, taskId, segmentIds: ids, taskGroupId, assetIds, materialVersion, tagProfile },
   } })
   worker.unref()
-  const created: ReferenceJob = { projectId, ids, monitor, version: version(monitor), file, worker,
+  const created: ReferenceJob = { projectId, taskGroupId, ids, monitor, version: dbVersion, materialVersion, assetIds, tagProfile, file, worker,
     active: true, items: new Map(), waiters: new Set(), semantic: { status: 'pending' }, abort: new AbortController() }
-  const segments = ids.map(id => monitor.segments.getById(id)!)
-  void service.reviewCache.get(join(service.getProjectPaths(projectId).projectDir, 'semantic-cache.sqlite'), segments, created.abort.signal)
+  void service.reviewCache.get(join(service.getProjectPaths(projectId).projectDir, 'semantic-cache.sqlite'), segments, created.abort.signal, taskGroupId)
     .then(result => { created.semantic = result; notify(created) })
   const fail = (message: string) => {
     if (!created.active) return
@@ -82,6 +97,11 @@ function getJob(service: LinguistProjectService, projectId: string, taskId: stri
     notify(created)
   }
   worker.on('message', (message: { type: string; items?: ReferenceItem[]; message?: string }) => {
+    if (message.type === 'stale' && entries.get(key) === created) {
+      entries.delete(key)
+      stop(created)
+      return
+    }
     if (message.type === 'references') for (const item of message.items!) created.items.set(item.segmentId, item)
     if (message.type === 'error') fail(message.message ?? '参考资料工作线程失败')
     notify(created)

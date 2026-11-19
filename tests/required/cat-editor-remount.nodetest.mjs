@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import * as inlineTokens from '../../packages/dsh-linguist/src/client/inline-tokens.ts'
 
 const require = createRequire(new URL('../../packages/dsh-linguist/package.json', import.meta.url))
 const React = require('react')
@@ -32,6 +33,7 @@ function load(name) {
     if (name === './TokenEditor') return { TokenEditor: 'TokenEditor' }
     if (name === './InlineTaggedText') return { InlineTaggedText: 'InlineTaggedText' }
     if (name === './EditorAssistance') return { useEditorViewOptions: () => [{ invisibles: false, terms: true, critical: true, spelling: true, differences: false, context: false }, () => {}, ''], useEditorTerms: () => ({ items: new Map() }), EditorViewControls: 'EditorViewControls', SegmentTextCells: SegmentTextCellsFixture }
+    if (name === './inline-tokens') return inlineTokens
     if (name === './cat-edit-utils') return load('cat-edit-utils.ts')
     if (name === './cat-virtual-utils') return load('cat-virtual-utils.ts')
     if (name === './proposal-view') return load('proposal-view.ts')
@@ -61,7 +63,7 @@ function SegmentTextCellsFixture(props) {
   return React.createElement(React.Fragment, null,
     React.createElement('div', { role: 'gridcell' }, props.segment.source),
     React.createElement('div', { role: 'gridcell' }, props.editing
-      ? React.createElement(load('TargetEditor.tsx').TargetEditor, { ...props.editorProps, draftAtom: props.draftAtom, segment: props.segment, archived: props.archived, tagProfile: props.tagProfile })
+      ? React.createElement(load('TargetEditor.tsx').TargetEditor, { ...props.editorProps, draftAtom: props.draftAtom, segment: props.segment, archived: props.archived, tagProfile: props.tagProfile, formatId: props.formatId })
       : React.createElement('button', { type: 'button', disabled: props.segment.locked || props.archived, onClick: props.onStartEdit }, props.segment.target), props.signals))
 }
 
@@ -161,7 +163,7 @@ test('external updates preserve IME and protected operations even when local tex
     const fixture = editorFixture(`protected-baseline-${flag}`)
     const original = fixture.state.store.get(fixture.props.draftAtom)
     const draft = flag === 'composing'
-      ? { ...original, state: { ...original.state, composing: true, compositionBase: original.state.value } }
+      ? { ...original, state: { ...original.state, composing: true, compositionBase: { value: original.state.value } } }
       : { ...original, [flag]: true }
     fixture.state.store.set(fixture.props.draftAtom, draft)
     const editor = fixture.mount()
@@ -190,6 +192,27 @@ test('saving remains read-only after remount and a failed response keeps the dra
   assert.equal(editor.tokenEditor().value, 'awaiting save')
   assert.equal(editor.tokenEditor().readOnly, false)
   editor.unmount()
+})
+
+test('mixed all-batch rows resolve formats by each segment assetId and TargetEditor forwards format without changing draft', () => {
+  const fixture = editorFixture('mixed-asset-formats')
+  const segments = ['phrase', 'sdl', 'unknown'].map((assetId, ordinal) => ({ ...fixture.props.segment, id: `format-${assetId}`, assetId, ordinal }))
+  const props = { data: { total: segments.length, ids: segments.map(segment => segment.id), rows: new Map(segments.map((segment, index) => [index, segment])) },
+    assets: [{ assetId: 'sdl', formatId: 'sdlxliff_1_2' }, { assetId: 'phrase', formatId: 'phrase_mxliff_1_2' }],
+    drafts: fixture.state.drafts, editingIdAtom: fixture.state.editingId,
+    signals: new Map(), selectedIds: new Set(), reviewingIds: new Set(), workflowStage: 'translation', onVisibleRange() {}, onEditorHandleChange() {} }
+  fixture.state.store.set(fixture.state.editingId, segments[0].id)
+  const rows = mountEditor(fixture.state, props, props => load('CatWorkbench.tsx').testRows(props))
+  rows.render()
+  assert.deepEqual(rows.nodes().filter(node => node.type === SegmentTextCellsFixture).map(node => node.props.formatId), ['phrase_mxliff_1_2', 'sdlxliff_1_2', undefined])
+  const editor = mountEditor(fixture.state, { ...rows.editorProps() })
+  editor.render()
+  const original = fixture.state.store.get(rows.editorProps().draftAtom)
+  assert.equal(editor.tokenEditor().formatId, 'phrase_mxliff_1_2')
+  editor.render({ formatId: 'sdlxliff_1_2' })
+  assert.equal(editor.tokenEditor().formatId, 'sdlxliff_1_2')
+  assert.strictEqual(fixture.state.store.get(rows.editorProps().draftAtom), original)
+  editor.unmount(); rows.unmount()
 })
 
 test('a late saved row cannot close another editor or remove a replacement draft', async () => {
@@ -390,33 +413,95 @@ test('external and QA focus waits for loaded mounted rows and preserves an edito
   document.activeElement = null
 })
 
-async function workbenchFixture(id, queryPage, { filter = '', deferredQuery, movingProject = false } = {}) {
+async function workbenchFixture(id, queryPage, { filter = '', deferredQuery, movingProject = false, withGroups = false, boundGroup } = {}) {
   const state = load('cat-editor-state.ts').getCatEditorState(id, 'project-synthetic')
   const segments = Array.from({ length: 403 }, (_, ordinal) => ({ id: `row-${ordinal}`, ordinal, source: 'Synthetic source', target: 'target', revision: 1, assetId: 'asset-A', locked: ordinal >= 200 && ordinal !== 401, currentStageState: 'untouched' }))
   const project = { id: 'project-synthetic', name: 'Synthetic project', sourceLocale: 'en-US', targetLocale: 'zh-CN', workflowStage: 'translation' }
-  const summary = { project, assets: [{ assetId: 'asset-A', filename: 'synthetic.json', currentStageCounts: { confirmed: 0 }, segmentCount: segments.length }], assetCount: 1 }
+  const summary = { project, taskGroups: [{ id: 'ungrouped', name: '未分组', archived: false }], assets: [{ assetId: 'asset-A', taskGroupId: 'ungrouped', filename: 'synthetic.json', currentStageCounts: { confirmed: 0 }, segmentCount: segments.length }], assetCount: 1 }
+  if (withGroups) {
+    summary.taskGroups.push({ id: 'other-group', name: 'Second delivery', archived: false })
+    summary.assets.push({ ...summary.assets[0], assetId: 'asset-B', taskGroupId: 'other-group' })
+    segments.at(-1).assetId = 'asset-B'
+  }
   const calls = []
   navigation = undefined
   apiRequired = async (operation, input) => {
     if (operation === 'linguistProjectsOpen') return { project }
-    if (operation === 'linguistProjectsGetSummary') return movingProject ? { ...summary, project: { ...project } } : summary
+    if (operation === 'linguistProjectsGetSummary') {
+      if (input.taskGroupId) return { ...summary, assets: summary.assets.filter(asset => asset.taskGroupId === input.taskGroupId) }
+      return movingProject ? { ...summary, project: { ...project } } : summary
+    }
     if (operation === 'linguistCatRowSignals') return { items: input.segmentIds.map(segmentId => ({ segmentId, qaCount: 0 })) }
-    if (operation === 'linguistCatGetContext') return { segment: segments[Number(input.segmentId.slice(4))], qaFindings: [] }
+    if (operation === 'linguistCatGetContext') {
+      const segment = segments[Number(input.segmentId.slice(4))]
+      if (input.taskGroupId && !summary.assets.some(asset => asset.assetId === segment.assetId && asset.taskGroupId === input.taskGroupId)) throw Error('segment outside task group')
+      return { segment, qaFindings: [] }
+    }
     if (operation === 'linguistCatConfirmStage') { const row = segments[Number(input.segmentId.slice(4))]; row.currentStageState = 'confirmed'; return { ...row } }
     if (operation === 'linguistCatQuery') {
-      const filtered = segments.filter(row => (!input.currentStageState || row.currentStageState === input.currentStageState) && (!input.assetId || row.assetId === input.assetId) && (!input.search || row.source.includes(input.search)))
+      const filtered = segments.filter(row => (!input.taskGroupId || summary.assets.some(asset => asset.assetId === row.assetId && asset.taskGroupId === input.taskGroupId)) && (!input.currentStageState || row.currentStageState === input.currentStageState) && (!input.assetId || row.assetId === input.assetId) && (!input.search || row.source.includes(input.search)))
       if (input.offset > 0) { calls.push(input.offset); return queryPage(input.offset, filtered) }
       const page = { segments: filtered.slice(0, 200), segmentIds: filtered.map(row => row.id), total: filtered.length }
       return deferredQuery?.(input, page) ?? page
     }
     throw new Error(`Unexpected synthetic operation: ${operation}`)
   }
-  const workbench = mountEditor(state, { projectId: project.id, sessionId: id, editorState: state }, props => load('CatWorkbench.tsx').testWorkbench(props))
+  const workbench = mountEditor(state, { projectId: project.id, taskGroupId: boundGroup, sessionId: id, editorState: state }, props => load('CatWorkbench.tsx').testWorkbench(props))
   workbench.render(); await tick(); workbench.render(); await tick(); workbench.render()
   if (filter) { workbench.nodes().find(node => node.props?.['aria-label'] === '阶段筛选').props.onChange({ target: { value: filter } }); workbench.render(); await tick(); workbench.render() }
   const rows = () => workbench.nodes().find(node => node.type?.name === 'SegmentRows').props
   return { workbench, rows, segments, calls, async settle() { workbench.render(); await tick(); workbench.render(); await tick(); workbench.render() } }
 }
+
+test('project CAT filters same-named batches, navigation, rows and history together, retaining drafts across groups', async () => {
+  const id = 'group-navigation'
+  const fixture = await workbenchFixture(id, (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }), { withGroups: true })
+  const { workbench } = fixture
+  const controls = label => workbench.nodes().find(node => node.props?.['aria-label'] === label)
+  const entries = () => workbench.nodes().filter(node => node.type === 'BatchExportButton').map(node => node.props.asset.assetId)
+  const options = () => React.Children.toArray(controls('工作批次').props.children).map(node => node.props.value)
+  const scope = load('cat-editor-state.ts').getCatEditorState(id, 'project-synthetic')
+  const draft = jotai.atom({ state: { value: 'pending edit' }, baseTarget: 'target' })
+  scope.drafts.set('row-199', draft)
+  scope.store.set(scope.editingId, 'row-199')
+  try {
+    assert.equal(controls('任务组').props.value, 'ungrouped')
+    assert.deepEqual(options(), ['', 'asset-A'])
+    assert.deepEqual(entries(), ['asset-A'])
+    controls('任务组').props.onChange({ target: { value: 'other-group' } })
+    await fixture.settle()
+    assert.equal(controls('工作批次').props.value, '')
+    assert.deepEqual(options(), ['', 'asset-B'])
+    assert.deepEqual(entries(), ['asset-B'])
+    assert.deepEqual([...fixture.rows().data.ids], ['row-402'])
+    assert.equal(workbench.nodes().find(node => node.type === 'QaPanel').props.taskGroupId, 'other-group')
+    assert.equal(workbench.nodes().find(node => node.type === 'CatStatusBar').props.taskGroupId, 'other-group')
+    navigation = { projectId: 'project-synthetic', sessionId: id, segmentId: 'row-199', revision: 1 }
+    await fixture.settle()
+    assert.equal(controls('任务组').props.value, 'ungrouped')
+    assert.equal(controls('工作批次').props.value, 'asset-A')
+    assert.equal(fixture.rows().selectedId, 'row-199')
+    assert.equal(scope.store.get(scope.drafts.get('row-199')).state.value, 'pending edit')
+    navigation = { projectId: 'project-synthetic', sessionId: id, assetId: 'asset-B', revision: 2 }
+    await fixture.settle()
+    assert.equal(controls('任务组').props.value, 'other-group')
+    assert.equal(controls('工作批次').props.value, 'asset-B')
+  } finally { workbench.unmount() }
+})
+
+test('bound CAT stays in its group even when an old location or external link names another batch', async () => {
+  const id = 'bound-group-navigation'
+  const f = await workbenchFixture(id, (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }), { withGroups: true, boundGroup: 'other-group' })
+  try {
+    assert(!f.workbench.nodes().some(n => n.props?.['aria-label'] === '任务组'))
+    assert.deepEqual([...f.rows().data.ids], ['row-402'])
+    navigation = { sessionId: id, projectId: 'project-synthetic', assetId: 'asset-A', revision: 1 }
+    await f.settle()
+    assert.deepEqual([...f.rows().data.ids], ['row-402'])
+    assert.equal(f.workbench.nodes().find(n => n.props?.['aria-label'] === '工作批次').props.value, 'asset-B')
+    assert(f.workbench.nodes().some(n => n.props?.role === 'status' && React.Children.toArray(n.props.children).includes('目标批次不在当前会话范围内。')))
+  } finally { f.workbench.unmount() }
+})
 
 test('inspector receives only the selected editing draft, including an unmounted editor draft', async () => {
   const id = 'inspector-draft-scope', fixture = await workbenchFixture(id, (offset, rows) => ({ segments: rows.slice(offset, offset + 200) }))
@@ -794,11 +879,119 @@ test('raw selection survives remount and the editor handle exposes issue-range s
   editor.unmount()
   assert.equal(handle, undefined)
   editor = fixture.mount(); editor.render()
-  assert.deepEqual(fixture.state.store.get(fixture.props.draftAtom).selection, { start: 2, end: 5, backward: true })
+  assert.deepEqual(fixture.state.store.get(fixture.props.draftAtom).state.selection, { start: 2, end: 5, backward: true })
   assert.equal(editor.tokenEditor().initialSelection.start, 2)
   assert.equal(editor.tokenEditor().initialSelection.end, 5)
   assert.equal(editor.nodes().some(node => node.type === 'textarea'), false)
   editor.unmount()
+})
+
+test('native formatting toolbar uses the draft transaction and undo/redo restore raw and selection together', () => {
+  const fixture = editorFixture('format-transaction-history')
+  const raw = 'A {name} B', before = { start: 2, end: 8, backward: true }
+  fixture.props.segment = { ...fixture.props.segment, source: raw, target: raw }
+  fixture.props.formatId = 'phrase_mxliff_1_2'
+  fixture.state.store.set(fixture.props.draftAtom, { ...fixture.state.store.get(fixture.props.draftAtom), state: load('TargetEditor.tsx').createTargetDraftState(raw), baseTarget: raw })
+  let saves = 0, editor
+  const view = []
+  fixture.props.onSave = async () => { saves++; return 'saved' }
+  fixture.props.onFormatCodesChange = value => view.push(['codes', value])
+  fixture.props.onInvisiblesChange = value => view.push(['invisibles', value])
+  const tokenHandle = { toggleFormat(flag) {
+    const current = fixture.state.store.get(fixture.props.draftAtom).state
+    const edit = inlineTokens.togglePhraseFormat(current.value, current.selection, flag, fixture.props.formatId, inlineTokens.tokenizeInlineText(current.value))
+    return edit ? editor.tokenEditor().onEdit(edit.value, 'protected', current.selection, edit.selection) : false
+  } }
+  editor = mountEditor(fixture.state, fixture.props, undefined, tokenHandle)
+  editor.render()
+  assert(editor.nodes().find(node => node.props?.['aria-label'] === '下划线').props.disabled)
+  editor.tokenEditor().onSelectionChange(before); editor.render()
+  editor.click('下划线'); editor.render()
+  const formatted = fixture.state.store.get(fixture.props.draftAtom).state
+  assert.equal(formatted.value, 'A {u>{name}<u} B')
+  assert.equal(formatted.past.length, 1)
+  assert.deepEqual(formatted.past[0].selection, before)
+  const after = formatted.selection
+  assert.equal(saves, 0)
+  editor.click('格式码'); editor.click('¶'); editor.render()
+  assert.deepEqual(view, [['codes', true], ['invisibles', true]])
+  assert.equal(fixture.state.store.get(fixture.props.draftAtom).state, formatted)
+  editor.click('撤销译文编辑'); editor.render()
+  assert.equal(editor.tokenEditor().value, raw)
+  assert.deepEqual(editor.tokenEditor().initialSelection, before)
+  editor.click('重做译文编辑'); editor.render()
+  assert.equal(editor.tokenEditor().value, formatted.value)
+  assert.deepEqual(editor.tokenEditor().initialSelection, after)
+  for (const name of ['下标', '上标']) assert(editor.nodes().find(node => node.props?.['aria-label'] === name).props.disabled)
+  editor.render({ archived: true })
+  for (const name of ['加粗', '斜体', '下划线']) assert(editor.nodes().find(node => node.props?.['aria-label'] === name).props.disabled)
+  editor.render({ archived: false, formatId: 'sdlxliff_1_2' })
+  for (const name of ['加粗', '斜体', '下划线']) assert(editor.nodes().find(node => node.props?.['aria-label'] === name).props.disabled)
+  editor.render({ formatId: 'phrase_mxliff_1_2' })
+  const beforeIme = fixture.state.store.get(fixture.props.draftAtom).state
+  editor.tokenEditor().onCompositionStart(); editor.render()
+  editor.tokenEditor().onCompositionUpdate(raw); editor.render()
+  assert.equal(editor.tokenEditor().onCompositionEnd(raw, { start: 1, end: 1 }), beforeIme.value, 'native IME cannot silently drop hidden style codes')
+  editor.render()
+  assert.equal(fixture.state.store.get(fixture.props.draftAtom).state.value, beforeIme.value)
+  assert.deepEqual(fixture.state.store.get(fixture.props.draftAtom).state.selection, beforeIme.selection)
+  assert.equal(fixture.state.store.get(fixture.props.draftAtom).state.past.length, beforeIme.past.length)
+  editor.unmount()
+})
+
+test('IME Escape preserves the live Target draft through local and platform composing signals', () => {
+  const fixture = editorFixture('ime-escape-draft')
+  let cancellations = 0
+  fixture.props.onCancel = () => { cancellations++; fixture.state.drafts.delete(fixture.props.segment.id) }
+  const editor = fixture.mount(); editor.render()
+  editor.input('unsaved'); editor.render()
+  editor.tokenEditor().onCompositionStart()
+  editor.input('未确认的输入法草稿')
+  const key = (nativeEvent = {}) => {
+    const event = { key: 'Escape', metaKey: false, ctrlKey: false, shiftKey: false, nativeEvent, defaultPrevented: false, preventDefault() { this.defaultPrevented = true } }
+    editor.tokenEditor().onKeyDown(event)
+    return event
+  }
+  assert.equal(key({ isComposing: false }).defaultPrevented, false, 'the local composition ref covers native events that report false')
+  assert.equal(cancellations, 0)
+  assert(fixture.state.drafts.has(fixture.props.segment.id))
+  assert.equal(fixture.state.store.get(fixture.props.draftAtom).state.value, '未确认的输入法草稿')
+  editor.render(); editor.tokenEditor().onCompositionEnd('未确认的输入法草稿'); editor.render()
+  const retained = fixture.state.store.get(fixture.props.draftAtom)
+  for (const nativeEvent of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+    assert.equal(key(nativeEvent).defaultPrevented, false)
+    assert.equal(cancellations, 0)
+    assert.strictEqual(fixture.state.store.get(fixture.props.draftAtom), retained)
+    assert(fixture.state.drafts.has(fixture.props.segment.id))
+  }
+  assert.equal(key({ isComposing: false, keyCode: 27 }).defaultPrevented, true)
+  assert.equal(cancellations, 1, 'ordinary Escape still cancels after IME ends')
+  assert.equal(fixture.state.drafts.has(fixture.props.segment.id), false)
+  editor.unmount()
+})
+
+test('snapshot history keeps bounded raw/selection pairs and groups IME into one undo step', () => {
+  const { createTargetDraftState, targetDraftReducer, TARGET_UNDO_MAX_OPERATIONS } = load('TargetEditor.tsx')
+  let state = createTargetDraftState('0')
+  for (let index = 1; index <= 250; index++) state = targetDraftReducer(state, { type: 'commit', value: String(index), previousSelection: { start: 0, end: 1 }, selection: { start: 1, end: 1 } })
+  assert.equal(state.past.length, TARGET_UNDO_MAX_OPERATIONS)
+  assert.equal(state.past.at(-1).value, '249')
+  assert.equal(state.past.at(-1).selection.end, 1)
+  const original = state
+  state = targetDraftReducer(state, { type: 'composition-start' })
+  state = targetDraftReducer(state, { type: 'composition-update', value: '组' })
+  state = targetDraftReducer(state, { type: 'composition-update', value: '组合😀' })
+  state = targetDraftReducer(state, { type: 'composition-end', value: '组合😀', selection: { start: 4, end: 4 } })
+  assert.equal(state.past.at(-1).value, original.value)
+  state = targetDraftReducer(state, { type: 'undo' })
+  assert.equal(state.value, original.value)
+  assert.deepEqual(state.selection, original.selection)
+  state = targetDraftReducer(state, { type: 'redo' })
+  assert.equal(state.value, '组合😀')
+  assert.equal(state.selection.start, 4)
+  let large = createTargetDraftState('x'.repeat(100_001))
+  for (const suffix of ['1', '2', '3']) large = targetDraftReducer(large, { type: 'commit', value: 'x'.repeat(100_001) + suffix })
+  assert([...large.past, ...large.future].reduce((sum, snapshot) => sum + snapshot.value.length, 0) <= 200_000)
 })
 
 test('project history clears the prior batch and selection while Agent references display the segment number', async () => {

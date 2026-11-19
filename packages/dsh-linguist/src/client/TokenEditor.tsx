@@ -2,8 +2,9 @@ import * as React from 'react'
 import type { LinguistTagProfileInfo } from '@linguist/domain-service/contracts'
 import {
   annotatedTextRuns, copyInlineSelection, inlineDomPointToOffset, inlineDomSelection, inlineOffsetToDomPoint,
-  readInlineDomText, snapInlineSelection, tokenizeInlineText, unicodeCharacters,
-  type InlineAnnotation, type InlineSelection,
+  formattingRawOffset, formattingTextOffset, phraseFormatting, replacePhraseFormattedText, togglePhraseFormat,
+  readInlineDomText, inlineSelectionText, snapInlineSelection, tokenizeInlineText, unicodeCharacters,
+  type InlineAnnotation, type InlineSelection, type PhraseFormatFlag,
 } from './inline-tokens'
 import inlineStyles from './InlineTaggedText.module.css'
 import styles from './TokenEditor.module.css'
@@ -13,27 +14,30 @@ export interface TokenEditorHandle {
   select(start: number, end: number): void
   selection(): InlineSelection
   insert(text: string): boolean
+  toggleFormat(flag: PhraseFormatFlag): boolean
 }
 export interface TokenEditorProps {
   value: string
   sourceText: string
   tagProfile?: LinguistTagProfileInfo
+  formatId?: string
   readOnly: boolean
   autoFocus?: boolean
   lang?: string
   spellCheck?: boolean
   showInvisibles?: boolean
+  showFormatCodes?: boolean
   activeTag?: string
   annotations?: readonly InlineAnnotation[]
   initialSelection?: InlineSelection
   onSelectionChange?: (selection: InlineSelection) => void
   onSelectedText?: (text: string) => void
   onTagFocus?: (key: string | undefined) => void
-  onEdit: (value: string, operation: 'manual' | 'protected') => boolean
+  onEdit: (value: string, operation: 'manual' | 'protected', before?: InlineSelection, after?: InlineSelection) => boolean
   onCompositionStart: () => void
   onCompositionUpdate: (value: string) => void
   /** Returns the accepted final value (or the pre-composition value on a rejected edit). */
-  onCompositionEnd: (value: string) => string
+  onCompositionEnd: (value: string, selection?: InlineSelection) => string
   onUndo: () => boolean
   onRedo: () => boolean
   onProtectedSelection?: () => void
@@ -44,9 +48,22 @@ export interface TokenEditorProps {
 }
 
 /** Build only owned elements/text nodes. No user text is ever parsed as HTML. */
-export function renderTokenEditorDom(root: HTMLElement, value: string, options: Pick<TokenEditorProps, 'sourceText' | 'tagProfile' | 'lang' | 'showInvisibles' | 'activeTag' | 'annotations'>): void {
+export function renderTokenEditorDom(root: HTMLElement, value: string, options: Pick<TokenEditorProps, 'sourceText' | 'tagProfile' | 'formatId' | 'lang' | 'showInvisibles' | 'showFormatCodes' | 'activeTag' | 'annotations'>): void {
   const document = root.ownerDocument
+  root.dataset.inlineFormatId = options.formatId ?? ''
+  root.dataset.inlineFormatView = options.showFormatCodes ? 'codes' : 'rich'
   const fragment = document.createDocumentFragment()
+  const tokens = tokenizeInlineText(value, { ...options, targetLocale: options.lang })
+  const formatting = phraseFormatting(value, options.formatId, tokens)
+  const formatClass = (flags: readonly PhraseFormatFlag[]) => flags.map(flag => ({ b: inlineStyles.bold, i: inlineStyles.italic, u: inlineStyles.underline })[flag]).filter(Boolean).join(' ')
+  const code = (raw: string): void => {
+    const marker = document.createElement('span')
+    marker.hidden = true
+    marker.contentEditable = 'false'
+    marker.dataset.inlineRaw = raw
+    marker.dataset.inlineFormatCode = 'true'
+    fragment.appendChild(marker)
+  }
   const text = (parent: Node, raw: string): void => {
     if (!options.showInvisibles) { parent.appendChild(document.createTextNode(raw)); return }
     let ordinary = ''
@@ -65,11 +82,15 @@ export function renderTokenEditorDom(root: HTMLElement, value: string, options: 
   }
   // Empty boundary text nodes allow caret placement on both sides of adjacent atomic chips.
   fragment.appendChild(document.createTextNode(''))
-  for (const token of tokenizeInlineText(value, { ...options, targetLocale: options.lang })) {
+  for (const token of tokens) {
+    if (!options.showFormatCodes && formatting.codes.some(item => item.start === token.start && item.end === token.end)) { code(token.raw); continue }
     if (token.kind === 'tag') {
       const chip = document.createElement('span')
       chip.contentEditable = 'false'
-      chip.className = inlineStyles.chip
+      const flags = formatting.ranges.find(range => range.start <= token.start && range.end >= token.end)?.flags ?? []
+      chip.className = [inlineStyles.chip, formatClass(flags)].filter(Boolean).join(' ')
+      if (flags.length) chip.dataset.inlineFormat = flags.join('')
+      if (flags.includes('u')) chip.dataset.inlineDecoration = 'underline'
       chip.dataset.inlineRaw = token.raw
       chip.dataset.inlineTagKey = token.key
       if (options.activeTag === token.key) chip.dataset.active = 'true'
@@ -79,8 +100,17 @@ export function renderTokenEditorDom(root: HTMLElement, value: string, options: 
       fragment.appendChild(chip)
       fragment.appendChild(document.createTextNode(''))
     } else {
-      for (const run of annotatedTextRuns(token.raw, token.start, options.annotations)) {
+      for (const run of annotatedTextRuns(token.raw, token.start, options.annotations, formatting.ranges, formatting.codes)) {
+        if (!options.showFormatCodes && run.formatCode) { code(run.raw); continue }
         let parent: Node = fragment
+        if (run.flags.length) {
+          const span = document.createElement('span')
+          span.className = formatClass(run.flags)
+          span.dataset.inlineFormat = run.flags.join('')
+          if (run.flags.includes('u')) span.dataset.inlineDecoration = 'underline'
+          parent.appendChild(span)
+          parent = span
+        }
         for (const annotation of run.annotations) {
           const span = document.createElement('span')
           span.className = inlineStyles.annotation
@@ -130,19 +160,23 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
   config.current = props
   const rawRef = React.useRef(props.value)
   const composing = React.useRef(false)
+  const compositionSelection = React.useRef<InlineSelection>()
   const lastSelection = React.useRef<InlineSelection>(props.initialSelection ?? { start: props.value.length, end: props.value.length })
   const dragging = React.useRef<InlineSelection>()
   const pendingSelection = React.useRef<InlineSelection>()
+  const restoreSelectionOnFocus = React.useRef(false)
 
   const selection = (): InlineSelection => {
     const root = rootRef.current
-    return root ? inlineDomSelection(root, root.ownerDocument.getSelection()) ?? lastSelection.current : lastSelection.current
+    return root && root.ownerDocument.activeElement === root && !restoreSelectionOnFocus.current
+      ? inlineDomSelection(root, root.ownerDocument.getSelection()) ?? lastSelection.current : lastSelection.current
   }
   const select = (range: InlineSelection, focus = true, writeNative = true): void => {
     const root = rootRef.current
     if (!root || composing.current) { pendingSelection.current = range; return }
     const normalized = snapInlineSelection(rawRef.current, range.start, range.end, tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang }))
     lastSelection.current = { ...normalized, backward: range.backward }
+    if (writeNative) restoreSelectionOnFocus.current = false
     if (focus) root.focus({ preventScroll: true })
     const native = root.ownerDocument.getSelection()
     if (native && writeNative) {
@@ -156,30 +190,45 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
   const render = (raw: string, range: InlineSelection, focus = false): void => {
     const root = rootRef.current
     if (!root || composing.current) return
+    // Removing owned children collapses a live native Range. While a helper has
+    // focus, retain raw offsets and restore the native range only on real refocus.
+    if (!focus && inlineDomSelection(root, root.ownerDocument.getSelection())) restoreSelectionOnFocus.current = true
     rawRef.current = raw
     renderTokenEditorDom(root, raw, config.current)
     select(range, focus, focus)
   }
   const apply = (raw: string, range: InlineSelection, operation: 'manual' | 'protected'): boolean => {
     if (config.current.readOnly || composing.current) return false
-    const accepted = config.current.onEdit(raw, operation)
+    const accepted = config.current.onEdit(raw, operation, selection(), range)
     if (accepted) render(raw, range, true)
     else render(rawRef.current, lastSelection.current, true)
     return accepted
   }
   const insert = (text: string, range = selection(), operation: 'manual' | 'protected' = 'protected'): boolean => {
-    const normalized = snapInlineSelection(rawRef.current, range.start, range.end, tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang }))
+    const tokens = tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang })
+    const normalized = snapInlineSelection(rawRef.current, range.start, range.end, tokens)
+    if (!config.current.showFormatCodes && config.current.formatId === 'phrase_mxliff_1_2' && phraseFormatting(rawRef.current, config.current.formatId, tokens).valid) {
+      const edit = replacePhraseFormattedText(rawRef.current, normalized, text, config.current.formatId, tokens)
+      return edit !== undefined && apply(edit.value, edit.selection, operation)
+    }
     const next = rawRef.current.slice(0, normalized.start) + text + rawRef.current.slice(normalized.end)
     const caret = normalized.start + text.length
     return apply(next, { start: caret, end: caret }, operation)
   }
-  const operations = React.useRef({ selection, select, insert })
-  operations.current = { selection, select, insert }
+  const toggleFormat = (flag: PhraseFormatFlag): boolean => {
+    const tokens = tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang })
+    const current = selection(), range = snapInlineSelection(rawRef.current, current.start, current.end, tokens)
+    const edit = togglePhraseFormat(rawRef.current, { ...range, backward: current.backward }, flag, config.current.formatId, tokens)
+    return edit !== undefined && apply(edit.value, edit.selection, 'protected')
+  }
+  const operations = React.useRef({ selection, select, insert, toggleFormat })
+  operations.current = { selection, select, insert, toggleFormat }
   React.useImperativeHandle(forwardedRef, () => ({
     focus: () => rootRef.current?.focus(),
     select: (start, end) => operations.current.select({ start, end }),
     selection: () => operations.current.selection(),
     insert: text => operations.current.insert(text),
+    toggleFormat: flag => operations.current.toggleFormat(flag),
   }), [])
 
   const annotationStructure = JSON.stringify(props.annotations?.map(({ active: _active, ...annotation }) => annotation))
@@ -189,9 +238,9 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
     const root = rootRef.current
     if (!root) return
     const focused = root.ownerDocument.activeElement === root && inlineDomSelection(root, root.ownerDocument.getSelection()) !== undefined
-    render(props.value, pendingSelection.current ?? selection(), focused)
+    render(props.value, pendingSelection.current ?? props.initialSelection ?? selection(), focused)
     pendingSelection.current = undefined
-  }, [props.value, props.sourceText, props.tagProfile, props.lang, props.showInvisibles, annotationStructure])
+  }, [props.value, props.sourceText, props.tagProfile, props.formatId, props.lang, props.showInvisibles, props.showFormatCodes, annotationStructure])
   // Hover updates attributes only: do not rebuild editable text or disturb a native composition.
   React.useLayoutEffect(() => {
     if (composing.current) return
@@ -209,7 +258,7 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
     const root = rootRef.current!
     if (props.autoFocus && !props.readOnly) select(lastSelection.current)
     const remember = (): void => {
-      if (composing.current) return
+      if (composing.current || root.ownerDocument.activeElement !== root || restoreSelectionOnFocus.current) return
       const current = inlineDomSelection(root, root.ownerDocument.getSelection())
       if (!current) return
       const normalized = snapInlineSelection(rawRef.current, current.start, current.end, tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang }))
@@ -248,7 +297,16 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
         const chip = caret.start === caret.end && tokenizeInlineText(raw, { ...config.current, targetLocale: config.current.lang }).find(token => token.kind === 'tag'
           && (event.inputType.includes('Backward') ? token.end === caret.start : token.start === caret.start))
         if (chip) { select({ start: chip.start, end: chip.end }); config.current.onProtectedSelection?.(); return }
-        const deleted = range.start === range.end ? deletionRange(raw, range, event.inputType) : range
+        const model = phraseFormatting(raw, config.current.formatId, tokenizeInlineText(raw, { ...config.current, targetLocale: config.current.lang }))
+        let deleted = range
+        if (range.start === range.end) {
+          if (!config.current.showFormatCodes && model.supported && model.valid) {
+            const plainAt = formattingTextOffset(model, range.start)
+            const plain = deletionRange(model.text, { start: plainAt, end: plainAt }, event.inputType)
+            if (plain.start === plain.end) return
+            deleted = { start: formattingRawOffset(model, plain.start, 'start'), end: formattingRawOffset(model, plain.end, 'end') }
+          } else deleted = deletionRange(raw, range, event.inputType)
+        }
         insert('', deleted, 'manual')
       }
     }
@@ -261,7 +319,7 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
         const current = inlineDomSelection(root, root.ownerDocument.getSelection())
         if (current) config.current.onSelectionChange?.(current)
         composing.current = false
-        config.current.onCompositionEnd(readInlineDomText(root))
+        config.current.onCompositionEnd(readInlineDomText(root), current)
       }
     }
   }, [])
@@ -272,9 +330,17 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
     aria-readonly={props.readOnly} aria-keyshortcuts="Meta+S Control+S Meta+Enter Control+Enter Escape Meta+Z Control+Z Meta+Shift+Z Control+Shift+Z Control+Y"
     data-token-editor contentEditable={!props.readOnly || composing.current} suppressContentEditableWarning
     lang={props.lang} dir="auto" spellCheck={props.spellCheck ?? true}
+    onPointerDown={() => { restoreSelectionOnFocus.current = false }}
+    onFocus={() => { if (restoreSelectionOnFocus.current) select(lastSelection.current, false) }}
     onKeyDown={event => {
+      if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) { event.stopPropagation(); return }
       props.onKeyDown?.(event)
-      if (event.defaultPrevented || composing.current || event.nativeEvent.isComposing) return
+      if (event.defaultPrevented) return
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && ['b', 'i', 'u'].includes(event.key.toLowerCase())) {
+        event.preventDefault()
+        if (!props.readOnly) toggleFormat(event.key.toLowerCase() as PhraseFormatFlag)
+        return
+      }
       // Native editing history is never allowed to compete with the persisted draft reducer.
       if ((event.metaKey || event.ctrlKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
         event.preventDefault()
@@ -291,25 +357,25 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
       }
       const range = selection()
       const focused = event.currentTarget.ownerDocument.activeElement === event.currentTarget
-      if (props.readOnly || !config.current.onEdit(raw, 'manual')) render(rawRef.current, lastSelection.current, focused)
+      if (props.readOnly || !config.current.onEdit(raw, 'manual', lastSelection.current, range)) render(rawRef.current, lastSelection.current, focused)
       else render(raw, range, focused)
     }}
-    onCompositionStart={() => { composing.current = true; config.current.onCompositionStart() }}
+    onCompositionStart={() => { compositionSelection.current = selection(); composing.current = true; config.current.onCompositionStart() }}
     onCompositionEnd={event => {
       const raw = readInlineDomText(event.currentTarget)
       const range = selection()
       composing.current = false
-      const accepted = config.current.onCompositionEnd(raw)
-      render(accepted, pendingSelection.current ?? range, event.currentTarget.ownerDocument.activeElement === event.currentTarget)
+      const accepted = config.current.onCompositionEnd(raw, range)
+      render(accepted, pendingSelection.current ?? (accepted === raw ? range : compositionSelection.current ?? range), event.currentTarget.ownerDocument.activeElement === event.currentTarget)
       pendingSelection.current = undefined
+      compositionSelection.current = undefined
     }}
     onCopy={event => copyInlineSelection(event.currentTarget, event)}
     onCut={event => {
       const range = selection()
       if (range.start === range.end) return
       event.preventDefault()
-      const raw = composing.current ? readInlineDomText(event.currentTarget) : rawRef.current
-      event.clipboardData.setData('text/plain', raw.slice(range.start, range.end))
+      event.clipboardData.setData('text/plain', inlineSelectionText(event.currentTarget, range))
       if (!props.readOnly && !composing.current) insert('', range)
     }}
     onPaste={event => { event.preventDefault(); if (!composing.current) insert(event.clipboardData.getData('text/plain')) }}
@@ -318,7 +384,7 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
       const current = selection()
       const range = snapInlineSelection(rawRef.current, current.start, current.end, tokenizeInlineText(rawRef.current, { ...config.current, targetLocale: config.current.lang }))
       dragging.current = range
-      event.dataTransfer.setData('text/plain', rawRef.current.slice(range.start, range.end))
+      event.dataTransfer.setData('text/plain', inlineSelectionText(event.currentTarget, range))
       event.dataTransfer.effectAllowed = props.readOnly ? 'copy' : 'copyMove'
     }}
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = props.readOnly ? 'none' : 'copy' }}
@@ -338,6 +404,22 @@ export const TokenEditor = React.forwardRef<TokenEditorHandle, TokenEditorProps>
       if (moved && !event.altKey && !event.ctrlKey) {
         if (position >= moved.start && position <= moved.end) return
         const raw = rawRef.current
+        const model = phraseFormatting(raw, config.current.formatId, tokenizeInlineText(raw, { ...config.current, targetLocale: config.current.lang }))
+        if (!config.current.showFormatCodes && model.supported && model.valid) {
+          const fragment = inlineSelectionText(root, moved)
+          const removed = replacePhraseFormattedText(raw, moved, '', config.current.formatId, tokenizeInlineText(raw, { ...config.current, targetLocale: config.current.lang }))
+          if (!removed) return
+          const length = formattingTextOffset(model, moved.end) - formattingTextOffset(model, moved.start)
+          const destination = formattingTextOffset(model, position) - (position > moved.end ? length : 0)
+          const without = phraseFormatting(removed.value, config.current.formatId)
+          const at = formattingRawOffset(without, destination)
+          const inserted = replacePhraseFormattedText(removed.value, { start: at, end: at }, fragment, config.current.formatId, tokenizeInlineText(removed.value, { ...config.current, targetLocale: config.current.lang }))
+          if (inserted) {
+            const updated = phraseFormatting(inserted.value, config.current.formatId)
+            apply(inserted.value, { start: formattingRawOffset(updated, destination, 'start'), end: formattingRawOffset(updated, destination + length, 'end'), backward: moved.backward }, 'protected')
+          }
+          return
+        }
         const content = raw.slice(moved.start, moved.end)
         const without = raw.slice(0, moved.start) + raw.slice(moved.end)
         const adjusted = position > moved.end ? position - (moved.end - moved.start) : position

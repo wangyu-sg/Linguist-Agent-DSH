@@ -1,6 +1,8 @@
+import { changeTaskGroup } from './task-groups'
+import { randomUUID } from 'node:crypto'
 import { LINGUIST_FILE_MAX_BYTES } from '@linguist/domain-service/contracts'
 import { PROJECT_NAME_MAX_LENGTH, LOCALE_MAX_LENGTH, LOCALE_PATTERN } from '../project-input'
-import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { setImmediate } from 'node:timers/promises'
 import type { LinguistImportProgress } from '@linguist/domain-service/contracts'
@@ -22,6 +24,7 @@ import { normalizeDelimitedHeader, parseXlsxWorkbook, XlsxAdapter, type XlsxWork
 import { readProjectManifestFile, StoreNotFoundError, type ContextDoc, type ProposalMutationItem } from '@linguist/cat-store'
 import {
   LinguistProjectService,
+  syncProjectLibrary, listProjectLibrary, requireLibraryItem, resolveLibraryFile, ProjectResourceSchema, extractContext, formatContextExtractionText, workingCopyPath,
   LinguistDeliveryNotReadyError,
   LinguistExportBlockedByQaError,
   deriveImportProjectId,
@@ -79,6 +82,11 @@ export interface DispatchOperationInput {
   scheduleContext?: ScheduleContextManager
   delegationControl?: LinguistDelegationControl
   detachSessionBinding?: (sessionId: string) => Promise<LinguistSessionDetachBindingResult>
+}
+
+function assertGroupContains(input: DispatchOperationInput, kind: 'assets' | 'segments' | 'qa_findings' | 'proposals', ids: readonly string[]): void {
+  const group = optionalString(input.payload.taskGroupId, 'taskGroupId', 100)
+  if (group) input.service.openProject(projectId(input.payload)).taskGroups.assertContains(group, kind, ids)
 }
 
 async function stageTaskId(input: DispatchOperationInput, projectId: string): Promise<string | undefined> {
@@ -342,6 +350,74 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       return copyLinguistSessionToProject(input.sessionCopyHost,
         string(payload.sessionId, 'sessionId', 200), string(payload.targetProjectId, 'targetProjectId', 20, PROJECT_ID))
     }
+    case 'linguistTaskGroups': {
+      const id = projectId(payload)
+      const changedId = payload.change && changeTaskGroup(service, id, payload.change)
+      if (changedId) notify(mutations, id, 'project-updated')
+      const db = service.openProject(id)
+      return { changedId, groups: db.taskGroups.list(), batches: payload.includeBatches === true ? [
+        ...db.assets.listByProject().map(asset => ({ id: asset.id, taskGroupId: asset.taskGroupId, name: asset.originalFilename })),
+        ...db.taskGroups.externalBatches(),
+      ] : undefined }
+    }
+    case 'linguistLibraryMove':
+    case 'linguistLibraryList':
+    case 'linguistLibraryRefresh':
+    case 'linguistLibrarySave':
+    case 'linguistLibraryRemove':
+    case 'linguistLibraryPreview': {
+      const id = projectId(payload)
+      const workspaceId = bindings.projectWorkspace(id)
+      if (!workspaceId) throw new TypeError('Project must be associated with a Workspace')
+      workspace(workspaceId, workspaceRegistry)
+      const root = workspaceRegistry.get(WorkspaceId(workspaceId))!.path
+      const taskGroupId = optionalString(payload.taskGroupId, 'taskGroupId', 100)
+      if (operation === 'linguistLibraryPreview') {
+        const item = requireLibraryItem(service, id, root, string(payload.key, 'key', 4000), taskGroupId)
+        if (item.origin === 'entry') return { kind: 'text', text: item.text, filename: item.filename, truncated: false }
+        const original = resolveLibraryFile(service, id, root, string(payload.key, 'key', 4000), taskGroupId)
+        if (OFFICE_PREVIEW_EXTENSIONS.has(extname(original.originalFilename).toLowerCase())) {
+          const { bytes } = await readPickedFileWithinLimit(original.sourcePath, LINGUIST_FILE_MAX_BYTES)
+          const extracted = await extractContext(bytes, original.originalFilename)
+          return { kind: 'text', text: formatContextExtractionText(extracted) ?? '', truncated: extracted.warnings.some(item => item.code.includes('TRUNCAT')), filename: original.originalFilename }
+        }
+        return previewManagedFile(files, original.sourcePath, original.originalFilename)
+      }
+      if (operation !== 'linguistLibraryList') {
+        service.assertProjectWritable(id)
+        if (taskGroupId) service.openProject(id).taskGroups.requireActive(taskGroupId)
+      }
+      if (operation === 'linguistLibraryMove') await syncProjectLibrary(service, id, root, [], { taskGroupId, move: { keys: strings(payload.keys, 'keys', 500), to: optionalString(payload.toGroup, 'toGroup', 100) ?? '' } })
+      if (operation === 'linguistLibraryRefresh') await syncProjectLibrary(service, id, root, [], { retry: true, taskGroupId })
+      if (operation === 'linguistLibraryRemove') await syncProjectLibrary(service, id, root, [], { taskGroupId, remove: string(payload.key, 'key', 4000) })
+      if (operation === 'linguistLibrarySave') {
+        const key = optionalString(payload.key, 'key', 4000)
+        const previous = key ? requireLibraryItem(service, id, root, key, taskGroupId) : undefined
+        const token = payload.fileTokens === undefined ? undefined : exactlyOneUpload(payload)
+        const resource = ProjectResourceSchema.parse({ path: previous?.path ?? 'upload', replacesInherited: payload.replacesInherited, kind: payload.kind, appliesTo: payload.appliesTo ?? [], xlsxMapping: payload.xlsxMapping })
+        let path = previous?.path
+        if (token || previous?.origin === 'cat' || previous && previous.kind !== resource.kind) {
+          const original = token ? readUpload(files, token) : (() => {
+            const file = resolveLibraryFile(service, id, root, key!, taskGroupId)
+            return { path: file.sourcePath, filename: file.originalFilename }
+          })()
+          let parent = root
+          for (const part of ['.linguist', 'project-resources', id, randomUUID()]) {
+            mkdirSync(join(parent, part), { recursive: true })
+            parent = workingCopyPath(root, relative(root, join(parent, part)))
+          }
+          const destination = join(parent, original.filename)
+          copyFileSync(original.path, destination, constants.COPYFILE_EXCL)
+          path = relative(root, destination)
+        }
+        if (!path) throw new TypeError('Choose a file to add')
+        resource.path = path
+        await syncProjectLibrary(service, id, root, [resource], { replace: key, taskGroupId })
+        if (token) files.discardUpload(token)
+      }
+      if (operation !== 'linguistLibraryList') notify(mutations, id, 'project-updated')
+      return { items: listProjectLibrary(service, id, root, taskGroupId), groups: service.openProject(id).taskGroups.list() }
+    }
     case 'linguistProjectsList':
       return service.listProjects({ includeArchived: boolean(payload.includeArchived, 'includeArchived', false) }).map((project) => publicProject(project, bindings))
     case 'linguistProjectsListFormatQualifications':
@@ -379,7 +455,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       return service.checkProjectHealth(projectId(payload))
     case 'linguistProjectsGetSummary': {
       const id = projectId(payload)
-      const summary = service.getProjectSummary(id)
+      const summary = service.getProjectSummary(id, optionalString(payload.taskGroupId, 'taskGroupId', 100))
       return { ...summary, project: publicProject(summary.project, bindings) }
     }
     case 'linguistProjectsGetStageCoverage':
@@ -431,8 +507,10 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       notify(mutations, id, 'project-updated')
       return result
     }
-    case 'linguistProjectsBackup':
-      return service.backupProject(projectId(payload))
+    case 'linguistProjectsBackup': {
+      const id = projectId(payload), workspaceId = bindings.projectWorkspace(id)
+      return service.backupProject(id, workspaceId ? workspaceRegistry.get(WorkspaceId(workspaceId))?.path : undefined)
+    }
     case 'linguistBackupsList':
       return service.listBackups(projectId(payload))
     case 'linguistBackupsPreviewRestore':
@@ -518,12 +596,13 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const currentStageState = payload.currentStageState === undefined ? undefined : oneOf(payload.currentStageState, 'currentStageState', ['untouched', 'draft', 'confirmed'] as const)
       const search = optionalString(payload.search, 'search', 500)?.trim() || undefined
       const { limit, offset } = page(payload, 100)
-      const data = service.queryCatWorkspace(id, { assetId: selectedAssetId, status, currentStageState, search, limit, offset, includeIndex: boolean(payload.includeIndex, 'includeIndex', false) })
+      const data = service.queryCatWorkspace(id, { taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100), assetId: selectedAssetId, status, currentStageState, search, limit, offset, includeIndex: boolean(payload.includeIndex, 'includeIndex', false) })
       return { assets: data.assets.map((asset) => ({ assetId: asset.id, filename: asset.originalFilename, formatId: asset.formatId, segmentCount: asset.segmentCount, sourceSha256: asset.sourceSha256 })), segments: data.segments, segmentIds: data.segmentIds, total: data.total, limit, offset, hasMore: offset + data.segments.length < data.total }
     }
     case 'linguistCatEditSegment': {
       const id = projectId(payload)
       if (typeof payload.target !== 'string') throw new TypeError('target must be a string')
+      assertGroupContains(input, 'segments', [segmentId(payload)])
       const result = service.editSegment(id, segmentId(payload), payload.target, revision(payload), {
         propagateRepeated: boolean(payload.propagateRepeated, 'propagateRepeated', false),
         excludedSegmentIds: payload.excludedSegmentIds === undefined ? [] : strings(payload.excludedSegmentIds, 'excludedSegmentIds', 10_000, SEGMENT_ID, true),
@@ -535,7 +614,9 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     case 'linguistCatConfirmStage':
     case 'linguistCatUnconfirmStage': {
       const id = projectId(payload)
-      const result = operation === 'linguistCatConfirmStage' ? service.confirmCurrentStage(id, segmentId(payload), revision(payload), await stageTaskId(input, id)) : service.unconfirmCurrentStage(id, segmentId(payload), revision(payload))
+      const task = operation === 'linguistCatConfirmStage' ? await stageTaskId(input, id) : undefined
+      assertGroupContains(input, 'segments', [segmentId(payload)])
+      const result = operation === 'linguistCatConfirmStage' ? service.confirmCurrentStage(id, segmentId(payload), revision(payload), task) : service.unconfirmCurrentStage(id, segmentId(payload), revision(payload))
       notify(mutations, id, 'segment-updated', { segmentIds: [result.id] })
       return result
     }
@@ -543,7 +624,9 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const id = projectId(payload)
       if (!Array.isArray(payload.items) || payload.items.length === 0 || payload.items.length > 200) throw new TypeError('items must contain 1-200 entries')
       const items = payload.items.map((item) => { const row = object(item, 'item'); return { segmentId: segmentId(row), expectedRevision: revision(row) } })
-      const result = service.confirmCurrentStageBulk(id, items, await stageTaskId(input, id))
+      const task = await stageTaskId(input, id)
+      assertGroupContains(input, 'segments', items.map(item => item.segmentId))
+      const result = service.confirmCurrentStageBulk(id, items, task)
       if (result.succeeded.length > 0) notify(mutations, id, 'segment-updated', { segmentIds: result.succeeded.map((item) => item.id) })
       return result
     }
@@ -557,7 +640,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       return editorDetails(service, projectId(payload), segmentId(payload))
     case 'linguistCatConcordance': {
       const { limit, offset } = page(payload, 20)
-      return editorConcordance(service, projectId(payload), string(payload.query, 'query', 500).trim(), payload.assetId === undefined ? undefined : assetId(payload), limit, offset)
+      return editorConcordance(service, projectId(payload), string(payload.query, 'query', 500).trim(), payload.assetId === undefined ? undefined : assetId(payload), limit, offset, optionalString(payload.sourceAssetId, 'sourceAssetId', 80))
     }
     case 'linguistCatSpellcheck': {
       if (typeof payload.text !== 'string' || payload.text.length > 100_000) throw new TypeError('text must be a string of up to 100000 characters')
@@ -572,6 +655,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       return { dictionary }
     }
     case 'linguistCatGetContext':
+      assertGroupContains(input, 'segments', [segmentId(payload)])
       return service.getSegmentContext(projectId(payload), segmentId(payload))
     case 'linguistCatAddApprovedExemplar': {
       const id = projectId(payload)
@@ -582,6 +666,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     }
     case 'linguistCatRunQa': {
       const id = projectId(payload)
+      assertGroupContains(input, 'assets', [assetId(payload)])
       const findings = service.runQa(id, assetId(payload))
       const severityCounts = { L0: 0, L1: 0, L2: 0, L3: 0, L4: 0 }
       const dispositionCounts = { defect: 0, needs_review: 0, query: 0, info: 0 }
@@ -593,6 +678,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const id = projectId(payload)
       const { limit, offset } = page(payload, 100)
       const result = service.listQaFindings(id, {
+        taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100),
         assetId: payload.assetId === undefined ? undefined : string(payload.assetId, 'assetId', 80, ASSET_ID),
         segmentId: payload.segmentId === undefined ? undefined : string(payload.segmentId, 'segmentId', 80, SEGMENT_ID),
         code: optionalString(payload.code, 'code', 120),
@@ -605,12 +691,14 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     }
     case 'linguistCatResolveQaFinding': {
       const id = projectId(payload)
+      assertGroupContains(input, 'qa_findings', [findingId(payload)])
       const result = service.resolveQaFinding(id, findingId(payload))
       notify(mutations, id, 'qa-updated', { resolvedQaFindingIds: [result.id] })
       return result
     }
     case 'linguistCatWaiveQaFinding': {
       const id = projectId(payload)
+      assertGroupContains(input, 'qa_findings', [findingId(payload)])
       const result = service.waiveQaFinding(id, findingId(payload), string(payload.reason, 'reason', 500), string(payload.operator, 'operator', 120))
       notify(mutations, id, 'qa-updated', { resolvedQaFindingIds: [result.id] })
       return result
@@ -619,12 +707,13 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       const id = projectId(payload)
       const ids = strings(payload.findingIds, 'findingIds', 200, FINDING_ID)
       if (new Set(ids).size !== ids.length) throw new TypeError('findingIds must be unique')
+      assertGroupContains(input, 'qa_findings', ids)
       const result = service.waiveQaFindings(id, ids, string(payload.reason, 'reason', 500), string(payload.operator, 'operator', 120))
       notify(mutations, id, 'qa-updated', { resolvedQaFindingIds: result.map((item) => item.id) })
       return result
     }
     case 'linguistCatGetLatestRunSummary':
-      return { summary: service.openProject(projectId(payload)).runs.getLatestRunChangeSummary() ?? null }
+      return { summary: service.openProject(projectId(payload)).runs.getLatestRunChangeSummary(optionalString(payload.taskGroupId, 'taskGroupId', 100)) ?? null }
     case 'linguistCatGetJob': {
       const id = projectId(payload)
       const sessionId = string(payload.sessionId, 'sessionId', 200)
@@ -641,10 +730,10 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
       await input.assertProjectSession(sessionId, id)
       const expectedRunId = string(payload.expectedRunId, 'expectedRunId', 200)
       const runs = service.openProject(id).runs
-      const summary = runs.getLatestRunChangeSummary()
+      const summary = runs.getLatestRunChangeSummary(optionalString(payload.taskGroupId, 'taskGroupId', 100))
       if (summary === undefined || summary.runId !== expectedRunId) throw new TypeError('Latest run changed; refresh before undo')
       const result = runs.undoRun(summary.runId, {
-        actorId: `workbench:${sessionId}`,
+        actorId: `workbench:${sessionId}`, taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100),
         excludedSegmentIds: payload.excludedSegmentIds === undefined ? [] : strings(payload.excludedSegmentIds, 'excludedSegmentIds', 10_000, SEGMENT_ID, true),
       })
       if (result.event !== undefined) notify(mutations, id, 'run-undone', { runId: summary.runId })
@@ -706,11 +795,13 @@ async function importProject(input: DispatchOperationInput): Promise<unknown> {
   service.assertProjectWritable(id)
   const tokens = uploadTokens(payload)
   const uploads = tokens.map((token) => readUpload(files, token))
+  const taskGroupId = optionalString(payload.taskGroupId, 'taskGroupId', 100) ?? 'ungrouped'
+  service.openProject(id).taskGroups.requireActive(taskGroupId)
   const progress = importProgress(input)
   const upload = uploads[0]!
   const extension = extname(upload.filename).toLowerCase()
   if (uploads.length > 1 || payload.selection === 'directory' || SINGLE_RESOURCE_EXTENSIONS.has(extension)) {
-    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), recursive: false, kind: 'auto', dryRun: false }, undefined, progress)
+    const result = await service.importResourcesFromPaths(id, service.rootDir, { paths: uploads.map((item) => item.path), taskGroupId, recursive: false, kind: 'auto', dryRun: false }, undefined, progress)
     const complete = result.items.every(item => item.status === 'imported' || item.status === 'skipped-duplicate' || item.status === 'supporting')
     for (const [index, item] of uploads.entries()) {
       const outcomes = result.items.filter(outcome => outcome.filename === item.filename)
@@ -728,15 +819,15 @@ async function importProject(input: DispatchOperationInput): Promise<unknown> {
     const matched = await service.matchWorkbookMapping(id, bytes, upload.filename)
     if (matched !== undefined) {
       const mapping = validateXlsxMapping(parsed, matched.mapping)
-      const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping, onProgress })
+      const result = await service.importAsset(id, { bytes, taskGroupId, filename: upload.filename, xlsxMapping: mapping, onProgress })
       files.discardUpload(tokens[0]!)
       if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
       return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result, mappingUsed: { profileId: matched.profileId, sheetName: mapping.sheetName, columns: mapping.columns } }
     }
-    files.pendingImports.set(tokens[0]!, { projectId: id, kind: 'xlsx', sha256: parsed.report.sourceSha256 })
+    files.pendingImports.set(tokens[0]!, { projectId: id, kind: 'xlsx', taskGroupId, sha256: parsed.report.sourceSha256 })
     return { cancelled: false, bulk: false, requiresXlsxMapping: true, filename: upload.filename, mappingId: tokens[0], sourceSha256: parsed.report.sourceSha256, preview: xlsxPreview(parsed, service.getProject(id)) }
   }
-  const result = await service.importAsset(id, { bytes, filename: upload.filename, onProgress })
+  const result = await service.importAsset(id, { bytes, taskGroupId, filename: upload.filename, onProgress })
   files.discardUpload(tokens[0]!)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
   return { cancelled: false, bulk: false, requiresXlsxMapping: false, filename: upload.filename, ...result }
@@ -749,7 +840,9 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   const mappingId = string(payload.mappingId, 'mappingId', 200)
   const sourceSha256 = string(payload.sourceSha256, 'sourceSha256', 64, /^[0-9a-f]{64}$/)
   const pending = files.pendingImports.get(mappingId)
-  if (pending?.projectId !== id || pending.kind !== 'xlsx' || pending.sha256 !== sourceSha256) throw new TypeError('XLSX mapping candidate is missing or bound to another project/source')
+  const taskGroupId = optionalString(payload.taskGroupId, 'taskGroupId', 100) ?? 'ungrouped'
+  if (pending?.projectId !== id || pending.taskGroupId !== taskGroupId || pending.kind !== 'xlsx' || pending.sha256 !== sourceSha256) throw new TypeError('XLSX mapping candidate is missing or bound to another project/source')
+  service.openProject(id).taskGroups.requireActive(taskGroupId)
   const upload = readUpload(files, mappingId)
   const progress = importProgress(input)
   const onProgress = progress === undefined ? undefined : (phase: LinguistImportProgress['phase']) => progress({ filename: upload.filename, index: 1, total: 1, phase })
@@ -771,7 +864,7 @@ async function confirmXlsxMapping(input: DispatchOperationInput): Promise<unknow
   })
   const rememberMapping = boolean(payload.rememberMapping, 'rememberMapping', false)
   const profile = rememberMapping ? await service.saveWorkbookMappingFromBytes(id, bytes, upload.filename, mapping) : undefined
-  const result = await service.importAsset(id, { bytes, filename: upload.filename, xlsxMapping: mapping, onProgress })
+  const result = await service.importAsset(id, { bytes, taskGroupId, filename: upload.filename, xlsxMapping: mapping, onProgress })
   files.pendingImports.delete(mappingId)
   files.discardUpload(mappingId)
   if (result.status === 'imported') notify(mutations, id, 'asset-updated', { assetIds: [result.assetId] })
@@ -847,6 +940,7 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
     case 'linguistProposalsGetDiff': {
       const db = service.openProject(projectId(payload))
       const selected = proposalId(payload)
+      assertGroupContains(input, 'proposals', [selected])
       const proposal = db.proposals.getById(selected)
       if (proposal === undefined) throw new StoreNotFoundError('proposal', selected)
       const segment = db.segments.getById(proposal.segmentId)
@@ -874,6 +968,7 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       })
       const db = service.openProject(id)
       const tagProfile = service.getProject(id).tagProfile
+      assertGroupContains(input, 'segments', edits.map(edit => edit.segmentId))
       const result = db.proposals.applyTranslations(edits, { mode, ...(tagProfile === undefined ? {} : { tagProfile }) })
       if (result.proposalIds.length > 0) {
         const proposals = result.proposalIds.map(proposalId => db.proposals.getById(proposalId)!)
@@ -904,6 +999,7 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       const db = service.openProject(id)
       const key = string(payload.idempotencyKey, 'idempotencyKey', 128)
       const items = operation.endsWith('Selected') ? proposalItems(payload.items) : [proposalItem(payload)]
+      assertGroupContains(input, 'proposals', items.map(item => item.proposalId))
       const tagProfile = service.getProject(id).tagProfile
       if (operation === 'linguistProposalsAccept' || operation === 'linguistProposalsAcceptSelected') {
         const mutation = db.proposals.acceptSelected(items, key, tagProfile === undefined ? {} : { tagProfile })
@@ -931,12 +1027,12 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
     }
     case 'linguistReferencesQueryTm': {
       const id = projectId(payload)
-      const result = service.queryTmReferences(id, { ...page(payload), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined })
+      const result = service.queryTmReferences(id, { ...page(payload), taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined })
       return { ...result, items: result.items.map((item) => ({ id: item.id, source: item.source, target: item.target })), imports: result.imports.map(referenceImportInfo), sources: (result.tmSources ?? []).map(tmSourceInfo) }
     }
     case 'linguistReferencesQueryTerms': {
       const id = projectId(payload)
-      const result = service.queryTermReferences(id, { ...page(payload), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined, status: payload.status === undefined ? undefined : termStatus(payload.status) })
+      const result = service.queryTermReferences(id, { ...page(payload), taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined, status: payload.status === undefined ? undefined : termStatus(payload.status) })
       return { ...result, imports: result.imports.map(referenceImportInfo) }
     }
     case 'linguistReferencesUpdateTmSource': {
@@ -1016,6 +1112,7 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
       const id = projectId(payload)
       const statuses = payload.statuses === undefined ? undefined : strings(payload.statuses, 'statuses', 5).map(termStatus)
       const conflicts = service.listTermConflicts(id, {
+        taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100),
         statuses,
         module: payload.module === undefined ? undefined : string(payload.module, 'module', 4000).trim(),
         category: payload.category === undefined ? undefined : string(payload.category, 'category', 4000).trim(),
@@ -1027,8 +1124,8 @@ async function dispatchOtherOperation(input: DispatchOperationInput): Promise<un
   }
 }
 
-function proposalFilter(payload: Data): { assetId?: string; status?: ProposalStatus; limit: number; offset: number } {
-  return { ...page(payload, 100), assetId: payload.assetId === undefined ? undefined : string(payload.assetId, 'assetId', 80, ASSET_ID), status: payload.status === undefined ? undefined : oneOf(payload.status, 'status', ['pending', 'accepted', 'rejected', 'superseded', 'expired'] as const) }
+function proposalFilter(payload: Data): { taskGroupId?: string; assetId?: string; status?: ProposalStatus; limit: number; offset: number } {
+  return { ...page(payload, 100), taskGroupId: optionalString(payload.taskGroupId, 'taskGroupId', 100), assetId: payload.assetId === undefined ? undefined : string(payload.assetId, 'assetId', 80, ASSET_ID), status: payload.status === undefined ? undefined : oneOf(payload.status, 'status', ['pending', 'accepted', 'rejected', 'superseded', 'expired'] as const) }
 }
 function proposalItem(payload: Data): ProposalMutationItem { return { proposalId: proposalId(payload), expectedRevision: revision(payload) } }
 function proposalItems(value: unknown): ProposalMutationItem[] {
@@ -1154,7 +1251,7 @@ async function dispatchRemainingOperation(input: DispatchOperationInput): Promis
       const id = projectId(payload)
       const kind = assetKind(payload.kind)
       const query = {
-        ...page(payload), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined,
+        taskGroupId: payload.sourceAssetId === undefined ? optionalString(payload.taskGroupId, 'taskGroupId', 100) : service.openProject(id).taskGroups.groupOf(string(payload.sourceAssetId, 'sourceAssetId', 80, ASSET_ID)),        ...page(payload), query: optionalString(payload.query, 'query', 1000)?.trim() || undefined,
         status: payload.status === undefined ? undefined : oneOf(payload.status, 'status', ['confirmed', 'pending', 'rejected'] as const),
         segmentId: payload.segmentId === undefined ? undefined : segmentId(payload),
       }

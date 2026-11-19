@@ -71,6 +71,9 @@ export function ensureStageEvidenceForSession(input: {
   const segments = input.db.segments.getByIds(segmentIds)
   if (segments.length !== segmentIds.length) throw new Error('Stage Evidence scope contains a missing Segment')
   const assetIds = [...new Set(segments.map((segment) => segment.assetId as string))]
+  const taskGroupId = input.db.taskGroups.forAssets(assetIds)!
+  const hidden = input.db.taskGroups.hidden(taskGroupId)
+  const materialVersion = input.db.taskGroups.materialVersion(taskGroupId)
   const existing = input.db.stageEvidence.list(ROLE_STAGE[role]).find(state => state.sessionId === input.session.id)
   const sameScope = existing?.plan.segmentIds.length === segmentIds.length && segmentIds.every(id => existing.plan.segmentIds.includes(id))
   let stageRunId = existing?.stageRunId ?? `stage:${randomUUID()}`
@@ -95,6 +98,7 @@ export function ensureStageEvidenceForSession(input: {
 
   const mappingRevisions: string[] = []
   for (const doc of input.db.contextDocs.list({ limit: input.db.contextDocs.count() })) {
+    if (hidden.has('document:' + (doc.parentContextDocId ?? doc.id))) continue
     const evidence = evidenceByRef.get(`context-doc\u0000${doc.id}`)
     if (evidence === undefined) continue
     const links = input.db.contextDocs.listEvidenceLinks(doc.id)
@@ -172,7 +176,7 @@ export function ensureStageEvidenceForSession(input: {
   })
   const voices = new Set(input.db.voiceProfiles.list({ limit: input.db.voiceProfiles.count() }).filter(profile => segments.some(segment => segment.context?.meta?.speaker === profile.speaker)).map(profile => profile.id))
   for (const evidence of input.discoveryScope.managedEvidence) {
-    if (evidence.ref.kind === 'reference-import') {
+    if (evidence.ref.kind === 'reference-import' && !hidden.has('reference:' + evidence.ref.id)) {
       requirements.push({
         evidence,
         purpose: 'terminology',
@@ -181,7 +185,7 @@ export function ensureStageEvidenceForSession(input: {
         anchorIds: [],
         rationale: 'TM/TB 在 Segment 匹配时按需提供',
       })
-    } else if (evidence.ref.kind === 'voice-profile' && voices.has(evidence.ref.id)) {
+    } else if (evidence.ref.kind === 'voice-profile' && voices.has(evidence.ref.id) && !hidden.has('voice:' + evidence.ref.id)) {
       requirements.push({
         evidence,
         purpose: 'character-voice',
@@ -195,7 +199,7 @@ export function ensureStageEvidenceForSession(input: {
 
   const plan: StageEvidencePlan = {
     stageRunId,
-    role: role as StageEvidenceRole,
+    taskGroupId, materialVersion, role: role as StageEvidenceRole,
     stage: ROLE_STAGE[role],
     assetIds,
     segmentIds,
@@ -208,7 +212,7 @@ export function ensureStageEvidenceForSession(input: {
     .map((item) => `${refKey(item.evidence)}\u0000${item.evidence.version}`)
   let baseline = createStageEvidenceBaseline({
     stageRunId,
-    discoveryScopeHash: hash(requirements.map(item => `${refKey(item.evidence)}:${item.evidence.version}`)),
+    discoveryScopeHash: hash([materialVersion, ...requirements.map(item => `${refKey(item.evidence)}:${item.evidence.version}`)]),
     mappingRevision: hash(mappingRevisions),
     ruleSetRevision: hash(ruleVersions),
     segmentIds,

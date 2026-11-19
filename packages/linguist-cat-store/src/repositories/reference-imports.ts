@@ -26,6 +26,7 @@ export interface ReferenceImport {
 }
 
 export interface ReferenceImportInput {
+  interpretation?: string
   kind: ReferenceImportKind
   originalFilename: string
   sourceSha256: string
@@ -38,6 +39,7 @@ function stableId(projectId: string, input: ReferenceImportInput): string {
     input.kind,
     input.originalFilename,
     input.sourceSha256,
+    ...(input.interpretation ? [input.interpretation] : []),
   ])
 }
 

@@ -207,6 +207,29 @@ describe('XliffAdapter import（结构/标签/锁定/状态）', () => {
     expect(reimported.segments.map((segment) => segment.target)).toEqual(['A1', 'B1'])
   })
 
+  test('重复 native ID 与不同实体编码的文本可独立编辑往返，不生成真实 XML 标签', async () => {
+    const xml = `<xliff version="1.2"><file><body>
+      <trans-unit id="shared"><source>&lt;color&gt;A&lt;/color&gt;</source><target>&#60;color&#62;B&#x3c;/color&#x3e;</target></trans-unit>
+      <trans-unit id="shared"><source><x id="a" equiv-text="&quot;"/>C</source><target><x id="a" equiv-text="&quot;"/>D<x id="b" equiv-text="a > b &quot;c&quot;"/></target></trans-unit>
+      <trans-unit id="shared:#tu-1" translate="no"><source>E</source><target>F</target></trans-unit>
+    </body></file></xliff>`
+    const adapter = new XliffAdapter()
+    const bytes = new TextEncoder().encode(xml)
+    const imported = await adapter.import({ bytes, filename: 'entities.xliff', sourceLocale: 'en', targetLocale: 'zh' })
+    expect(new Set(imported.segments.map(row => row.key)).size).toBe(3)
+    expect(imported.segments[0]!.target).toBe('<color>B</color>')
+    const { asset, segments } = await boundSegments('entities.xliff', adapter, imported)
+    const changed = segments.map((row, index) => ({ ...row, target: index === 0 ? '<color>New</color>' : index === 1 ? '3 < 5 ' + row.target : row.target }))
+    const out = await adapter.export({ originalBytes: bytes, asset, segments: changed })
+    expect(new TextDecoder().decode(out)).toContain('&lt;color&gt;New&lt;/color&gt;')
+    expect(new TextDecoder().decode(out)).toContain('equiv-text="&quot;"')
+    const again = await adapter.import({ bytes: out, filename: 'entities.xliff', sourceLocale: 'en', targetLocale: 'zh' })
+    expect(again.segments.map(row => row.key)).toEqual(imported.segments.map(row => row.key))
+    expect(again.segments.map(row => row.target)).toEqual(changed.map(row => row.target))
+    expect(again.segments[2]!.locked).toBe(true)
+    await expect(adapter.export({ originalBytes: bytes, asset, segments: changed.map((row, index) => ({ ...row, locked: index === 0 || row.locked })) })).rejects.toThrow(/locked/i)
+  })
+
   test('MQXLIFF：mq:locked => locked，mq:status 保守映射，<ph> 载荷逐字保留', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:mq="MQXliff">
@@ -301,7 +324,6 @@ describe('XliffAdapter 错误路径（typed errors）', () => {
       ['not-xml.xliff', new TextEncoder().encode('this is not xml at all')],
       ['v2.xliff', new TextEncoder().encode('<?xml version="1.0"?><xliff version="2.0" srcLang="en" trgLang="zh"><file id="f1"><unit id="u1"><segment><source>hi</source></segment></unit></file></xliff>')],
       ['empty.xliff', new TextEncoder().encode('<?xml version="1.0"?><xliff version="1.2"><file><body></body></file></xliff>')],
-      ['dup.xliff', new TextEncoder().encode('<xliff version="1.2"><file><body><trans-unit id="a"><source>1</source></trans-unit><trans-unit id="a"><source>2</source></trans-unit></body></file></xliff>')],
       ['no-source.xliff', new TextEncoder().encode('<xliff version="1.2"><file><body><trans-unit id="a"><target>only target</target></trans-unit></body></file></xliff>')],
       ['bad-utf8.xliff', new Uint8Array([0xff, 0xfe, 0x3c])],
     ]

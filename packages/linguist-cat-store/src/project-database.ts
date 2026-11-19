@@ -1,3 +1,4 @@
+import { TaskGroupsRepository } from './repositories/task-groups'
 /**
  * ProjectDatabase — one open cat.db plus its repositories. Obtained via
  * CatStore.openProject(); close() when done. Read-only handles reject all
@@ -6,7 +7,7 @@
 
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fnv1a64, type Asset, type ProjectId, type Segment } from '@linguist/cat-core'
+import { fnv1a64, type ProjectId, type Segment } from '@linguist/cat-core'
 import { sha256Hex } from '@linguist/cat-formats'
 import {
   assetSourceFileName,
@@ -63,6 +64,7 @@ export interface ProjectRule {
 export class ProjectDatabase {
   readonly catDb: CatDatabase
   readonly projectId: ProjectId
+  readonly taskGroups: TaskGroupsRepository
   readonly assets: AssetsRepository
   readonly segments: SegmentsRepository
   readonly proposals: ProposalsRepository
@@ -85,6 +87,7 @@ export class ProjectDatabase {
     this.catDb = catDb
     this.projectId = projectId
     this.runs = new RunHarnessRepository(catDb, projectId, now)
+    this.taskGroups = new TaskGroupsRepository(catDb, now)
     this.assets = new AssetsRepository(catDb, projectId, now)
     this.segments = new SegmentsRepository(catDb, this.runs)
     this.termEntries = new TermEntriesRepository(catDb, projectId, now, this.runs)
@@ -104,7 +107,8 @@ export class ProjectDatabase {
   }
 
   /** Style Guide 全项目适用；技术约束只排除明确的其他资产，未判定文本类型保留原 scope。 */
-  getProjectRules(segments?: readonly Segment[]): ProjectRule[] {
+  getProjectRules(segments?: readonly Segment[], taskGroupId = this.taskGroups.forAssets(segments?.map(row => row.assetId) ?? [])): ProjectRule[] {
+    const hidden = this.taskGroups.hidden(taskGroupId)
     const styles: ProjectRule[] = this.styleGuideRules.list({ limit: this.styleGuideRules.count() }).map(rule => ({
       ruleId: rule.id, kind: 'style-rule', version: fnv1a64(JSON.stringify(rule)),
       ruleText: [rule.ruleText, rule.sourceExample && `Source: ${rule.sourceExample}`, rule.goodExample && `✅ ${rule.goodExample}`, rule.badExample && `❌ ${rule.badExample}`].filter(Boolean).join('\n'),
@@ -118,7 +122,7 @@ export class ProjectDatabase {
       return true
     }).map(rule => ({ ruleId: rule.id, kind: 'tech-constraint', version: fnv1a64(JSON.stringify(rule)),
       ruleText: `${rule.kind}${rule.scope ? ` / scope=${rule.scope}` : ''}: ${rule.valueJson}${rule.note ? `\n${rule.note}` : ''}`, groupKey: '技术约束' }))
-    return [...technical, ...styles]
+    return [...technical, ...styles].filter(rule => !hidden.has('rule:' + rule.ruleId))
   }
 
   static open(dbPath: string, options: ProjectDatabaseOptions): ProjectDatabase {
@@ -216,24 +220,6 @@ export class ProjectDatabase {
     this.catDb.assertWritable(`save asset source ${assetId}`)
     const asset = this.assets.get(assetId)
     if (!asset) throw new StoreNotFoundError('asset', assetId)
-    if (sha256Hex(bytes) !== asset.sourceSha256) {
-      throw new StoreAssetSourceMismatchError(asset.id)
-    }
-    const fileName = assetSourceFileName(asset)
-    saveAssetSourceFile(this.sourceDir, fileName, bytes)
-    return `source/${fileName}`
-  }
-
-  /**
-   * PB-110：导入路径专用的「先写 blob」变体——asset 行尚未插入时调用。
-   * asset 由调用方经 createAsset 预先推导（id 内容寻址，与 insertImported
-   * 的推导完全一致），因此无需读行即可获得 CAS anchor 与 blob 文件名；
-   * sha256 校验照做，mismatch 抛 StoreAssetSourceMismatchError 且一字节
-   * 不写。崩溃窗口只留孤儿 blob（健康检查不扫、重导入幂等覆盖），绝不
-   * 留「asset 行在、source blob 缺」——后者是导出硬失败态。
-   */
-  saveAssetSourceForImport(asset: Asset, bytes: Uint8Array): string {
-    this.catDb.assertWritable(`save asset source ${asset.id}`)
     if (sha256Hex(bytes) !== asset.sourceSha256) {
       throw new StoreAssetSourceMismatchError(asset.id)
     }

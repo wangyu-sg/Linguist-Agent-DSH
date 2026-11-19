@@ -5,7 +5,7 @@ import {
   type QaFindingListFilter,
 } from '@linguist/cat-store'
 import { Type } from 'typebox'
-import { LinguistCatBatchNotFoundError } from './errors'
+import { LinguistCatInvalidArgumentError, LinguistCatBatchNotFoundError } from './errors'
 import { runQaWorkerJob, type WorkerJobProgress } from './job-runner'
 import { pageHasMore, resolvePage } from './pagination'
 import {
@@ -45,10 +45,16 @@ export function createQaTools(runtime: CatToolRuntime) {
       // PB-097：项目 tagProfile 进同一道确定性 QA（缺省 = 仅内置族）。
       const { project, db } = resolveBoundProject('cat_run_qa', toolCallId)
       const { batchId } = params
-      if (db.assets.get(batchId) === undefined) throw new LinguistCatBatchNotFoundError(batchId)
+      const taskGroupId = db.taskGroups.groupOf(batchId)
+      if (!db.assets.get(batchId) || !taskGroupId) throw new LinguistCatBatchNotFoundError(batchId)
+      const materialVersion = db.taskGroups.materialVersion(taskGroupId)
       const runId = `qa:${deps.sessionId ?? 'session-unavailable'}:${toolCallId}`
       const total = db.segments.count({ assetId: batchId })
       const segments = total === 0 ? [] : db.segments.query({ assetId: batchId, limit: total })
+      if (deps.delegatedScopeSegmentIds) {
+        const allowed = new Set(deps.delegatedScopeSegmentIds)
+        if (segments.some(row => !allowed.has(row.id))) throw new LinguistCatInvalidArgumentError('batchId', 'QA covers this complete batch; it exceeds the delegated scope')
+      }
       const qaOptions = {
         ...buildQaTermOptions(db, segments),
         glossaryPolicy: project.glossaryPolicy,
@@ -65,10 +71,11 @@ export function createQaTools(runtime: CatToolRuntime) {
           idempotencyKey: `cat_run_qa:${deps.sessionId ?? 'session-unavailable'}:${toolCallId}`,
         },
         operation: 'cat_run_qa',
-        payload: { assetId: batchId },
+        payload: { assetId: batchId, taskGroupId, materialVersion },
         mutate: () => {
+          if (db.taskGroups.groupOf(batchId) !== taskGroupId || db.taskGroups.materialVersion(taskGroupId) !== materialVersion) throw new Error('QA 运行期间批次归属或资料已变化，请重新检查')
           const before = new Map(
-            db.qaFindings.list().map((finding) => [finding.id as string, finding]),
+            db.qaFindings.list({ assetId: batchId }).map((finding) => [finding.id as string, finding]),
           )
           const persistence = {
             runId,
@@ -98,7 +105,7 @@ export function createQaTools(runtime: CatToolRuntime) {
             severityCounts,
             dispositionCounts,
           }
-          const changes = db.qaFindings.list().flatMap((finding) => {
+          const changes = db.qaFindings.list({ assetId: batchId }).flatMap((finding) => {
             const previous = before.get(finding.id as string)
             if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(finding)) {
               return []
@@ -113,7 +120,7 @@ export function createQaTools(runtime: CatToolRuntime) {
               after: finding,
             }]
           })
-          const resolvedQaFindingIds = db.qaFindings.list().flatMap((finding) => {
+          const resolvedQaFindingIds = db.qaFindings.list({ assetId: batchId }).flatMap((finding) => {
             const previous = before.get(finding.id as string)
             return previous?.status === 'open' && finding.status === 'resolved'
               ? [finding.id as string]
@@ -221,6 +228,7 @@ export function createQaTools(runtime: CatToolRuntime) {
       const { db } = resolveBoundProject('cat_get_qa_findings', toolCallId)
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.getQaFindings)
       const filter: QaFindingListFilter = {
+        taskGroupId: deps.taskGroupId, segmentIds: deps.delegatedScopeSegmentIds,
         ...(params.status !== undefined ? { status: params.status } : {}),
         ...(params.severity !== undefined ? { severity: params.severity } : {}),
         ...(params.disposition !== undefined ? { disposition: params.disposition } : {}),

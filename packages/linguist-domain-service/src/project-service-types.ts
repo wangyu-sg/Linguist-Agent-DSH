@@ -89,6 +89,7 @@ export interface LinguistExportFileInfo {
  */
 
 export interface LinguistProjectServiceOptions {
+  workspaceRootForProject?: (projectId: string) => string | undefined
   /** 独立新产品数据根下的 linguist 目录。 */
   rootDir: string
   /** 项目 id 熵源；注入可确定性复现。 */
@@ -226,6 +227,7 @@ export interface LinguistRestoreResult {
 
 /** 导入入参刻意不接受路径（Client 永不提交文件系统路径）。 */
 export interface ImportAssetInput {
+  taskGroupId?: string
   bytes: Uint8Array
   filename: string
   onProgress?: (phase: LinguistImportProgress['phase']) => Promise<void>
@@ -299,6 +301,8 @@ export interface UndoImportAssetResult {
 export type LinguistReferenceKind = 'tm' | 'terms'
 
 export interface ImportReferenceInput {
+  taskGroupId?: string
+  libraryKey?: string
   bytes: Uint8Array
   filename: string
   xlsxMapping?: XlsxImportMapping
@@ -331,6 +335,7 @@ export interface TermReferenceMatch extends TermEntry {
 }
 
 export interface ReferenceQuery {
+  taskGroupId?: string
   query?: string
   status?: TermEntryStatus
   limit: number
@@ -368,6 +373,7 @@ export type ProjectAssetInfo =
   | VoiceProfile
 
 export interface ProjectAssetsQuery {
+  taskGroupId?: string
   /** 子串过滤（techConstraints 不支持，忽略）。 */
   query?: string
   /** 仅 sentencePatterns 有效。 */
@@ -390,6 +396,7 @@ export interface ContextImageMetadata {
 }
 
 export interface CatWorkspaceQuery {
+  taskGroupId?: string
   assetId?: string
   status?: SegmentStatus
   currentStageState?: CurrentStageState
@@ -536,6 +543,7 @@ export interface LinguistPreparedDelivery {
 }
 
 export interface LinguistProjectSummaryAsset {
+  taskGroupId?: string
   assetId: string
   filename: string
   formatId: string
@@ -549,6 +557,7 @@ export interface LinguistProjectSummaryAsset {
 }
 
 export interface LinguistProjectSummary {
+  taskGroups: import('@linguist/cat-store').TaskGroup[]
   project: LinguistProject
   assetCount: number
   totalSegments: number

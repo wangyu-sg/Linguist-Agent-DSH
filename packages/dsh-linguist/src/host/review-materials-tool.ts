@@ -16,11 +16,11 @@ const parameters = Type.Object({
   referenceFiles: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1 }), kind: Type.Union([Type.Literal('tm'), Type.Literal('terms')]),
     xlsxMapping: Type.Optional(Type.Object({ sheetName: Type.String({ minLength: 1 }), columns: Type.Object({ source: Type.String({ minLength: 1 }), target: Type.String({ minLength: 1 }) }) })) }))),
   contextFiles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Workspace-relative spreadsheets, presentations or images with visual context.' })),
-  online: Type.Optional(Type.Object({ url: Type.String({ format: 'uri', minLength: 1 }), expectedSegments: Type.Integer({ minimum: 1 }), observedAt: Type.String({ minLength: 1 }) })),
+  online: Type.Optional(Type.Object({ fileId: Type.Optional(Type.String({ minLength: 1, description: 'Stable file or job identifier supplied by the platform.' })), url: Type.String({ format: 'uri', minLength: 1 }), expectedSegments: Type.Integer({ minimum: 1 }), observedAt: Type.String({ minLength: 1 }) })),
 }, { additionalProperties: false })
 
 export function createReviewMaterialsTool(service: LinguistProjectService,
-  resolve: () => Promise<Pick<ReviewMaterialsInput, 'workspaceRoot' | 'taskId' | 'projectId'> & { allowedIds?: readonly string[] }>,
+  resolve: () => Promise<Pick<ReviewMaterialsInput, 'workspaceRoot' | 'taskId' | 'projectId' | 'taskGroupId'> & { allowedIds?: readonly string[] }>,
   snapshots?: SessionReadSnapshots): ToolDefinition {
   return {
     name: 'linguist_review_materials',

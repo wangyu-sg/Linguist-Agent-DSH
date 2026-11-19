@@ -13,6 +13,7 @@ export interface CreateCatDepsInput {
   professional: ProfessionalResources
   service: LinguistProjectService
   projectId: string
+  taskGroupId?: string
   sessionId: string
   taskId: string
   readSnapshots: NonNullable<LinguistCatToolsDeps['readSnapshots']>
@@ -50,6 +51,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
       input.onProjectResolved?.(db)
       return { project, db }
     },
+    get taskGroupId() { return input.taskGroupId },
     resultProjectId: projectId,
     professionalJudgment: input.professional,
     sessionId: input.sessionId,
@@ -57,7 +59,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
     readSnapshots: input.readSnapshots,
     linguistRole: input.role,
     prepareReviewMaterials: (segmentIds, signal) => prepareReviewMaterials(service, {
-      workspaceRoot: input.sessionCwd, taskId: input.taskId, projectId, segmentIds,
+      workspaceRoot: input.sessionCwd, taskId: input.taskId, projectId, taskGroupId: input.taskGroupId, segmentIds,
     }, signal, (id, versions) => input.readSnapshots.set(id, { kind: 'snapshot', versions })),
     ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
     onMutation: input.onMutation,
@@ -78,7 +80,7 @@ export function createCatDeps(input: CreateCatDepsInput): LinguistCatToolsDeps {
       input.assertBound()
       const paths = await Promise.all(request.paths.map(input.authorizeReadPath))
       input.assertBound()
-      return service.importResourcesFromPaths(projectId, input.sessionCwd, { ...request, paths }, input.contextImages())
+      return service.importResourcesFromPaths(projectId, input.sessionCwd, { ...request, paths, taskGroupId: input.taskGroupId }, input.contextImages())
     },
     async refreshProjectEvidenceInventory() {
       input.assertBound()

@@ -16,12 +16,18 @@ export function createTagTools(runtime: CatToolRuntime) {
       sampleLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
     }),
     async execute(toolCallId, params) {
-      resolveBoundProject('cat_scan_unknown_tag_patterns', toolCallId)
+      const { db } = resolveBoundProject('cat_scan_unknown_tag_patterns', toolCallId)
       if (!deps.scanUnknownTagPatterns) {
         throw new LinguistCatInvalidArgumentError('batchIds', 'unknown Tag scanning is unavailable in this host')
       }
+      let batches = params.batchIds
+      if (deps.delegatedScopeSegmentIds || deps.taskGroupId) {
+        const group = deps.taskGroupId ?? 'ungrouped'
+        if (batches) db.taskGroups.assertContains(group, 'assets', batches)
+        else batches = db.assets.listByProject().filter(asset => asset.taskGroupId === group).map(asset => asset.id)
+      }
       return toolResult(
-        { patterns: deps.scanUnknownTagPatterns(params.batchIds, params.sampleLimit), activated: false },
+        { patterns: deps.scanUnknownTagPatterns(batches, params.sampleLimit), activated: false },
         deps.resultProjectId,
       )
     },

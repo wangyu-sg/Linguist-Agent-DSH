@@ -24,6 +24,8 @@ import {
 } from './rows'
 
 export interface QaFindingListFilter {
+  taskGroupId?: string
+  segmentIds?: readonly string[]
   assetId?: string
   segmentId?: string
   code?: string
@@ -496,6 +498,14 @@ export class QaFindingsRepository {
   } {
     const clauses: string[] = []
     const params: unknown[] = []
+    if (filter.taskGroupId !== undefined) {
+      clauses.push(this.db.schemaVersion < 21 ? "? = 'ungrouped'" : 'segment_id IN (SELECT s.id FROM segments s JOIN assets a ON a.id=s.asset_id WHERE a.task_group_id=?)')
+      params.push(filter.taskGroupId)
+    }
+    if (filter.segmentIds !== undefined) {
+      clauses.push('segment_id IN (SELECT value FROM json_each(?))')
+      params.push(JSON.stringify(filter.segmentIds))
+    }
     if (filter.segmentId !== undefined) {
       clauses.push('segment_id = ?')
       params.push(filter.segmentId)

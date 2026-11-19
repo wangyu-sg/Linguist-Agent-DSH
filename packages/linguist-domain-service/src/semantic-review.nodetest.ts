@@ -1,11 +1,82 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
 import type { Segment } from '@linguist/cat-core'
 import { getSemanticReview } from './semantic-review'
 import { buildWorkingReview, workingReviewInput } from './working-review'
+import { loadDatabaseSync } from '@linguist/cat-store'
+import { ReviewCache } from './review-cache'
+
+test('only the last cancelled material search stops its subprocess and a same-key retry stays cached', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-search-consumers-'))
+  const previousPath = process.env.PATH
+  const cache = new ReviewCache(root)
+  const search = (query: string, signal?: AbortSignal) => cache.search(join(root, 'cache.sqlite'), ['entry'], [query], signal)
+  const started = join(root, 'started')
+  const launches = () => readFileSync(started, 'utf8').trim().split('\n')
+  const waitFor = async (condition: () => boolean) => {
+    const deadline = Date.now() + 5_000
+    while (!condition()) { assert.ok(Date.now() < deadline, 'synthetic subprocess did not reach the expected state'); await delay(10) }
+  }
+  try {
+    writeFileSync(join(root, 'memsearch'), 'synthetic launcher')
+    writeFileSync(join(root, 'python'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  const marker = path.join(__dirname, String(process.pid));
+  process.on('SIGTERM', () => { fs.writeFileSync(marker + '.stopped', ''); process.exit(0) });
+  console.error('LA_PROGRESS preparing 1 2');
+  fs.appendFileSync(path.join(__dirname, 'started'), process.pid + '\\n');
+  setInterval(() => { if (fs.existsSync(marker + '.finish')) { console.log('{"groups":[[0]]}'); process.exit(0) } }, 10);
+  setTimeout(() => process.exit(1), 8_000);
+});`, { mode: 0o700 })
+    process.env.PATH = root + delimiter + (previousPath ?? '')
+    const first = new AbortController()
+    const cancelled = assert.rejects(search('shared', first.signal), { name: 'AbortError' })
+    const otherReader = search('shared')
+    await waitFor(() => existsSync(started))
+    const path = join(root, 'cache.sqlite')
+    const progress = () => cache.activeProgress(path, '')
+    await waitFor(() => progress()[0]?.progress.phase === 'preparing')
+    assert.deepEqual(progress(), [{ kind: 'materials', progress: { phase: 'preparing', ready: 1, total: 2 } }])
+    assert.deepEqual(cache.activeProgress(path, 'another-group'), [])
+    assert.deepEqual(cache.activeProgress(join(root, 'other-project.sqlite'), ''), [])
+    first.abort()
+    await cancelled
+    assert.equal(launches().length, 1)
+    writeFileSync(join(root, launches()[0]! + '.finish'), '')
+    assert.deepEqual(await otherReader, [[0]])
+    assert.deepEqual(progress(), [])
+
+    const last = new AbortController()
+    const stopped = assert.rejects(search('retry', last.signal), { name: 'AbortError' })
+    await waitFor(() => launches().length === 2)
+    last.abort()
+    const retry = search('retry')
+    await stopped
+    await waitFor(() => existsSync(join(root, launches()[1]! + '.stopped')) && launches().length === 3)
+    writeFileSync(join(root, launches()[2]! + '.finish'), '')
+    assert.deepEqual(await retry, [[0]])
+    assert.deepEqual(await search('retry'), [[0]])
+    assert.equal(launches().length, 3)
+
+    const review = new AbortController()
+    const grouping = cache.get(join(root, 'cache.sqlite'), [{ id: 'test', ordinal: 1, key: 'test', source: 'Paper crane', target: '', locked: false }], review.signal)
+    await waitFor(() => launches().length === 4)
+    review.abort()
+    assert.equal((await grouping).status, 'failed')
+    await waitFor(() => existsSync(join(root, launches()[3]! + '.stopped')))
+  } finally {
+    cache.dispose()
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('semantic subprocess boundary is offline, maps stable IDs, preserves current targets, and exposes failures', async () => {
   const root = mkdtempSync(join(tmpdir(), 'la-semantic-boundary-'))
@@ -26,7 +97,7 @@ if (process.env.HF_HUB_OFFLINE !== '1' || process.env.TRANSFORMERS_OFFLINE !== '
 let input = ''; process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
   const request = JSON.parse(input);
-  if (Object.keys(request).sort().join(',') !== 'cachePath,texts') process.exit(3);
+  if (Object.keys(request).sort().join(',') !== 'cachePath,taskGroupId,texts') process.exit(3);
   console.log(JSON.stringify({model:'gpahal/bge-m3-onnx-int8',fingerprint:'synthetic',texts:request.texts,
     groups:[{anchor:0,members:[0,1]}],embedded:0,cached:2,reusedGroups:true}));
 });`)
@@ -64,6 +135,40 @@ process.stdin.on('end', () => {
     const abort = new AbortController()
     abort.abort()
     assert.equal((await getSemanticReview(join(root, 'cache.sqlite'), segments, abort.signal)).status, 'failed')
+    writeBackend(`
+let input = ''; process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const request = JSON.parse(input);
+  require('node:fs').appendFileSync(${JSON.stringify(join(root, 'search-calls'))}, '1');
+  console.log(JSON.stringify({groups: request.queries.map(() => [request.texts.indexOf('Original query and complete reply')])}));
+});`)
+    const cache = new ReviewCache(root)
+    const cachePath = join(root, 'materials.sqlite')
+    const texts = ['Original query and complete reply', 'Unrelated paragraph']
+    assert.deepEqual(await cache.search(cachePath, texts, ['Relevant question']), [[0]])
+    assert.deepEqual(await cache.search(cachePath, texts, ['Relevant question']), [[0]])
+    assert.equal(readFileSync(join(root, 'search-calls'), 'utf8'), '1', 'warm identical search launches no subprocess')
+    assert.deepEqual(await cache.search(cachePath, [...texts].reverse(), ['Relevant question']), [[1]], 'indices follow corpus order')
+    await cache.clear(cachePath)
+    await cache.search(cachePath, texts, ['Relevant question'])
+    assert.equal(readFileSync(join(root, 'search-calls'), 'utf8'), '111')
+    await cache.search(cachePath, texts, ['Relevant question'], undefined, 'group-a')
+    await cache.search(cachePath, texts, ['Relevant question'], undefined, 'group-b')
+    const db = new (loadDatabaseSync())(cachePath)
+    try {
+      db.exec("CREATE TABLE groups(key TEXT PRIMARY KEY, value TEXT); INSERT INTO groups VALUES ('group-a:k','[]'),('group-b:k','[]'); CREATE TABLE vectors(key TEXT PRIMARY KEY); INSERT INTO vectors VALUES ('common')")
+      await cache.clear(cachePath, 'group-a')
+      assert.deepEqual(db.prepare('SELECT key FROM groups').all().map(value => (value as { key: string }).key), ['group-b:k'])
+      assert.ok(db.prepare('SELECT 1 FROM vectors').get())
+      const calls = readFileSync(join(root, 'search-calls'), 'utf8')
+      await cache.search(cachePath, texts, ['Relevant question'], undefined, 'group-b')
+      assert.equal(readFileSync(join(root, 'search-calls'), 'utf8'), calls)
+      await cache.search(cachePath, texts, ['Relevant question'], undefined, 'group-a')
+      assert.equal(readFileSync(join(root, 'search-calls'), 'utf8'), calls + '1')
+    } finally { db.close() }
+    await cache.setEnabled(false)
+    assert.deepEqual(await cache.search(cachePath, texts, ['Relevant question']), [])
+    cache.dispose()
   } finally {
     if (previousPath === undefined) delete process.env.PATH
     else process.env.PATH = previousPath

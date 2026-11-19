@@ -34,12 +34,13 @@ export function editorDetails(service: LinguistProjectService, projectId: string
   return { segment, ...neighbors, revisions: revisions.slice(-100), totalRevisions: revisions.length }
 }
 
-export function editorConcordance(service: LinguistProjectService, projectId: string, query: string, assetId: string | undefined, limit: number, offset: number): LinguistConcordanceResult {
+export function editorConcordance(service: LinguistProjectService, projectId: string, query: string, assetId: string | undefined, limit: number, offset: number, sourceAssetId = assetId): LinguistConcordanceResult {
   const project = service.getProject(projectId)
   const db = service.openProject(projectId)
-  const page = service.queryCatWorkspace(projectId, { assetId, search: query, limit, offset, includeIndex: false })
+  const taskGroupId = db.taskGroups.groupOf(sourceAssetId)
+  const page = service.queryCatWorkspace(projectId, { assetId, taskGroupId, search: query, limit, offset, includeIndex: false })
   const labels = new Map(page.assets.map(asset => [asset.id as string, asset.originalFilename]))
-  const filter = { query, sourceLocale: project.sourceLocale, targetLocale: project.targetLocale, limit, offset }
+  const filter = { query, taskGroupId, sourceLocale: project.sourceLocale, targetLocale: project.targetLocale, limit, offset }
   return {
     segments: page.segments.map(segment => ({ segment, assetLabel: labels.get(segment.assetId) ?? segment.assetId })),
     segmentTotal: page.total, tm: db.tmUnits.concordance(filter), tmTotal: db.tmUnits.count(filter), limit, offset,

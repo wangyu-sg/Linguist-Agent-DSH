@@ -175,6 +175,7 @@ async function importEntry(
   xlsxMapping?: LinguistIntakeXlsxMapping,
   phraseMaster?: IntakeEntry,
   onProgress?: ImportAssetInput['onProgress'],
+  taskGroupId?: string,
 ): Promise<LinguistIntakeImportResult> {
   const maxBytes = LINGUIST_FILE_MAX_BYTES
   assertEntryWithinLimit(entry, maxBytes)
@@ -186,7 +187,7 @@ async function importEntry(
     }
     const result = await service.importAsset(projectId, {
       bytes,
-      filename: entry.filename,
+      filename: entry.filename, taskGroupId,
       xlsxMapping,
       onProgress,
       ...(phraseMaster === undefined ? {} : {
@@ -209,7 +210,7 @@ async function importEntry(
     }
   }
   if (resourceKind === 'context') {
-    const doc = await service.importContextDoc(projectId, { bytes, filename: entry.filename, imageMediaType: entry.imageMediaType })
+    const doc = await service.importContextDoc(projectId, { bytes, taskGroupId, filename: entry.filename, imageMediaType: entry.imageMediaType })
     return {
       resourceKind,
       filename: entry.filename,
@@ -222,7 +223,7 @@ async function importEntry(
     }
   }
   const result = await service.importReference(projectId, resourceKind, {
-    bytes,
+    bytes, taskGroupId,
     filename: entry.filename,
     ...(xlsxMapping === undefined ? {} : { xlsxMapping }),
   })
@@ -266,7 +267,7 @@ export async function importProjectResources(
   const phraseFiles = new Set<string>()
   const phraseIssues = new Map<string, string>()
   const project = service.getProject(projectId)
-  const importedAssetsByHash = new Map(db.assets.listByProject().map((asset) => [asset.sourceSha256, asset]))
+  const importedAssetsByHash = new Map(db.assets.listByProject().filter(asset => (asset.taskGroupId ?? 'ungrouped') === (input.taskGroupId ?? 'ungrouped')).map((asset) => [asset.sourceSha256, asset]))
   const duplicateMasterHashes = new Set<string>()
   for (const entry of entries) {
     if (entry.imageMediaType !== undefined || !['.mxliff', '.xlf', '.xliff'].includes(extname(entry.filename).toLowerCase())) continue
@@ -442,7 +443,7 @@ export async function importProjectResources(
         let resourceId: string | undefined
         if (resourceKind === 'batch') {
           const preview = await service.previewAssetImport(projectId, {
-            bytes,
+            bytes, taskGroupId: input.taskGroupId,
             filename,
             xlsxMapping,
             ...(master === undefined ? {} : {
@@ -470,7 +471,7 @@ export async function importProjectResources(
           ...(resourceId === undefined ? {} : { resourceId }) })
         continue
       }
-      const imported = await importEntry(service, projectId, entry, resourceKind, xlsxMapping, master, progress)
+      const imported = await importEntry(service, projectId, entry, resourceKind, xlsxMapping, master, progress, input.taskGroupId)
       items.push({
         filename,
         status: imported.status,

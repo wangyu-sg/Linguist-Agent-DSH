@@ -1,6 +1,7 @@
 import type { CatDock } from './cat-navigation'
 
 export interface WorkbenchLocation {
+  taskGroupId?: string
   assetId?: string
   segmentId?: string
   assetNavigatorOpen: boolean
@@ -21,14 +22,15 @@ function width(value: unknown, fallback: number, minimum: number, maximum: numbe
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback
 }
 
-export function readWorkbenchLocation(projectId: string): { value: WorkbenchLocation; error?: string } {
+export function readWorkbenchLocation(projectId: string, previousKey?: string): { value: WorkbenchLocation; error?: string } {
   try {
-    const stored = localStorage.getItem(`linguist:workbench:${projectId}`)
+    const stored = localStorage.getItem(`linguist:workbench:${projectId}`) ?? (previousKey ? localStorage.getItem(`linguist:workbench:${previousKey}`) : null)
     if (stored === null) return { value: workbenchDefaults }
     const parsed: unknown = JSON.parse(stored)
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid stored layout')
     const value = parsed as Record<string, unknown>
     return { value: {
+      taskGroupId: typeof value.taskGroupId === 'string' && value.taskGroupId ? value.taskGroupId : undefined,
       assetId: typeof value.assetId === 'string' && value.assetId ? value.assetId : undefined,
       segmentId: typeof value.segmentId === 'string' && value.segmentId ? value.segmentId : undefined,
       assetNavigatorOpen: typeof value.assetNavigatorOpen === 'boolean' ? value.assetNavigatorOpen : workbenchDefaults.assetNavigatorOpen,

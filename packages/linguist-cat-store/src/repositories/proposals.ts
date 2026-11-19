@@ -106,6 +106,7 @@ export interface ReissueTerminalProposalInput extends ProposalMutationItem, Prop
 }
 
 export interface ProposalListFilter {
+  taskGroupId?: string
   assetId?: string
   status?: ProposalStatus
   limit?: number
@@ -404,16 +405,28 @@ export class ProposalsRepository {
     return rows.map(proposalFromRow)
   }
 
+  private listWhere(filter: ProposalListFilter): { sql: string; values: string[] } {
+    const clauses: string[] = []
+    const values: string[] = []
+    if (filter.status) { clauses.push('p.status = ?'); values.push(filter.status) }
+    if (filter.assetId) { clauses.push('s.asset_id = ?'); values.push(filter.assetId) }
+    if (filter.taskGroupId) {
+      clauses.push(this.db.schemaVersion < 21 ? "? = 'ungrouped'" : 's.asset_id IN (SELECT id FROM assets WHERE task_group_id = ?)')
+      values.push(filter.taskGroupId)
+    }
+    return { sql: clauses.length ? 'WHERE ' + clauses.join(' AND ') : '', values }
+  }
+
   /** Project-level inbox/history, newest first and bounded by the caller. */
   list(filter: ProposalListFilter = {}): TranslationProposal[] {
     const limit = filter.limit ?? 500
     const offset = filter.offset ?? 0
+    const { sql, values } = this.listWhere(filter)
     const rows = this.db.db.prepare(`
       SELECT p.* FROM proposals p JOIN segments s ON s.id = p.segment_id
-      WHERE (? IS NULL OR p.status = ?) AND (? IS NULL OR s.asset_id = ?)
+      ${sql}
       ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?
-    `).all(filter.status ?? null, filter.status ?? null, filter.assetId ?? null,
-      filter.assetId ?? null, limit, offset) as ProposalRow[]
+    `).all(...values, limit, offset) as ProposalRow[]
     return rows.map(proposalFromRow)
   }
 
@@ -452,11 +465,11 @@ export class ProposalsRepository {
              ${issuanceProjection}
       FROM proposals p
       INNER JOIN segments s ON s.id = p.segment_id`
+    const { sql, values } = this.listWhere(filter)
     const rows = this.db.db.prepare(`${select}
-      WHERE (? IS NULL OR p.status = ?) AND (? IS NULL OR s.asset_id = ?)
+      ${sql}
       ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?
-    `).all(filter.status ?? null, filter.status ?? null, filter.assetId ?? null,
-      filter.assetId ?? null, limit, offset) as ProposalDiffRow[]
+    `).all(...values, limit, offset) as ProposalDiffRow[]
     return rows.map((row) => {
       const proposal = proposalFromRow(row)
       if (!legacySchema && row.latest_issuance_json === null) {
@@ -481,11 +494,11 @@ export class ProposalsRepository {
   }
 
   count(filter: ProposalListFilter = {}): number {
+    const { sql, values } = this.listWhere(filter)
     const row = this.db.db.prepare(`
       SELECT COUNT(*) AS n FROM proposals p JOIN segments s ON s.id = p.segment_id
-      WHERE (? IS NULL OR p.status = ?) AND (? IS NULL OR s.asset_id = ?)
-    `).get(filter.status ?? null, filter.status ?? null, filter.assetId ?? null,
-      filter.assetId ?? null) as { n: number }
+      ${sql}
+    `).get(...values) as { n: number }
     return Number(row.n)
   }
 

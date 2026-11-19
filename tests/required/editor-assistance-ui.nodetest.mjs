@@ -88,7 +88,7 @@ function mount(symbol, props, required = async operation => { throw Error(`Unexp
 
 const segment = { id: 'seg-synthetic', assetId: 'asset-A', ordinal: 0, source: '🦉获得药水 10，药水', target: 'Potion 10', sourceHash: 'synthetic-source', sourceLocale: 'zh-CN', targetLocale: 'en-US', revision: 3, locked: false, context: {} }
 const match = { id: 'term-host', term: '药水', translation: 'Potion', status: 'required', caseSensitive: false, matchType: 'contains', conflict: false, start: 4, end: 6, lowDiscrimination: false, note: 'Host scoped terminology note' }
-const views = { invisibles: false, terms: true, critical: true, spelling: true, differences: false, context: false }
+const views = { invisibles: false, formatCodes: false, terms: true, critical: true, spelling: true, differences: false, context: false }
 const spelling = (issues = [], dictionary = []) => ({ locale: 'en-US', supported: true, issues, dictionary })
 const detailsApi = async (operation, input) => {
   if (operation === 'linguistCatEditorDetails') return { segment: { ...segment, id: input.segmentId }, previous: [], next: [], revisions: [], totalRevisions: 0 }
@@ -138,6 +138,48 @@ test('SourceText popup uses supplied actual Host occurrence, status and note, wi
   assert.equal((html.match(/data-tooltip=/g) ?? []).length, 1, 'unmatched second source occurrence has no invented popup')
   assert(!harness.html('SourceText', { segment, target: 'Potion 10', matches: [match], options: { ...views, terms: false }, onTagFocus() {}, annotations: [] }).includes('data-tooltip='))
   harness.dispose()
+})
+
+test('SourceText keeps Phrase underline across actual term popups and annotation fragments without reparsing substrings', () => {
+  const source = '前{u>药水 10 和药水<u}后', first = source.indexOf('药水'), second = source.lastIndexOf('药水')
+  const props = { segment: { ...segment, source }, target: 'Potion 10', matches: [first, second].map(start => ({ ...match, start, end: start + 2 })), options: views,
+    formatId: 'phrase_mxliff_1_2', onTagFocus() {}, annotations: [{ id: 'number', start: source.indexOf('10'), end: source.indexOf('10') + 2, kind: 'number' }] }
+  const harness = mount('SourceText', props)
+  const html = harness.html('SourceText', props)
+  assert.equal((html.match(/data-tooltip=/g) ?? []).length, 2)
+  assert.equal((html.match(/data-inline-decoration="underline"/g) ?? []).length, 3)
+  assert.match(html, /data-inline-decoration="underline"><span[^>]*data-tooltip=/)
+  assert.match(html, /data-inline-decoration="underline"><span[^>]*data-assist-id="number"/)
+  assert.equal((html.match(/hidden="" contenteditable="false" data-inline-raw=/g) ?? []).length, 2)
+  assert.equal(html.replace(/<[^>]*>/g, ''), '前药水 10 和药水后')
+  const codeHtml = harness.html('SourceText', { ...props, options: { ...views, formatCodes: true } })
+  assert.match(codeHtml.replace(/<[^>]*>/g, ''), /前\{u&gt;.*&lt;u\}后/)
+  assert.doesNotMatch(codeHtml, /data-inline-format-code/)
+  for (const formatId of [undefined, 'sdlxliff_1_2']) assert.doesNotMatch(harness.html('SourceText', { ...props, formatId }), /data-inline-decoration/)
+  const malformed = '前{u>药水 {u>10<u}后'
+  assert.doesNotMatch(harness.html('SourceText', { ...props, segment: { ...segment, source: malformed }, matches: [] }), /data-inline-decoration/)
+  harness.dispose()
+})
+
+test('SegmentTextCells passes its own asset format to source, inactive target and active TargetEditor without writing', () => {
+  const props = { ...cellsProps(), formatId: 'phrase_mxliff_1_2', editing: false }
+  const cells = mount('SegmentTextCells', props)
+  const original = cells.store.get(props.draftAtom)
+  cells.render()
+  assert.equal(cells.find(node => node.type?.name === 'SourceText').props.formatId, props.formatId)
+  assert.equal(cells.find(node => node.type === cells.load('InlineTaggedText.tsx').InlineTaggedText).props.formatId, props.formatId)
+  cells.render({ editing: true })
+  assert.equal(cells.find(node => node.type === cells.load('TargetEditor.tsx').TargetEditor).props.formatId, props.formatId)
+  assert.strictEqual(cells.store.get(props.draftAtom), original)
+  cells.render({ options: { ...views, formatCodes: true } })
+  assert.equal(cells.find(node => node.type === cells.load('TargetEditor.tsx').TargetEditor).props.showFormatCodes, true)
+  assert.equal(cells.find(node => node.type?.name === 'SourceText').props.options.formatCodes, true)
+  cells.render({ editing: false })
+  assert.equal(cells.find(node => node.type === cells.load('InlineTaggedText.tsx').InlineTaggedText).props.showFormatCodes, true)
+  assert.strictEqual(cells.store.get(props.draftAtom), original)
+  cells.render({ editing: true, formatId: 'sdlxliff_1_2' })
+  assert.equal(cells.find(node => node.type === cells.load('TargetEditor.tsx').TargetEditor).props.formatId, 'sdlxliff_1_2')
+  cells.dispose()
 })
 
 test('actual terminology hook requests bounded Host matches and ignores stale project/source replies', async () => {
@@ -225,7 +267,7 @@ test('unmodified cached rows display and analyze new saved targets while protect
   assert.strictEqual(cells.store.get(props.draftAtom), pristine, 'display refresh does not rewrite undo history or cached state')
   for (const patch of [
     { state: { ...pristine.state, value: 'Unsaved potion 30' } },
-    { state: { ...pristine.state, composing: true, compositionBase: pristine.state.value } },
+    { state: { ...pristine.state, composing: true, compositionBase: { value: pristine.state.value } } },
     { saving: true }, { conflict: true }, { resolvingConflict: true },
   ]) {
     const protectedDraft = { ...pristine, ...patch }
@@ -269,7 +311,7 @@ test('concordance requests only on submit, captures explicit batch scope, cancel
   panel.input('用例检索词').onChange({ target: { value: ' Hero ' } }); panel.render()
   assert.equal(calls.length, 0)
   panel.submit(); panel.render()
-  assert.deepEqual(plain(calls[0].input), { projectId: 'project-A', query: 'Hero', offset: 0, limit: 10 })
+  assert.deepEqual(plain(calls[0].input), { projectId: 'project-A', sourceAssetId: 'asset-A', query: 'Hero', offset: 0, limit: 10 })
   panel.find(node => node.type === 'checkbox').props.onChange(true); panel.render()
   assert.equal(calls.length, 1, 'changing scope is not permission to send a new query')
   calls[0].reply.resolve(concordanceResult('stale-project-result')); await tick(); panel.render()

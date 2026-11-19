@@ -15,8 +15,6 @@ const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/
 const tarball = join(artifacts, `linguist-dsh-plugin-${manifest.version}.tgz`)
 if (!process.env.npm_execpath) throw new Error('Run this script with pnpm pack:plugin')
 if (!existsSync(join(source, 'lib/semantic-review.py'))) throw new Error('Build the local semantic retrieval resource before packing')
-const browserSource = join(root, `integrations/browser-skill/dist/wxg-prc-cpg-browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
-const browserTarball = join(artifacts, `browser-skill-dsh-plugin-${baseline.adaptedPluginVersion}.tgz`)
 if (!existsSync(join(source, 'lib/index.mjs')) || !existsSync(join(source, 'lib/client.cjs')) || !existsSync(join(source, 'lib/cat-job-worker.js')) || !existsSync(join(source, 'lib/integrity-scrub-worker.js')) || !existsSync(join(source, 'lib/pdf.worker.mjs'))) throw new Error('Build the complete plugin before packing')
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
@@ -45,18 +43,9 @@ console.log('PASS: Linguist native plugin display resources (en, zh, PNG)')
 const detail = await checkPluginDetail(tarball)
 console.log(`PASS: Linguist native plugin detail documents (${Object.entries(detail.documents).map(([language, document]) => `${language} → ${document.path}`).join(', ')})`)
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex')
-let browserSkill
-if (existsSync(browserSource)) {
-  if (digest(browserSource) !== baseline.adaptedTarballSha256) throw new Error('BrowserSkill tarball differs from the fixed baseline')
-  checkPluginDisplay(browserSource)
-  console.log('PASS: BrowserSkill native plugin display resources (en, zh, PNG)')
-  cpSync(browserSource, browserTarball)
-  browserSkill = { path: browserTarball, sha256: digest(browserTarball), version: baseline.adaptedPluginVersion }
-}
 execFileSync(process.execPath, [join(root, 'scripts/check-package-resources.mjs'), tarball], { cwd: root, stdio: 'inherit' })
 writeFileSync(join(artifacts, 'pack.json'), `${JSON.stringify({
-  createdAt: new Date().toISOString(), dshVersion: manifest.peerDependencies['@deepseek-ai/dsh-agent'],
+  createdAt: new Date().toISOString(), dshVersion: baseline.dshVersion,
   linguist: { path: tarball, sha256: digest(tarball), version: manifest.version },
-  ...(browserSkill === undefined ? {} : { browserSkill }),
   entries,
 }, null, 2)}\n`)

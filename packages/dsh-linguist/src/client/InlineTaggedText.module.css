@@ -1,4 +1,7 @@
 .inline { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bold, .chip.bold { font-weight: 700; }
+.italic, .chip.italic { font-style: italic; }
+.underline { text-decoration-line: underline; text-decoration-style: solid; text-decoration-color: currentColor; text-underline-offset: 2px; }
 .chip {
   display: inline-block;
   box-sizing: border-box;
@@ -32,6 +35,11 @@
   pointer-events: none;
   user-select: none;
   white-space: nowrap;
+}
+.invisible[data-invisible-glyph="·"]::before {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
 }
 .invisible[data-zero-width="true"] { display: inline-block; min-width: 2.5em; }
 .annotation { text-decoration-thickness: 1px; text-underline-offset: 3px; }

@@ -1,112 +1,121 @@
-# BrowserSkill for LA-DSH
+# BrowserSkill for DSH
 
-This directory adapts the pinned upstream DSH plugin in `BASELINE.json`. It adds
-`bsk_files` to the same BrowserSkill Host/Client plugin instance and keeps its
-owned sessions, runner, queue, cancellation, observation, and UI. There is no
-second browser-control path.
+LA uses the official BrowserSkill CLI/MCP and Chrome Web Store extension. DSH's
+`@deepseek-ai/dsh-mcp-client` provides the tool bridge and screenshot attachments;
+Fishquito's `dsh-skill-mcp-panel` provides the management page. No DSH or
+BrowserSkill source changes or dedicated BrowserSkill DSH plugin are needed.
 
-The supported host baseline is DSH 0.2.2-rc.3 on macOS ARM64. Runtime peers and engines allow `>=0.2.2-rc.3 <0.2.3-0`; build SDKs remain pinned to rc.3. Future interface changes still require verification. Use the local
-0.4.2-la-dsh.2 plugin tarball, bsk 0.4.2 CLI/daemon, and extension 0.4.2 with
-protocol 1.8. The extension must show a connection to the configured daemon port
-before browser actions work. Install or update the tarball through the official
-DSH plugin manager, following its prompts to enable the plugin and reload if required.
+`BASELINE.json` records the last checked official release, not an update pin.
+CLI 0.5.0 and store extension 0.5.0 were checked on DSH 0.2.2-rc.3, macOS ARM64;
+both use protocol 1.9. The CLI's official automatic updates remain enabled, and
+Chrome manages extension updates. LA installation does not replace either one.
 
-The adaptation retains English/Chinese display resources, the DSH screenshot
-and session binding fixes, and the file-transfer additions. The 0.4.2 update
-passes its pinned source build, typecheck, plugin tests, package and display
-checks. On the target macOS desktop it is installed and enabled, the matching
-Chrome extension is connected, and generated localhost navigation, upload,
-download, and repeat-request checks pass. No customer-platform test is implied.
+## Install and connect
 
-The runtime is based on official 0.4.2 and uses its `bsk_*` tool names.
-Reload `/browser-skill` in existing conversations to obtain the current tool instructions.
-The patch targets the DSH 0.2.2 attachment API and current-session UI binding, retains notification sources and terminal labels, and adds
-`bsk_files`, durable receipts, canonical request deduplication, configured
-staging/home paths, and disables CLI self-update. Updating to the unmodified
-marketplace package drops these additions.
+1. Install the CLI using the [official installer](https://github.com/Tencent/BrowserSkill#1-install-the-cli).
+   It downloads and verifies a published release. The default path is
+   `~/.local/bin/bsk`; `BSK_INSTALL_DIR` selects another directory. This checkout's
+   local installation uses `~/Library/Application Support/Linguist-Agent-DSH/runtime/browser-skill/bin/bsk`.
+   Stop the existing daemon before replacing a source build with a release bearing
+   the same version number; `bsk update` compares versions, not source commits.
+2. Install or enable the [official Chrome Web Store extension](https://chromewebstore.google.com/detail/hhcmgoofomhgciiibhipgmgkgnoenaoi).
+   Disable older unpacked extensions. Preserve the existing BrowserSkill data
+   directory and daemon port (52800 in this installation). For local file uploads,
+   enable **Allow access to file URLs** in the extension's Chrome details page;
+   otherwise Chrome can reject file attachment with `-32000 Not allowed`.
+3. In Fishquito's **Skill / MCP → MCP → Add server**, use STDIO, the absolute CLI
+   path, argument `mcp`, and `BSK_HOME` pointing to the existing data directory.
+   Do not set `BSK_AUTO_UPDATE=off`. The resulting official configuration is:
 
-Shared-control arguments retain the official `contextId`, `observationId`,
-`dependsOn` and `expect` names and map to the corresponding CLI flags. File
-transfers have one public entry, `bsk_files`: it reuses the official handlers
-while enforcing workspace/staging paths and durable receipts. The duplicate
-upload/download actions are removed from `bsk_interact`. Native dialog handling
-remains available; resume a pending file save through `bsk_files` status with
-the original request ID.
-
-When upgrading the upstream runtime, upgrade the plugin, CLI/daemon and Chrome
-extension together to the versions pinned in BASELINE.json. Keep `bskPath`, `bskHome`, `fileStagingDirectory`,
-`sessionStateDirectory` and the daemon port. With no browser tasks running, stop
-the owned daemon, install the plugin through the native manager, replace the
-CLI at the configured path, restart the daemon, update the Chrome extension and
-connect it to that same port. Loading an unpacked extension from a new directory
-can create a new extension identity; disable the old instance to avoid duplicate
-connections. Preserve its user settings until the new connection is working.
-
-The following are maintainer helpers, not normal LA installation prerequisites.
-The source build uses the prepared, pinned upstream checkout and local tooling
-in BASELINE.json. From this repository root:
-
-```sh
-node integrations/browser-skill/build-adapted-plugin.mjs
-node integrations/browser-skill/install-cli.mjs
+```yaml
+- insert:
+    - id: panel-mcp-browser-skill
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: browser-skill
+        transport: stdio
+        command: /absolute/path/to/bsk
+        args: [mcp]
+        env:
+          BSK_HOME: /absolute/path/to/existing/browser-skill/home
 ```
 
-The source build verifies upstream source, patch and adapted dependency lock,
-runs the upstream plugin suite plus the file-action tests, then applies the
-version and display metadata from `metadata/` before packing. It verifies the
-actual packed display resources and pinned tarball SHA and writes `dist/BUILD.json`.
+Remove the previous `browser-skill` entry under `mcp-manager.config.servers`
+before enabling this one; preserve other servers. Disable the old dedicated
+BrowserSkill DSH plugin if still installed. Keep exactly one BrowserSkill MCP
+registration. The official Desktop owns its profile; terminal scripts do not
+rewrite it. Its patch file can also be edited through the native configuration
+editor. Fishquito reads these independent client entries, not manager aggregates.
 
-For a metadata-only change with the unchanged runtime, use the fixed existing
-0.4.2-la-dsh.0 tarball in `dist/`, pinned separately by `metadataBase` in
-BASELINE.json. This path uses Node/npm without an upstream rebuild or dependency
-installation:
+Click **Test connection** in Fishquito. Official 0.5.0 exposes seven MCP tools.
+Start a new conversation to load the current tool list and instructions.
+
+## Updates and instructions
+
+A background daemon started by the official CLI checks for releases every
+30 minutes and updates when no agent session is active. `bsk update --check`
+checks manually; `bsk update --yes` installs an available release. A foreground
+or supervisor-managed daemon needs restarting through its owner. Chrome updates
+the store extension separately. Check `bsk status` and `bsk doctor` for version
+and protocol compatibility after an update.
+
+CLI 0.5.0's released `install-skill --list` does not yet include DSH, although
+current upstream source does. For this release, copy the unmodified
+`crates/bsk-cli/skill/` directory from the corresponding official release tag to
+`~/.dsh/skills/browser-skill`, preserving any existing custom skill before replacing
+it. This DSH skill copy does not gain automatic synchronization from CLI 0.5.0;
+refresh it with future official releases until DSH becomes a supported target.
+Do not build unreleased source merely to enable that target.
+
+For CLI calls, use the same `BSK_HOME` and executable path as the MCP configuration.
+`bsk mcp` is the official binary; no command proxy or output wrapper is required.
+CAT and working copies do not require a browser connection.
+
+## Bounded reads and continuous operations
+
+Load the installed `browser-skill` instructions. `bsk_session open` combines
+opening, navigation and observation. On a shared MCP server, pass a distinct
+task `scope` and reuse it with the returned session on subsequent calls.
+`bsk_plan` performs up to 20 already-decided
+actions, followed by one observation. Inspect `completed`, `stopped` and `not_run`
+before continuing; never replay successful or uncertain writes.
+
+Use the **same `max_tokens`** in open/sync/plan and in interact with `sync_after`.
+For ordinary navigation start with 2000, then increase or use a targeted read when
+necessary. CLI uses `--max-tokens`. Omitting it requests an unbounded snapshot,
+not the previous budget. Published CLI 0.5.0 does not yet include the later post-action snapshot budget
+fix. Use targeted reads when a response is too large; wait for an official release
+for that fix instead of replacing the binary with a source build.
+
+Use `bsk_inspect action: read` (`bsk read`) for known selectors/refs and wanted
+`read_fields`. Reuse current context and already-saved evidence instead of observing
+the entire page after every action. Navigation budgets must not omit required source,
+target, TM, TB or independent-review coverage. A clipped view is not a full reading.
+
+Official `bsk_interact` provides upload/download. Resolve pending dialogs through
+`bsk_assist operation_await` without repeating the transfer. `bsk_inspect screenshot`
+returns an MCP image that DSH displays natively.
+
+## Checks
 
 ```sh
-node integrations/browser-skill/build-adapted-plugin.mjs --metadata-only
-node --test tests/required/browser-skill-metadata-repack.nodetest.mjs
+BSK_HOME=/path/to/existing/bsk-home node integrations/browser-skill/smoke-localhost.mjs
+node scripts/test-browser-skill.mjs
+node scripts/test-browser-files-edge.mjs
+node integrations/browser-skill/desktop-fixture.mjs /tmp/bsk-desktop-check
 ```
 
-It applies the same metadata overlay, repacks with lifecycle scripts disabled,
-and compares the actual unpacked result: every original non-manifest file must
-remain byte-identical; only the adaptation version, display exports/files and
-three display assets may differ. Both build paths check the new tarball SHA
-before writing it. Existing tarballs are verified, never overwritten.
+The first three checks use the installed CLI and connected extension, allowing
+official updates instead of requiring a frozen executable hash. Fixtures contain
+only synthetic text and files. The desktop fixture can be used for a same-model
+comparison of tool-result size, browser calls, elapsed time and successful file
+transfers. CLI checks do not establish model-task speed or DSH screenshot display.
 
-Install the resulting `dist/*.tgz` in the official DSH default desktop profile as its sole
-BrowserSkill plugin. Set `bskPath` to the absolute path in
-`.toolchain/browser-skill/INSTALL.json`, `fileStagingDirectory` to the new
-product's staging directory, and `sessionStateDirectory` to a directory owned
-by that profile. The CLI installer checks the pinned official CLI and extension
-archives, installs the CLI privately, and unpacks the extension for Chrome's
-manual **Load unpacked** flow. It does not change any Chrome profile.
-Set the plugin’s `bskHome` configuration to its product-owned daemon directory. The runner passes it as `BSK_HOME` to each CLI child. That isolates daemon state,
-while the WebSocket port is separate: choose an unused port if another daemon
-owns the default 52800, and have the user connect the extension to that exact
-port in its UI.
+## Earlier performance observation
 
-After a user connects the exact extension to the new product's daemon, run the
-real localhost chain with an explicit, nondefault BrowserSkill home:
-
-```sh
-BSK_HOME=/path/to/new/product/bsk-home node integrations/browser-skill/smoke-localhost.mjs
-```
-
-If several browser instances are connected, set `BSK_BROWSER_ID` to the chosen
-instance ID. The smoke script disables daemon autostart, serves only generated
-content on `127.0.0.1`, and checks navigation, observation, form edit, exact
-upload/download bytes, and cleanup of its own tracked request. Its receipt is
-`dist/LOCALHOST_SMOKE.json`. A missing daemon or extension yields `BLOCKED_ENV`;
-the script never reports a browser pass from a simulated connection.
-
-Optional maintainer diagnostics in an already prepared local installation:
-
-- `node scripts/test-browser-skill.mjs`: uses that installation's fixed CLI,
-  independent BSK_HOME and port with localhost synthetic jobs.
-- `node scripts/test-browser-files-edge.mjs --managed`: exercises the plugin's
-  recoverable prepare/start/claim/cancel file protocol with the real extension.
-
-These tools use the author's local current.json and write local diagnostic output.
-They are not prerequisites for ordinary build, regression tests or installation.
-A disconnected extension is a real unavailable browser environment, not a successful
-page operation. CLI navigation, model-generated output and verified platform save
-are distinct results.
+The 2026-11-17 same-model comparison used an **unreleased official source build**
+at `615d5e9a52c3d5a5d472744cec3dd6932eb696ac`, which contained the later snapshot
+budget fix. Returned browser text fell from 78,770 to 42,589 characters and the
+complete turn from 163.6 to 150.8 seconds in that one run. Those figures do not
+measure the currently installed official 0.5.0 release and must not be presented
+as its performance results.

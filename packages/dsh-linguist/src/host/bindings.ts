@@ -8,8 +8,11 @@ export type LinguistWorkMode = 'cat' | 'working-copy' | 'browser'
 export interface SessionBinding {
   workspaceId: string
   projectId?: string
+  taskGroupId?: string
   role: LinguistRole
   workMode: LinguistWorkMode
+  /** The user chose this mode; an automatic workspace binding is not a decision. */
+  workModeConfirmed?: boolean
   delegatedScope?: { assetIds: string[]; segmentIds: string[] }
   reviewSnapshot?: { id: string; versions: CatReadVersion[] }
 }

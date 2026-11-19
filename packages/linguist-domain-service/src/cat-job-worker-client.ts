@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import type { ContextDoc } from '@linguist/cat-store'
+import type { WorkingReferenceRequest } from './working-reference-worker'
 import type { ContextImportWorkerRequest } from './context-import'
 import type { ImportContextDocInput } from './project-service-types'
 
@@ -23,7 +24,7 @@ export type WorkerRequest =
   | { kind: 'consistency'; request: LinguistConsistencyWorkerRequest }
   | { kind: 'context-import'; request: ContextImportWorkerRequest }
   | { kind: 'context-prepare'; request: ImportContextDocInput }
-  | { kind: 'working-references'; request: { rootDir: string; projectId: string; taskId: string; segmentIds: string[] } }
+  | { kind: 'working-references'; request: WorkingReferenceRequest }
 
 export function workerEntry(): URL {
   const built = new URL('./cat-job-worker.js', import.meta.url)

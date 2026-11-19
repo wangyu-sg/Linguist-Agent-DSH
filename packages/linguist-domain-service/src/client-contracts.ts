@@ -282,6 +282,7 @@ export interface LinguistImportWarning {
 }
 
 export interface LinguistAssetMetadata {
+  taskGroupId?: string
   assetId: string
   /** 导入时的文件 basename（展示元数据，绝非路径）。 */
   filename: string
@@ -388,6 +389,15 @@ export interface LinguistXlsxMappingUsedInfo {
   }
 }
 
+export type SemanticProgress =
+  | { phase: 'loading' }
+  | { phase: 'preparing' | 'matching'; ready: number; total: number }
+
+export interface LinguistRetrievalProgress {
+  kind: 'materials' | 'segments'
+  progress: SemanticProgress
+}
+
 export interface LinguistImportProgress {
   filename: string
   index: number
@@ -446,6 +456,7 @@ export type LinguistProjectImportResult =
     }
 
 export interface LinguistProjectSummary {
+  taskGroups: import('@linguist/cat-store').TaskGroup[]
   project: LinguistProjectInfo
   assetCount: number
   totalSegments: number

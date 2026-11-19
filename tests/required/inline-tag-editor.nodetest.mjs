@@ -27,7 +27,7 @@ const targetExports = {}
 const targetCode = ts.transpileModule(readFileSync(new URL('../../packages/dsh-linguist/src/client/TargetEditor.tsx', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
 }).outputText
-runInNewContext(targetCode, { exports: targetExports, require: name => name === 'react' ? React : name === '@linguist/cat-core' ? tagCore : {} })
+runInNewContext(targetCode, { exports: targetExports, require: name => name === 'react' ? React : name === '@linguist/cat-core' ? tagCore : name === './inline-tokens' ? tokens : {} })
 
 // Structural DOM fixture only: exercise the production safe builder and mapping, not layout/rendering.
 class DomNode {
@@ -42,7 +42,13 @@ class DomNode {
     if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1)
     node.parentNode = this; this.childNodes.push(node); return node
   }
-  replaceChildren(...children) { this.replacements = (this.replacements ?? 0) + 1; this.childNodes.forEach(child => { child.parentNode = null }); this.childNodes = []; children.forEach(child => this.appendChild(child)) }
+  replaceChildren(...children) {
+    this.replacements = (this.replacements ?? 0) + 1
+    // DOM live Range endpoints inside removed children relocate to their parent.
+    const selection = this.ownerDocument.getSelection()
+    for (const endpoint of ['anchor', 'focus']) if (this.contains(selection[`${endpoint}Node`])) { selection[`${endpoint}Node`] = this; selection[`${endpoint}Offset`] = 0 }
+    this.childNodes.forEach(child => { child.parentNode = null }); this.childNodes = []; children.forEach(child => this.appendChild(child))
+  }
   contains(node) { return node === this || this.childNodes.some(child => child.contains(node)) }
   focus() { this.ownerDocument.activeElement = this }
   addEventListener(type, callback) { (this.listeners ??= new Map()).set(type, callback) }
@@ -231,7 +237,7 @@ function mountTokenEditor(initial = {}) {
   render()
   return { root, document, props, calls, selected, handle, render,
     event(type, values = {}) { const event = { currentTarget: root, cancelable: true, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, ...values }; root.listeners.get(type)(event); return event },
-    invoke(name, values = {}) { tree.props[name]({ currentTarget: root, nativeEvent: {}, preventDefault() { this.defaultPrevented = true }, ...values }) },
+    invoke(name, values = {}) { const event = { currentTarget: root, nativeEvent: {}, defaultPrevented: false, propagationStopped: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.propagationStopped = true }, ...values }; tree.props[name](event); return event },
     unmount() { slots.forEach(slot => slot?.cleanup?.()) },
   }
 }
@@ -256,6 +262,72 @@ test('passive annotation changes cannot steal a source/helper selection; active-
   assert.equal(document.activeElement, root)
   assert.equal(document.selectionWrites, writes + 1)
   assert.equal(editor.selected.at(-1), 'as')
+  editor.unmount()
+})
+
+test('external focus rebuilds cannot overwrite cached raw selections with a collapsed live Range', () => {
+  const raw = '{u>abcd<u}', editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat })
+  const { document, root } = editor, helper = document.createElement('button')
+  editor.handle.current.select(3, 5)
+  const anchor = tokens.inlineOffsetToDomPoint(root, 5), focus = tokens.inlineOffsetToDomPoint(root, 3)
+  document.selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset)
+  document.listeners.get('selectionchange')()
+  const before = editor.handle.current.selection(), writes = document.selectionWrites
+  assert.equal(before.backward, true)
+  helper.focus()
+  editor.render({ showFormatCodes: true })
+  assert.equal(document.selection.anchorNode, root)
+  assert.equal(document.selection.anchorOffset, 0, 'the fixture reproduces standard live Range removal behavior')
+  document.listeners.get('selectionchange')()
+  assert.deepEqual({ ...editor.handle.current.selection() }, before)
+  assert.equal(document.activeElement, helper)
+  assert.equal(document.selectionWrites, writes, 'a view rebuild must not steal focus or replace an external control selection')
+  root.focus(); editor.invoke('onFocus'); document.listeners.get('selectionchange')()
+  assert.deepEqual({ ...editor.handle.current.selection() }, before, 'Tab refocus restores the original raw selection')
+  assert.equal(editor.handle.current.toggleFormat('b'), true)
+  assert.equal(tokens.readInlineDomText(root), '{bu>ab<bu}{u>cd<u}')
+
+  // An undo/redo snapshot may replace raw text and selection while undo has focus.
+  const snapshots = [{ value: 'A first', initialSelection: { start: 2, end: 7, backward: true } }, { value: 'A redo', initialSelection: { start: 2, end: 6, backward: false } }]
+  for (const snapshot of snapshots) {
+    helper.focus(); editor.render(snapshot); document.listeners.get('selectionchange')()
+    assert.deepEqual({ ...editor.handle.current.selection() }, snapshot.initialSelection)
+    assert.equal(document.activeElement, helper)
+  }
+  assert.equal(editor.handle.current.toggleFormat('i'), true)
+  assert.equal(tokens.readInlineDomText(root), 'A {i>redo<i}', 'a toolbar action uses the restored snapshot range, not root/0')
+  editor.unmount()
+})
+
+test('pointer refocus respects a new user caret instead of restoring the old cached range', () => {
+  const editor = mountTokenEditor({ value: 'abcdef', sourceText: 'abcdef' }), { document, root } = editor
+  editor.handle.current.select(1, 4)
+  document.createElement('button').focus(); editor.render({ showInvisibles: true })
+  document.listeners.get('selectionchange')()
+  editor.invoke('onPointerDown'); root.focus()
+  const point = tokens.inlineOffsetToDomPoint(root, 5)
+  document.selection.setBaseAndExtent(point.node, point.offset, point.node, point.offset)
+  editor.invoke('onFocus'); document.listeners.get('selectionchange')()
+  assert.equal(editor.handle.current.selection().start, 5)
+  editor.handle.current.insert('X')
+  assert.equal(tokens.readInlineDomText(root), 'abcdeXf')
+  editor.unmount()
+})
+
+test('IME Escape and legacy composing key events keep their native default without reaching parent shortcuts', () => {
+  let parentKeys = 0
+  const editor = mountTokenEditor({ onKeyDown() { parentKeys++ } })
+  editor.invoke('onCompositionStart')
+  const local = editor.invoke('onKeyDown', { key: 'Escape', nativeEvent: { isComposing: false } })
+  assert.equal(local.defaultPrevented, false); assert.equal(local.propagationStopped, true)
+  editor.invoke('onCompositionEnd')
+  for (const nativeEvent of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+    const event = editor.invoke('onKeyDown', { key: 'Escape', nativeEvent })
+    assert.equal(event.defaultPrevented, false); assert.equal(event.propagationStopped, true)
+  }
+  assert.equal(parentKeys, 0)
+  editor.invoke('onKeyDown', { key: 'Escape' })
+  assert.equal(parentKeys, 1, 'ordinary Escape still reaches the editor cancel action')
   editor.unmount()
 })
 
@@ -326,6 +398,290 @@ test('text drop ignores HTML and snaps a browser drop point away from surrogate 
   editor.invoke('onDrop', { clientX: 1, clientY: 1, dataTransfer: transfer })
   assert.equal(tokens.readInlineDomText(editor.root), 'A\t<not-a-tag\n😀B')
   assert.equal(descendants(editor.root).some(node => node.tagName === 'IMG'), false)
+  editor.unmount()
+})
+
+const phraseFormat = 'phrase_mxliff_1_2'
+const phraseRanges = (raw, formatId = phraseFormat, options = {}) => tokens.phraseFormatting(raw, formatId, tokens.tokenizeInlineText(raw, options)).ranges.filter(range => range.flags.includes('u')).map(({ start, end }) => ({ start, end }))
+const decoratedNodes = root => descendants(root).filter(node => node.dataset.inlineDecoration === 'underline')
+
+test('Phrase underline ranges use exact UTF-16 flat, multiline and multiple balanced pairs', () => {
+  for (const raw of ['{u>flat<u}', '😀{u>A\r\nB\t\u00a0<u} end', 'before {u>one<u} / {u>two😀<u} after']) {
+    const ranges = phraseRanges(raw)
+    assert.deepEqual(ranges.map(range => raw.slice(range.start, range.end)), [...raw.matchAll(/\{u>(.*?)<u\}/gs)].map(match => match[1]))
+    assert.equal(tokens.tokenizeInlineText(raw).map(token => token.raw).join(''), raw)
+  }
+  assert.deepEqual(phraseRanges('😀{u>x<u}'), [{ start: 5, end: 6 }])
+  assert.deepEqual(phraseRanges('{u><u}'), [], 'empty pairs add no presentation nodes')
+})
+
+test('non-Phrase, nested, unbalanced and malformed underline syntax stays literal', () => {
+  const invalid = ['{u>x', 'x<u}', '<u}{u>x<u}', '{u>outer {u>inner<u} outer<u}', '{u>ok<u}{u>unfinished', '{u >x<u}', '{u>x<u }', '{U>x<U}']
+  for (const raw of invalid) {
+    assert.deepEqual(phraseRanges(raw), [], raw)
+    const { root } = dom()
+    renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat })
+    assert.equal(decoratedNodes(root).length, 0, raw)
+    assert.equal(tokens.readInlineDomText(root), raw)
+  }
+  for (const formatId of [undefined, 'sdlxliff_1_2', 'xliff_1_2', 'phrase_mxliff']) {
+    const raw = '{u>plain<u}', { root } = dom()
+    assert.deepEqual(phraseRanges(raw, formatId ?? ''), [])
+    renderTokenEditorDom(root, raw, { sourceText: raw, formatId })
+    assert.equal(decoratedNodes(root).length, 0)
+    const html = renderToStaticMarkup(React.createElement(inlineExports.InlineTaggedText, { text: raw, formatId }))
+    assert.doesNotMatch(html, /data-inline-decoration/)
+  }
+})
+
+test('read-only decoration wraps full-field ranges after annotation and nested renderText splits', () => {
+  const raw = 'A {u>term 10 and\nterm<u} Z'
+  const seen = []
+  const html = renderToStaticMarkup(React.createElement(inlineExports.InlineTaggedText, {
+    text: raw, sourceText: raw, formatId: phraseFormat, showFormatCodes: true,
+    annotations: [{ id: 'number', start: raw.indexOf('10'), end: raw.indexOf('10') + 2, kind: 'number' }],
+    renderText(value, start) {
+      seen.push([value, start])
+      // Like SourceText: a nested renderer sees only fragments and no formatId.
+      return React.createElement(inlineExports.InlineTaggedText, { text: value, showInvisibles: false })
+    },
+  }))
+  assert.equal(seen.map(([value]) => value).join(''), raw)
+  assert.match(html, /data-inline-decoration="underline"><span[^>]*data-inline-view="true"[^>]*>term /)
+  assert.match(html, /data-inline-decoration="underline"><span[^>]*data-assist-id="number"[^>]*><span[^>]*data-inline-view="true"[^>]*>10/)
+  assert.equal((html.match(/data-inline-decoration="underline"/g) ?? []).length, 3)
+  assert.match(html.replace(/<[^>]*>/g, ''), /A \{u&gt;/)
+  assert.match(html.replace(/<[^>]*>/g, ''), /&lt;u\} Z/)
+  assert.doesNotMatch(html, /<u[\s>]|<script|<img/)
+  const css = readFileSync(new URL('../../packages/dsh-linguist/src/client/InlineTaggedText.module.css', import.meta.url), 'utf8')
+  assert.match(css.match(/\.underline\s*\{([^}]+)\}/)[1], /text-decoration-line:\s*underline/)
+})
+
+test('whole chips inside underline ranges are decorated without styling chips that cross boundaries', () => {
+  const raw = '{u><b>{name}</b><u} outside {other}'
+  const { root } = dom()
+  renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat })
+  assert.deepEqual(decoratedNodes(root).map(node => node.dataset.inlineRaw), ['<b>', '{name}', '</b>'])
+  assert.equal(descendants(root).find(node => node.dataset.inlineRaw === '{other}').dataset.inlineDecoration, undefined)
+  const html = renderToStaticMarkup(React.createElement(inlineExports.InlineTaggedText, { text: raw, formatId: phraseFormat }))
+  assert.equal((html.match(/data-inline-decoration="underline"/g) ?? []).length, 3)
+  const opaqueProfile = { families: [{ id: 'opaque', class: 'singleton', pattern: '\\[opaque:[^\\]]+\\]' }], candidates: [] }
+  for (const crossing of ['<g label="{u>inside">outside<u}', '[opaque:{u>inside]outside<u}', '{u>outside[opaque:inside<u}]', '[opaque:{u>inside<u}]']) {
+    assert.deepEqual(phraseRanges(crossing, phraseFormat, { tagProfile: opaqueProfile }), [], 'a presentation boundary inside atomic code rejects that range')
+    renderTokenEditorDom(root, crossing, { sourceText: crossing, formatId: phraseFormat, tagProfile: opaqueProfile })
+    assert.equal(decoratedNodes(root).length, 0)
+    assert.equal(tokens.readInlineDomText(root), crossing)
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(inlineExports.InlineTaggedText, { text: crossing, formatId: phraseFormat, tagProfile: opaqueProfile })), /data-inline-decoration/)
+  }
+  const tagProfile = { families: [{ id: 'marker', class: 'singleton', pattern: '\\{u>|<u\\}' }], candidates: [] }
+  renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat, tagProfile })
+  assert.equal(descendants(root).find(node => node.dataset.inlineRaw === '{u>').dataset.inlineDecoration, undefined)
+  assert.equal(descendants(root).find(node => node.dataset.inlineRaw === '{name}').dataset.inlineDecoration, 'underline')
+})
+
+test('owned editable underline spans preserve exact raw, UTF-16 caret, backward selection and copy', () => {
+  const raw = '😀 {u>term\t10\r\n\u00a0{name}😀<u} {u>尾\u200b<u}'
+  const { root, document } = dom()
+  const annotations = [{ id: 't', start: raw.indexOf('term'), end: raw.indexOf('term') + 4, kind: 'term' },
+    { id: 'n', start: raw.indexOf('10'), end: raw.indexOf('10') + 2, kind: 'number' }]
+  renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat, annotations, showInvisibles: true, showFormatCodes: true })
+  assert.equal(tokens.readInlineDomText(root), raw)
+  assert.equal(root.textContent, raw)
+  const editable = decoratedNodes(root).filter(node => !node.hasAttribute('data-inline-raw'))
+  assert(editable.length >= 4)
+  assert(editable.every(node => node.contentEditable !== 'false' && !node.hasAttribute('data-inline-raw')))
+  const parsed = tokens.tokenizeInlineText(raw)
+  for (let offset = 0; offset <= raw.length; offset++) {
+    const normalized = tokens.snapInlineSelection(raw, offset, offset, parsed).start
+    const point = tokens.inlineOffsetToDomPoint(root, normalized)
+    assert.equal(tokens.inlineDomPointToOffset(root, point.node, point.offset), normalized, `decorated caret ${offset}`)
+  }
+  const left = tokens.inlineOffsetToDomPoint(root, 0), right = tokens.inlineOffsetToDomPoint(root, raw.length)
+  document.selection.setBaseAndExtent(right.node, right.offset, left.node, left.offset)
+  assert.deepEqual(tokens.inlineDomSelection(root, document.selection), { start: 0, end: raw.length, backward: true })
+  const clipboard = new Map()
+  tokens.copyInlineSelection(root, { clipboardData: { setData: (type, value) => clipboard.set(type, value) }, preventDefault() {} })
+  assert.equal(clipboard.get('text/plain'), raw, 'raw copy retains visible delimiters, chips and invisible code units')
+})
+
+test('format changes redraw presentation without stealing selection and defer all decoration until IME completes', () => {
+  const raw = '{u>base<u}', editor = mountTokenEditor({ value: raw, sourceText: raw })
+  const outside = editor.document.createTextNode('source selection')
+  editor.document.selection.setBaseAndExtent(outside, 0, outside, 6)
+  const writes = editor.document.selectionWrites
+  editor.render({ formatId: phraseFormat })
+  assert.equal(decoratedNodes(editor.root).length, 1)
+  assert.equal(editor.document.selectionWrites, writes)
+  assert.equal(editor.document.selection.anchorNode, outside)
+  editor.handle.current.select(4, 6)
+  editor.render({ formatId: 'sdlxliff_1_2' })
+  assert.equal(decoratedNodes(editor.root).length, 0)
+  assert.deepEqual(editor.handle.current.selection(), { start: 4, end: 6, backward: false })
+  editor.invoke('onCompositionStart')
+  const live = editor.root.childNodes[1], replacements = editor.root.replacements
+  live.nodeValue = '{u>组合😀<u}'
+  editor.render({ formatId: phraseFormat, showInvisibles: true, annotations: [{ id: 'ime', start: 3, end: 5, kind: 'term' }] })
+  assert.equal(editor.root.replacements, replacements)
+  assert.equal(editor.root.childNodes[1], live)
+  editor.invoke('onCompositionEnd')
+  assert.equal(tokens.readInlineDomText(editor.root), '{u>组合😀<u}')
+  assert.equal(decoratedNodes(editor.root).map(node => node.textContent).join(''), '组合😀')
+  assert.deepEqual(editor.calls.at(-1), ['composition-end', '{u>组合😀<u}'])
+  editor.unmount()
+})
+
+test('decorated editor plain-text paste/cut/edit keeps delimiters and never accepts clipboard HTML', () => {
+  const raw = '{u>base<u}', editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat, autoFocus: true })
+  editor.handle.current.select(3, 7)
+  editor.invoke('onPaste', { clipboardData: { getData: type => type === 'text/plain' ? '😀\n{name}' : '<img src=x>' } })
+  assert.equal(tokens.readInlineDomText(editor.root), '{u>😀\n{name}<u}')
+  assert.equal(decoratedNodes(editor.root).map(node => node.textContent).join(''), '😀\n{name}')
+  editor.handle.current.select(3, 5)
+  const clipboard = new Map()
+  editor.invoke('onCut', { clipboardData: { setData: (type, value) => clipboard.set(type, value) } })
+  assert.equal(clipboard.get('text/plain'), '{u>😀<u}', 'rich cut preserves the selected style as a balanced native fragment')
+  assert.equal(tokens.readInlineDomText(editor.root), '{u>\n{name}<u}')
+  editor.handle.current.select(3, 3)
+  editor.event('beforeinput', { inputType: 'insertText', data: 'New' })
+  assert.equal(tokens.readInlineDomText(editor.root), '{u>New\n{name}<u}')
+  assert.equal(editor.handle.current.selection().start, 6)
+  assert(!descendants(editor.root).some(node => node.tagName === 'IMG' || node.tagName === 'U'))
+  editor.unmount()
+})
+
+test('rich view hides only verified native boundaries and code view preserves literal raw text', () => {
+  for (const flags of ['b', 'i', 'u', 'bi', 'bu', 'iu', 'biu']) {
+    const raw = `X{${flags}>😀 {name}<${flags}}Y`, { root } = dom()
+    renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat })
+    assert.equal(root.textContent, 'X😀 {name}Y')
+    assert.equal(tokens.readInlineDomText(root), raw)
+    assert.equal(descendants(root).filter(node => node.dataset.inlineFormatCode && node.hidden).length, 2)
+    assert(descendants(root).some(node => node.dataset.inlineRaw === '{name}' && node.dataset.inlineFormat === flags))
+    renderTokenEditorDom(root, raw, { sourceText: raw, formatId: phraseFormat, showFormatCodes: true })
+    assert.equal(root.textContent, raw)
+    assert.equal(tokens.readInlineDomText(root), raw)
+    assert.equal(descendants(root).filter(node => node.dataset.inlineFormatCode).length, 0)
+  }
+})
+
+test('rich partial clipboard fragments are balanced while code view copies the exact selected raw', () => {
+  const raw = 'A {bu>foo {name} bar<bu} Z'
+  const editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat })
+  const start = raw.indexOf('foo') + 1, end = raw.indexOf('bar') + 2
+  editor.handle.current.select(start, end)
+  const copied = new Map()
+  editor.invoke('onCopy', { clipboardData: { setData: (type, value) => copied.set(type, value) } })
+  assert.equal(copied.get('text/plain'), '{bu>oo {name} ba<bu}')
+  assert(tokens.phraseFormatting(copied.get('text/plain'), phraseFormat).valid)
+  editor.render({ showFormatCodes: true })
+  editor.handle.current.select(start, end)
+  editor.invoke('onCopy', { clipboardData: { setData: (type, value) => copied.set(type, value) } })
+  assert.equal(copied.get('text/plain'), raw.slice(start, end))
+  assert.equal(tokens.readInlineDomText(editor.root), raw)
+  assert.equal(editor.calls.length, 0, 'view changes are display-only')
+  editor.unmount()
+})
+
+test('Backspace and Delete at hidden style boundaries edit visible graphemes, never half a marker', () => {
+  for (const [raw, at, inputType, expected] of [
+    ['X{u>AB<u}Y', 4, 'deleteContentBackward', '{u>AB<u}Y'],
+    ['{u>AB<u}Y', 5, 'deleteContentForward', '{u>AB<u}'],
+    ['{biu>A😀<biu}', 8, 'deleteContentBackward', '{biu>A<biu}'],
+    ['{u>AB<u}', 3, 'deleteContentForward', '{u>B<u}'],
+    ['{u>AB<u}', 3, 'deleteContentBackward', '{u>AB<u}'],
+    ['{u>AB<u}', 5, 'deleteContentForward', '{u>AB<u}'],
+  ]) {
+    const editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat })
+    editor.handle.current.select(at, at)
+    editor.event('beforeinput', { inputType })
+    assert.equal(tokens.readInlineDomText(editor.root), expected, `${raw} / ${inputType}`)
+    assert(tokens.phraseFormatting(expected, phraseFormat).valid)
+    editor.unmount()
+  }
+})
+
+test('format handle submits a single protected edit with the old and new raw selections', () => {
+  const commits = []
+  let editor
+  editor = mountTokenEditor({ value: 'A {name} B', sourceText: 'A {name} B', formatId: phraseFormat,
+    onEdit(value, operation, before, after) { commits.push({ value, operation, before, after }); editor.props.value = value; return true } })
+  editor.handle.current.select(2, 8)
+  assert.equal(editor.handle.current.toggleFormat('u'), true)
+  assert.equal(commits.length, 1)
+  assert.equal(commits[0].value, 'A {u>{name}<u} B')
+  assert.equal(commits[0].operation, 'protected')
+  assert.equal(commits[0].before.start, 2)
+  assert.equal(commits[0].after.start, 5)
+  assert.equal(tokens.readInlineDomText(editor.root), commits[0].value)
+  editor.render({ readOnly: true })
+  assert.equal(editor.handle.current.toggleFormat('b'), false)
+  assert.equal(commits.length, 1)
+  editor.render({ readOnly: false })
+  editor.invoke('onCompositionStart')
+  assert.equal(editor.handle.current.toggleFormat('i'), false)
+  assert.equal(commits.length, 1)
+  editor.invoke('onCompositionEnd')
+  editor.unmount()
+})
+
+test('native format keyboard shortcuts share the selected draft transaction and are inert for other formats', () => {
+  const editor = mountTokenEditor({ value: 'word', sourceText: 'word', formatId: phraseFormat })
+  editor.handle.current.select(0, 4)
+  for (const key of ['b', 'i', 'u']) editor.invoke('onKeyDown', { key, ctrlKey: true })
+  assert.equal(tokens.readInlineDomText(editor.root), '{biu>word<biu}')
+  assert.equal(editor.calls.filter(call => call[0] === 'edit').length, 3)
+  editor.render({ formatId: 'sdlxliff_1_2' })
+  editor.invoke('onKeyDown', { key: 'b', metaKey: true })
+  assert.equal(tokens.readInlineDomText(editor.root), '{biu>word<biu}')
+  assert.equal(editor.calls.filter(call => call[0] === 'edit').length, 3)
+  editor.unmount()
+})
+
+test('rich cut cannot remove a required runtime chip and restores its formatting projection', () => {
+  const raw = '{u>A {name} B<u}'
+  const editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat,
+    onEdit(value) { return targetExports.targetProtectionViolations({ source: raw }, value).length === 0 } })
+  const at = raw.indexOf('{name}')
+  editor.handle.current.select(at + 1, at + 3)
+  const copied = new Map()
+  editor.invoke('onCut', { clipboardData: { setData: (type, value) => copied.set(type, value) } })
+  assert.equal(copied.get('text/plain'), '{u>{name}<u}')
+  assert.equal(tokens.readInlineDomText(editor.root), raw)
+  assert.equal(descendants(editor.root).find(node => node.dataset.inlineRaw === '{name}').dataset.inlineDecoration, 'underline')
+  editor.unmount()
+})
+
+test('format-code and invisible-character switches wait for IME completion without rebuilding its DOM', () => {
+  const raw = '{u>A<u}', editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat })
+  editor.handle.current.select(4, 4)
+  editor.invoke('onCompositionStart')
+  const live = descendants(editor.root).find(node => node.nodeType === 3 && node.nodeValue === 'A')
+  live.nodeValue = '输入😀'
+  editor.invoke('onInput', { nativeEvent: { isComposing: true } })
+  const replacements = editor.root.replacements
+  editor.render({ showFormatCodes: true, showInvisibles: true })
+  assert.equal(editor.root.replacements, replacements)
+  assert.equal(editor.root.dataset.inlineFormatView, 'rich')
+  editor.invoke('onCompositionEnd')
+  assert.equal(editor.root.dataset.inlineFormatView, 'codes')
+  assert.equal(tokens.readInlineDomText(editor.root), '{u>输入😀<u}')
+  assert.equal(editor.root.textContent, '{u>输入😀<u}')
+  assert.deepEqual(editor.calls.at(-1), ['composition-end', '{u>输入😀<u}'])
+  editor.unmount()
+})
+
+test('a rejected native composition restores the pre-composition raw selection', () => {
+  const raw = '{u>base<u}'
+  let editor
+  editor = mountTokenEditor({ value: raw, sourceText: raw, formatId: phraseFormat, onCompositionEnd() { editor.props.value = raw; return raw } })
+  editor.handle.current.select(4, 5)
+  editor.invoke('onCompositionStart')
+  editor.root.replaceChildren(editor.document.createTextNode('native replacement'))
+  editor.invoke('onInput', { nativeEvent: { isComposing: true } })
+  editor.invoke('onCompositionEnd')
+  assert.equal(tokens.readInlineDomText(editor.root), raw)
+  assert.equal(editor.handle.current.selection().start, 4)
+  assert.equal(editor.handle.current.selection().end, 5)
   editor.unmount()
 })
 

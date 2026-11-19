@@ -44,6 +44,7 @@ import { adaptCatTool } from './host/tool-adapter'
 import { addPreparedTurnContext, TurnContextCallProvenance, TurnContextReceipts } from './host/turn-context'
 import { createWorkingCopyTool } from './host/working-copy-tool'
 import { createReviewMaterialsTool } from './host/review-materials-tool'
+import { createProjectPreparationTool } from './host/project-preparation-tool'
 import { settingsOperation, SETTINGS_OPERATIONS } from './host/settings'
 
 export const name = '@linguist/dsh-plugin'
@@ -66,9 +67,15 @@ function presetRole(preset: string | null | undefined): LinguistRole | undefined
 
 export function apply(ctx: Context, config: Config): void {
   config = { ...config, ...initializeStorage(config) }
-  const service = new LinguistProjectService({ rootDir: join(config.dataRoot, 'linguist'), applicationVersion: manifest.version })
-  service.init()
   const bindings = new BindingStore(config.dataRoot)
+  const service = new LinguistProjectService({
+    rootDir: join(config.dataRoot, 'linguist'), applicationVersion: manifest.version,
+    workspaceRootForProject(projectId) {
+      const id = bindings.projectWorkspace(projectId)
+      return id ? ctx.workspaceRegistry.get(WorkspaceId(id))?.path : undefined
+    },
+  })
+  service.init()
   const files = new ManagedFiles(config.dataRoot)
   const stagingCleanup = setInterval(() => files.collectExpired(), 60_000)
   stagingCleanup.unref()
@@ -114,6 +121,17 @@ export function apply(ctx: Context, config: Config): void {
       throw new Error(`Linguist project binding changed for Session ${agent.id}`)
     }
     const turnContextProvenance = binding.projectId && binding.workMode === 'cat' ? new TurnContextCallProvenance() : undefined
+    let selectedAssetId: string | undefined
+    const currentBinding = (): SessionBinding => {
+      const current = bindings.session(agent.id)!
+      if (current.delegatedScope && current.projectId && current.taskGroupId) {
+        service.openProject(current.projectId).taskGroups.assertContains(current.taskGroupId, 'assets', current.delegatedScope.assetIds)
+        return current
+      }
+      const taskGroupId = selectedAssetId && current.projectId && service.openProject(current.projectId).taskGroups.groupOf(selectedAssetId)
+      return taskGroupId ? { ...current, taskGroupId } : current
+    }
+    let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
     const modelProvenance = new ModelCallProvenance()
     let assembledPrompt: ReturnType<typeof buildLinguistPromptSection> | undefined
     const disposers: Array<() => void> = []
@@ -121,7 +139,7 @@ export function apply(ctx: Context, config: Config): void {
       disposers.push(agent.ctx.systemPrompt.section({
         name: 'linguist-role', order: 300,
         text: () => {
-          assembledPrompt = buildLinguistPromptSection(service, roleText, professional, binding, workspace.path)
+          assembledPrompt = buildLinguistPromptSection(service, roleText, professional, currentBinding(), workspace.path)
           return assembledPrompt.prompt
         },
         interpolate: false,
@@ -136,29 +154,46 @@ export function apply(ctx: Context, config: Config): void {
       disposers.push(agent.ctx.on('session/event', (session, event) => {
         if (session === agent.session) modelProvenance.observe(event)
       }))
+      disposers.push(agent.ctx.on('agent/pre-step', async ({ turn }, next) => {
+        let decision = await next()
+        const matched: Array<{ requestId: string; context: LinguistTurnContextV1 }> = []
+        if (turnContextProvenance) {
+          decision = await addPreparedTurnContext({ sessionId: agent.id, decision, receipts: turnContextReceipts,
+            service, bindings, assertProjectSession,
+            onAdmitted: (requestId, context) => { matched.push({ requestId, context }) } })
+          turnContextProvenance.admitStep(turn, decision, matched)
+          if (decision.kind === 'reject' || decision.messages.some(message => message.source.kind === 'user')) {
+            selectedAssetId = matched.length === 1 ? matched[0]!.context.assetId : undefined
+            if (selectedAssetId) {
+              const selected = currentBinding()
+              if (selected.taskGroupId !== bindings.session(agent.id)?.taskGroupId) bindings.bindSession(agent.id, selected)
+            }
+          }
+        }
+        return decision
+      }))
+      disposers.push(agent.ctx.tools.register(createProjectPreparationTool(service, async (callId, useTurnQuestion) => {
+        const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
+        const snapshot = turnContextProvenance?.forCall(callId)?.turnContextSnapshot
+        const selection: LinguistTurnContextV1 | undefined = snapshot ? JSON.parse(snapshot) : undefined
+        const segmentIds = selection && [...new Set([...selection.selectedSegmentIds, ...(selection.activeSegmentId ? [selection.activeSegmentId] : [])])]
+        const question = useTurnQuestion ? agent.session.deriveMessages().filter(message => message.role === 'user' && message.source.kind === 'user').at(-1)?.content
+          .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') : undefined
+        return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds, question }
+      }, (projectId, nextBinding) => {
+        bindings.bindProject(projectId, workspace.id)
+        bindings.bindSession(agent.id, nextBinding)
+        bindAgent(agent)
+      }, projectId => mutations.publish(projectId, { kind: 'project-updated' }))))
       if (turnContextProvenance) {
         disposers.push(agent.ctx.on('session/event', (session, event) => {
           if (session === agent.session) turnContextProvenance.observe(event)
-        }))
-        disposers.push(agent.ctx.on('agent/pre-step', async ({ turn }, next) => {
-          const matched: Array<{ requestId: string; context: LinguistTurnContextV1 }> = []
-          const decision = await addPreparedTurnContext({
-            sessionId: agent.id,
-            decision: await next(),
-            receipts: turnContextReceipts,
-            service,
-            bindings,
-            assertProjectSession,
-            onAdmitted: (requestId, context) => { matched.push({ requestId, context }) },
-          })
-          turnContextProvenance.admitStep(turn, decision, matched)
-          return decision
         }))
       }
       disposers.push(agent.ctx.tools.register(createWorkingCopyTool((toolCallId, rootCallId) => {
         turnContextProvenance?.associateNestedCall(toolCallId, rootCallId)
         modelProvenance.associateNestedCall(toolCallId, rootCallId)
-        const current = bindings.session(agent.id)
+        const current = currentBinding()
         const owned = current && ctx.workspaceRegistry.get(WorkspaceId(current.workspaceId))
         if (!current || current.workspaceId !== binding.workspaceId || !owned || !agent.session.header.cwd || realpathSync(agent.session.header.cwd) !== owned.path) {
           throw new Error('Linguist working copy Session Workspace binding changed')
@@ -166,28 +201,28 @@ export function apply(ctx: Context, config: Config): void {
         return {
           workspaceRoot: owned.path,
           service,
+          referenceProjectId: current.projectId, taskGroupId: current.taskGroupId, delegatedSegmentIds: reviewScope(),
           sessionId: agent.id,
           taskId: agent.session.header.origin === 'subagent' ? agent.session.header.parentSession ?? agent.id : agent.id,
           ...(current.projectId ? { tagProfile: service.getProject(current.projectId).tagProfile } : {}),
-          ...(current.projectId ? {
+          ...(current.projectId && current.workMode === 'cat' ? {
             project: { service, projectId: current.projectId },
             onMutation: event => mutations.publish(current.projectId!, event),
           } : {}),
           get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
       }, async () => { await resolveSessionWorkspace(agent.id) })))
-      let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
       const readSnapshots = binding.projectId ? new SessionReadSnapshots(ctx.sessionQuery, agent.id, binding.projectId, binding.reviewSnapshot) : undefined
       disposers.push(agent.ctx.tools.register(createReviewMaterialsTool(service, async () => {
         const { workspaceRoot } = await resolveSessionWorkspace(agent.id)
-        const current = bindings.session(agent.id)!
-        return { workspaceRoot, projectId: current.projectId,
+        const current = currentBinding()
+        return { workspaceRoot, projectId: current.projectId, taskGroupId: current.taskGroupId,
           taskId: agent.session.header.origin === 'subagent' ? agent.session.header.parentSession ?? agent.id : agent.id,
           allowedIds: reviewScope() }
       }, readSnapshots)))
       if (binding.role === 'general') {
         const delegation = createLinguistDelegationTool({
-          service, binding, agent, subagents: ctx.subagents, control: delegationControl,
+          service, get binding() { return currentBinding() }, agent, subagents: ctx.subagents, control: delegationControl,
           resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id),
           reserveIntent: (childSessionId, intent) => {
             if (delegationIntents.has(childSessionId)) throw new Error('Linguist child identity is already reserved')
@@ -206,13 +241,14 @@ export function apply(ctx: Context, config: Config): void {
         let delegatedScope = binding.delegatedScope?.segmentIds
         let parentScopeResolved = delegatedScope !== undefined || parentSession === undefined
         const assertBound = () => {
-          const current = bindings.session(sessionId)
+          const current = currentBinding()
           if (!current || current.projectId !== projectId || current.workspaceId !== workspace.id) throw new Error('Linguist Session project binding changed')
         }
         const refreshStage = (db: ProjectDatabase) => {
           stage = db.stageEvidence.list().find(item => item.sessionId === sessionId)
           if (!parentScopeResolved) {
-            delegatedScope = db.stageEvidence.list().find(item => item.sessionId === parentSession)?.plan.segmentIds
+            const plan = db.stageEvidence.list().find(item => item.sessionId === parentSession)?.plan
+            if (plan) delegatedScope = plan.taskGroupId === (binding.taskGroupId ?? 'ungrouped') || (!plan.taskGroupId && !binding.taskGroupId) ? plan.segmentIds : []
             parentScopeResolved = true
           }
         }
@@ -252,8 +288,10 @@ export function apply(ctx: Context, config: Config): void {
           if (segments.length !== new Set(segmentIds).size) throw new Error('Stage task contains missing segments')
           if (delegatedScope && segmentIds.some(id => !delegatedScope.includes(id))) throw new Error('Delegated work is outside the parent Stage scope')
           if (!task && stage && segmentIds.some(id => !stage!.plan.segmentIds.includes(id))) throw new Error('Write is outside frozen Stage scope')
+          const taskGroupId = db.taskGroups.forAssets(segments.map(row => row.assetId), bindings.session(sessionId)?.taskGroupId)
+          if (delegatedScope && binding.taskGroupId && taskGroupId !== binding.taskGroupId) throw new Error('委派批次的任务组已变化，请重新确定范围')
           const selected = task?.scope === 'project'
-            ? delegatedScope ?? db.segments.queryIds()
+            ? delegatedScope ?? db.segments.queryIds({ taskGroupId: taskGroupId ?? 'ungrouped' })
             : task?.scope === 'assets'
               ? [...new Set(segments.flatMap(segment => db.segments.queryIds({ assetId: segment.assetId })))]
               : task?.scope === 'segments' ? segmentIds : stage?.plan.segmentIds ?? segmentIds
@@ -267,6 +305,7 @@ export function apply(ctx: Context, config: Config): void {
         const deps = createCatDeps({
           professional,
           service, projectId, sessionId, taskId: parentSession ?? sessionId, readSnapshots: readSnapshots!, role: binding.role, sessionCwd: workspace.path,
+          get taskGroupId() { return currentBinding().taskGroupId },
           attachments: ctx.attachments, assertBound,
           onProjectResolved: refreshStage,
           authorizeReadPath: path => authorizeWorkspaceRead(path, workspace.path, attachedFiles().paths),

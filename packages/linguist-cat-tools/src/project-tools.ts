@@ -88,8 +88,8 @@ export function createProjectTools(runtime: CatToolRuntime) {
         throw new LinguistCatInvalidArgumentError('includeDelivery', 'must be true when batchId is provided')
       }
       const { project, db } = resolveBoundProject('cat_project_summary', toolCallId)
-      const batchCount = db.assets.countByProject()
-      const segmentCounts = db.segments.countByStatus()
+      const batchCount = deps.taskGroupId ? db.assets.listByProject().filter(asset => asset.taskGroupId === deps.taskGroupId).length : db.assets.countByProject()
+      const segmentCounts = db.segments.countByStatus(deps.taskGroupId)
       const totalSegments =
         segmentCounts.untranslated + segmentCounts.draft + segmentCounts.translated + segmentCounts.reviewed
       const archived = project.archivedAt !== undefined
@@ -168,13 +168,13 @@ export function createProjectTools(runtime: CatToolRuntime) {
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.listBatches)
       // Asset rows are file-level metadata (tens, not millions); listByProject
       // never loads segment rows, so an in-memory page slice stays cheap.
-      const batches = db.assets.listByProject().map(batch => ({
+      const batches = db.assets.listByProject().filter(batch => !deps.taskGroupId || batch.taskGroupId === deps.taskGroupId).map(batch => ({
         batch,
         segmentCount: deps.delegatedScopeSegmentIds === undefined ? batch.segmentCount
           : db.segments.count({ assetId: batch.id, segmentIds: deps.delegatedScopeSegmentIds }),
       })).filter(item => deps.delegatedScopeSegmentIds === undefined || item.segmentCount > 0)
       const items: CatBatchListItem[] = batches.slice(page.offset, page.offset + page.limit).map(({ batch, segmentCount }) => ({
-        batchId: batch.id as string,
+        batchId: batch.id as string, taskGroupId: batch.taskGroupId,
         filename: batch.originalFilename,
         formatId: batch.formatId,
         segmentCount,
@@ -242,6 +242,7 @@ export function createProjectTools(runtime: CatToolRuntime) {
       }
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.getSegments)
       const filter = {
+        taskGroupId: batchId === undefined ? deps.taskGroupId ?? 'ungrouped' : undefined,
         ...(deps.delegatedScopeSegmentIds === undefined ? {} : { segmentIds: deps.delegatedScopeSegmentIds }),
         ...(batchId !== undefined ? { assetId: batchId } : {}),
         ...(status !== undefined ? { status } : {}),

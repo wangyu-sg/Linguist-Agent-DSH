@@ -19,7 +19,7 @@ export class ManagedFiles {
   private readonly staging: string
   private readonly tokens = new Map<string, ManagedFile>()
   private readonly receiving = new Set<string>()
-  readonly pendingImports = new Map<string, { projectId: string; kind: 'xlsx' | 'tm' | 'terms'; sha256: string; xlsxMapping?: XlsxImportMapping }>()
+  readonly pendingImports = new Map<string, { projectId: string; kind: 'xlsx' | 'tm' | 'terms'; taskGroupId?: string; sha256: string; xlsxMapping?: XlsxImportMapping }>()
   lastCleanupError?: string
 
   constructor(dataRoot: string, private readonly maxFileBytes = LINGUIST_FILE_MAX_BYTES) {
@@ -55,7 +55,7 @@ export class ManagedFiles {
           if (bytes > this.maxFileBytes) parser.destroy(new LinguistImportTooLargeError(bytes, this.maxFileBytes, filename))
           else if (total > MAX_REQUEST_BYTES) {
             const error = new LinguistImportTooLargeError(total, MAX_REQUEST_BYTES)
-            error.message = '单次请求的文件内容总量超过 512 MiB；请分请求上传，收齐文件后再一起导入。'
+            error.message = `单次请求的文件内容总量超过 ${MAX_REQUEST_BYTES / 1024 ** 3} GiB；请分请求上传，收齐文件后再一起导入。`
             parser.destroy(error)
           }
         })

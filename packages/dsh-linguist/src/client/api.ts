@@ -17,6 +17,7 @@ export interface LinguistBinding {
   sessionId: string
   workspaceId: string
   projectId?: string
+  taskGroupId?: string
   role: 'general' | 'translator' | 'reviewer' | 'proofreader'
   workMode: 'cat' | 'working-copy' | 'browser'
 }
@@ -25,7 +26,7 @@ export async function bindSession(input: Omit<LinguistBinding, 'workspaceId'>, e
   const response = await fetch(`${base}/session-bind`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   if (!response.ok) throw new Error(`Linguist session binding failed: HTTP ${response.status}`)
   const value: LinguistBinding = await response.json()
-  if (value.sessionId !== input.sessionId || value.workspaceId !== expectedWorkspaceId || value.projectId !== input.projectId || value.role !== input.role || value.workMode !== input.workMode) {
+  if (value.sessionId !== input.sessionId || value.workspaceId !== expectedWorkspaceId || value.projectId !== input.projectId || value.taskGroupId !== input.taskGroupId || value.role !== input.role || value.workMode !== input.workMode) {
     throw new Error('Linguist session binding response does not match the requested session')
   }
   return value
@@ -80,7 +81,7 @@ export interface UploadProgress {
 export async function stageFiles(files: readonly File[], onProgress?: (progress: UploadProgress) => void): Promise<readonly string[]> {
   if (files.length === 0 || files.length > 500) throw new Error('一次请选择 1–500 个文件。')
   for (const file of files) {
-    if (file.size > LINGUIST_FILE_MAX_BYTES) throw new LinguistRequestError({ code: 'IMPORT_TOO_LARGE', message: `文件“${file.name}”（${file.size} 字节）超过单文件上限 512 MiB。请拆分文件后重试。` })
+    if (file.size > LINGUIST_FILE_MAX_BYTES) throw new LinguistRequestError({ code: 'IMPORT_TOO_LARGE', message: `文件“${file.name}”（${file.size} 字节）超过单文件上限 ${LINGUIST_FILE_MAX_BYTES / 1024 ** 3} GiB。请拆分文件后重试。` })
   }
   const tokens: string[] = []
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0)

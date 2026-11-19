@@ -7,6 +7,10 @@
 }
 
 .actions { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 4px; }
+.formatToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; padding-bottom: 4px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.formatToolbar button { min-width: 28px; }
+.formatToolbar button[aria-pressed="true"], .formatToolbar button[aria-pressed="mixed"] { color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); }
+.formatDivider { height: 16px; border-inline-start: 1px solid var(--dsw-alias-border-l2); margin-inline: 3px; }
 .caution { color: var(--dsw-alias-state-warn-primary); background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, transparent); }
 .warning { color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent); }
 

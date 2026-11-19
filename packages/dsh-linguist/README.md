@@ -4,8 +4,11 @@ Organize game localization projects in DeepSeek Harness and carry out translatio
 
 ## Capabilities
 
-- **CAT workspace:** edit source and target side by side with complete inline tag code, invisible characters, terminology hints, number and variable checks, and change comparisons.
-- **Reference resources:** manage terminology, translation memory, style rules and context. Inspect TM/TB matches beside a segment and compare both TM source and target with the current text.
+- **Task groups** keep batches and their references together. Open a project name to create a group, import work or start a group session. Importing the same original into two groups creates independent editable batches. Moving an existing batch preserves its edits and history.
+- **Project resources** include shared files and group-specific files. An explicit replacement overrides a shared file for one group. Backups preserve these references and the uploaded files. Keep separately registered workspace originals at their registered paths. Open the library from a project card to view, add, replace or remove files and edit purpose and scope. Read status and errors remain visible. The GUI and Agent share the same library; failed replacements keep the previous version active. No CAT session is needed.
+
+- **CAT workspace:** edit source and target side by side with complete runtime inline tag code, invisible characters, terminology hints, number and variable checks, and change comparisons. Phrase MXLIFF supports native bold, italic and underline, including flat compound styles. Rich text is the default; switch to format-code view to inspect the raw markers. Select target text and use B/I/U or Cmd/Ctrl+B, I or U to apply or remove a style. These actions change only the draft; undo and redo restore both raw text and selection. In-field rich-text copying carries balanced native format codes; code view copies the exact selected raw characters. Unknown or unbalanced codes remain literal with a warning. Superscript and subscript are currently unavailable.
+- **Reference resources:** share project TM/TB, rules, examples, queries and feedback across normal questions and all three work modes. Wording queries use keyword and TM/TB matching. Meaning-based lookups use the local encoder, which saves completed vectors in batches. Formal review materials include the relevant records and source locations. Sparse fields work without inventing approval status; only changed originals are reprocessed. TM/TB retain their native matching.
 - **Review and QA:** independent review covers the full source and current target, checking continuous meaning as well as requirements, terminology and related entries. Working copies prepare grouped TM/TB, original row fields and rules in the background. Prepared materials do not prove review completion. Locks, stable IDs, revision checks and actual execution records remain in place.
 - **Three work modes:** delegate translation, review or proofreading in CAT, working copy or browser mode. Discuss localization directly without importing a project; file tasks can supply their own TM/TB.
 - **Visual context:** embedded XLSX/PPTX images and their locations can accompany review materials and are cached in the workspace. Reviewers must still inspect images; view the original slides for text and layout.
@@ -13,7 +16,7 @@ Organize game localization projects in DeepSeek Harness and carry out translatio
 ## Getting started
 
 1. Open **Linguist** in the sidebar. Use **Add workspace → LA workspace · localization project** to create a workspace and project, or create or open a project in an existing DSH workspace.
-2. Select the language pair, then import the material and required references. Check worksheet and column mappings for spreadsheets; select matching Phrase split/master inputs in the same batch.
+2. Describe the task and supply its assets. For formal work with no selected mode, LA asks once whether to use CAT; it reuses an explicit choice and does not ask for casual questions. Choosing CAT prepares managed copies and references, then checks segment mapping, tags and locks. Check spreadsheet mappings and supply matching Phrase masters with split files. Manual import remains available.
 3. On the Linguist home page, choose a workspace, role and work mode, then click **New LA session** on the project card. The new session is linked to that project and workspace. **Project sessions** follows the workspace filter; use **Open session** to continue an existing task. Describe the scope, style requirements and deliverable in the session.
 4. In CAT, check the source, current target, necessary context and QA before saving, confirming or exporting. Generating a proposal, applying changes, completing review, exporting a file and submitting to a customer platform are separate operations.
 
@@ -28,9 +31,10 @@ Read snapshots and fragment progress are saved with their original session and s
 ## Compatibility and limits
 
 - The current host baseline is **DSH 0.2.2-rc.3**. Development and checks use macOS Apple Silicon. Confirm this build’s native installation and loading in DSH; other systems and host versions have not been verified.
-- The per-file receiving limit is **512 MiB**. This limit does not guarantee parsing performance for every format or large file; follow the actual import requirements and checks.
-- Browser tasks require a working connection between the matching **BrowserSkill plugin, bsk CLI/daemon and Chrome extension**. CAT and working copies do not require a browser connection.
+- The per-file receiving limit is **1 GiB**. This limit does not guarantee parsing performance for every format or large file; follow the actual import requirements and checks.
+- Browser tasks require a working connection between the matching **official BrowserSkill CLI/MCP, daemon and matching Chrome extension**. CAT and working copies do not require a browser connection.
 - Shared semantic groups for CAT, online review materials and working copies require a local MemSearch Python ONNX environment and cached `gpahal/bge-m3-onnx-int8` weights. Related sources, current draft targets and context are grouped for independent review; similarity does not generate QA errors. Embeddings and relations are cached per project locally, without writing to conversation memory, downloading models or using cloud inference. Unavailable retrieval is reported explicitly. Target edits reuse embeddings; only new or changed sources are embedded again.
+- File locks are retained. If a platform export omits locks, supply a complete platform snapshot matched by stable key and current source/target, not display row numbers. Locked segments remain read-only.
 - QA and file checks are not in-game LQA. Exporting does not submit to a customer platform or replace a human decision about scope and delivery.
 
 ## Maintenance and license

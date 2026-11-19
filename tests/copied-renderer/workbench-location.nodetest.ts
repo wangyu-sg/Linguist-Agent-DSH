@@ -18,6 +18,14 @@ test('CAT 工作台位置按项目隔离，并收敛持久化的非法布局值'
     assert.equal(readWorkbenchLocation('project-A').value.dock, 'proposals')
     assert.equal(readWorkbenchLocation('project-A').value.inspectorWidth, 360)
     assert.deepEqual(readWorkbenchLocation('project-B').value, initial)
+    const sessionA = 'project-A/session/A'
+    const sessionB = 'project-A/session/B'
+    assert.equal(readWorkbenchLocation(sessionA, 'project-A').value.assetId, 'asset-A')
+    writeWorkbenchLocation(sessionA, { ...initial, taskGroupId: 'november' })
+    writeWorkbenchLocation(sessionB, { ...initial, taskGroupId: 'december', assetId: 'asset-B' })
+    assert.equal(readWorkbenchLocation(sessionA, 'project-A').value.taskGroupId, 'november')
+    assert.equal(readWorkbenchLocation(sessionA, 'project-A').value.assetId, undefined)
+    assert.equal(readWorkbenchLocation(sessionB, 'project-A').value.assetId, 'asset-B')
 
     values.set('linguist:workbench:project-B', JSON.stringify({ dock: 'unknown', inspectorWidth: 999, dockHeight: 30, assetNavigatorWidth: -1, assetId: '', segmentId: 1 }))
     const bounded = readWorkbenchLocation('project-B').value

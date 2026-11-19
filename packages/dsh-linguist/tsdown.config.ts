@@ -39,8 +39,13 @@ const client: UserConfig = {
       const tag = `${pkg.name}/${basename(path)}`
       return [
         `const css = ${JSON.stringify(code.toString())};`,
-        `if (typeof document !== 'undefined' && !document.querySelector('style[data-linguist-css=${JSON.stringify(tag)}]')) {`,
-        `  const element = document.createElement('style'); element.dataset.linguistCss = ${JSON.stringify(tag)}; element.textContent = css; document.head.appendChild(element);`,
+        `if (typeof document !== 'undefined') {`,
+        `  const existing = document.querySelector('style[data-linguist-css=${JSON.stringify(tag)}]');`,
+        `  if (existing) {`,
+        `    if (existing.textContent !== css) existing.textContent = css;`,
+        `  } else {`,
+        `    const element = document.createElement('style'); element.dataset.linguistCss = ${JSON.stringify(tag)}; element.textContent = css; document.head.appendChild(element);`,
+        `  }`,
         `}`,
         `export default ${JSON.stringify(names)};`,
       ].join('\n')

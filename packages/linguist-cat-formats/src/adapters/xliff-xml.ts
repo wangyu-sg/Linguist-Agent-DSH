@@ -15,14 +15,14 @@
  * general XML parser.
  */
 
-/** Decodes the five predefined XML entities everywhere in `value`. */
+/** Decode named and numeric XML entities once (double-escaped text stays escaped). */
 export function decodeXmlEntities(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&')
+  const named: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' }
+  return value.replace(/&(lt|gt|quot|apos|amp|#\d+|#x[\da-f]+);/gi, (raw, entity: string) => {
+    if (entity[0] !== '#') return named[entity] ?? raw
+    const code = entity[1]?.toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1))
+    return String.fromCodePoint(code)
+  })
 }
 
 /**
@@ -32,7 +32,16 @@ export function decodeXmlEntities(value: string): string {
  * round-trip fidelity possible.
  */
 export function decodeXmlInline(value: string): string {
-  return decodeXmlEntities(value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+  let result = '', cursor = 0
+  while (cursor < value.length) {
+    const start = value.indexOf('<', cursor)
+    if (start < 0) return result + decodeXmlEntities(value.slice(cursor))
+    result += decodeXmlEntities(value.slice(cursor, start))
+    const end = markupEnd(value, start)
+    result += value.startsWith('<![CDATA[', start) ? value.slice(start + 9, end - 3) : value.slice(start, end)
+    cursor = end
+  }
+  return result
 }
 
 /** Escapes a text run for XML output (& < >). */
@@ -41,22 +50,19 @@ export function encodeXmlText(value: string): string {
 }
 
 /**
- * Escapes text runs but re-inserts tag-looking substrings verbatim, so
- * segment strings that carry inline tags (see decodeXmlInline) are written
- * back as real markup. NOTE: entity escaping inside tag payloads is
- * normalized (e.g. `&quot;` inside a `<ph>` payload becomes a literal `"`) —
- * well-formed XML either way, but not byte-identical to a non-canonical
- * original. Only modified segments are ever rewritten, so unmodified export
- * stays byte-stable.
+ * Preserve original XML markup; escape literal tag-looking game text.
+ * The template distinguishes actual inline codes from decoded &lt;...&gt;.
  */
-export function encodeXmlInline(value: string): string {
-  const tagPattern = /<\/?[\w:.-]+\b[^>]*\/?>/g
+export function encodeXmlInline(value: string, template: string): string {
+  const markup = new Set(new XliffSpanIndex(template).elements
+    .flatMap(element => [template.slice(element.start, element.openEnd), ...(element.selfClosing ? [] : [template.slice(element.contentEnd, element.end)])]))
   let cursor = 0
   let next = ''
-  for (const match of value.matchAll(tagPattern)) {
+  for (const match of value.matchAll(/<\/?[\w:.-]+\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/g)) {
     next += encodeXmlText(value.slice(cursor, match.index))
-    next += match[0]
-    cursor = (match.index ?? 0) + match[0].length
+    const tag = match[0]
+    next += markup.has(tag) ? tag : encodeXmlText(tag)
+    cursor = match.index + tag.length
   }
   next += encodeXmlText(value.slice(cursor))
   return next

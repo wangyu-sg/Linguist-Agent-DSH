@@ -40,7 +40,7 @@ export function SettingsPage({ onOpenPlugins, onOpenProject, capabilities }: {
     finally { setBusy(false) }
   }
   const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  const labels: Record<keyof EditorViewOptions, string> = { invisibles: '不可见字符', terms: '术语高亮', critical: '数字与变量提示', spelling: '拼写提示', differences: '修改差异', context: '行内上下文' }
+  const labels: Record<keyof EditorViewOptions, string> = { invisibles: '不可见字符', formatCodes: '原生格式码', terms: '术语高亮', critical: '数字与变量提示', spelling: '拼写提示', differences: '修改差异', context: '行内上下文' }
   return <section className={styles.page} aria-label="Linguist 设置">
     <header><h2>Linguist</h2><p>显示与检索偏好统一管理；语言和质量规则只影响所选项目。</p></header>
     <section className={styles.section}><h3>编辑器显示</h3><div className={styles.options}>
@@ -64,7 +64,7 @@ export function SettingsPage({ onOpenPlugins, onOpenProject, capabilities }: {
       {project && <><Button variant="outline" size="sm" onClick={() => void run(() => onOpenProject(project.project.id), '')}>打开此项目的 CAT 与 TM／TB</Button>
         <ProjectSettingsPanel key={project.project.id} project={project.project} hasBatches={project.assetCount > 0} mutation={revision} onChanged={() => setRevision(value => value + 1)} onOpenHistory={dock => { void run(() => onOpenProject(project.project.id, dock), '') }} capabilities={capabilities} /></>}
     </section>
-    <section className={styles.section}><h3>通知与连接</h3><p>飞书／Lark 目标沿用 Linguist 原生插件配置，任务是否通知仍在任务中选择。BrowserSkill 与 MemSearch 使用各自的原生配置。</p><Button variant="outline" size="sm" onClick={onOpenPlugins}>打开插件配置</Button></section>
+    <section className={styles.section}><h3>通知与连接</h3><p>飞书／Lark 目标沿用 Linguist 原生插件配置，任务是否通知仍在任务中选择。BrowserSkill 使用 DSH 内置 MCP 配置；MemSearch 使用其原生配置。</p><Button variant="outline" size="sm" onClick={onOpenPlugins}>打开插件配置</Button></section>
     <div role={error || viewError ? 'alert' : 'status'}>{error || viewError || (busy ? '处理中…' : message)}</div>
     <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(refresh, '状态已刷新。')}>刷新状态</Button>
   </section>

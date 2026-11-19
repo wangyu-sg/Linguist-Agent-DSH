@@ -1,0 +1,37 @@
+.page { composes: page from './ProjectsPage.module.css'; }
+.content { max-width: 1120px; margin: 0 auto; min-width: 0; display: grid; gap: 20px; }
+.heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.heading h1 { margin: 12px 0 4px; font-size: 24px; font-weight: 600; }
+.heading p, .intro, .notice { color: var(--dsw-alias-label-secondary); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.list { list-style: none; padding: 0; margin: 0; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); overflow: hidden; }
+.item { display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(300px, 2fr); align-items: start; gap: 12px 24px; padding: 18px 20px; }
+.item + .item { border-top: .5px solid var(--dsw-alias-border-l2); }
+.file { min-width: 0; }
+.file strong, .filename { overflow-wrap: anywhere; font-weight: 600; }
+.path { display: block; margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 0; min-width: 0; }
+.meta div { min-width: 0; }
+.meta dt { color: var(--dsw-alias-label-tertiary); font-size: 11px; margin-bottom: 4px; }
+.meta dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.meta small { display: block; color: var(--dsw-alias-label-tertiary); margin-top: 4px; font-size: 11px; }
+.item > .actions { grid-column: 1 / -1; justify-content: flex-end; }
+.details { grid-column: 1 / -1; font-size: 12px; color: var(--dsw-alias-label-secondary); display: grid; gap: 4px; }
+.error { composes: error from './Controls.module.css'; }
+.empty { padding: 40px 24px; text-align: center; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); }
+.empty h2 { font-size: 16px; margin: 0 0 8px; }
+.empty p { color: var(--dsw-alias-label-secondary); }
+.preview { min-width: 0; overflow: auto; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); }
+.modal { composes: modal from './Controls.module.css'; }
+.dialog { composes: modalContent from './Controls.module.css'; }
+.form { display: grid; gap: 20px; }
+.field { composes: field from './Controls.module.css'; }
+.form small, .form details p { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.form input { width: 100%; box-sizing: border-box; }
+.form textarea { width: 100%; }
+.form summary { cursor: pointer; margin-bottom: 8px; }
+.form footer { justify-content: flex-end; }
+.mapping { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+@container (max-width: 680px) { .item { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 16px; } .meta { gap: 12px; } }
+@container (max-width: 400px) { .meta { grid-template-columns: minmax(0, 1fr); } .meta div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; } }
+@media (max-width: 480px) { .page { padding: 16px; } .mapping { grid-template-columns: minmax(0, 1fr); } }

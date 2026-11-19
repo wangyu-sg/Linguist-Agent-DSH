@@ -33,6 +33,7 @@ import type { RunHarnessRepository } from '../run-harness'
 import { segmentFromRow, type SegmentRow, type SegmentRevisionRow, segmentRevisionFromRow } from './rows'
 
 export interface SegmentQuery {
+  taskGroupId?: string
   assetId?: string
   segmentIds?: readonly string[]
   status?: SegmentStatus
@@ -72,10 +73,14 @@ function likePattern(search: string): string {
 
 /** Shared WHERE construction for query()/count() — the two must never drift. */
 function buildSegmentWhere(
-  filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'>,
+  filter: Pick<SegmentQuery, 'assetId' | 'taskGroupId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'>,
 ): { where: string; params: unknown[] } {
   const clauses: string[] = []
   const params: unknown[] = []
+  if (filter.taskGroupId !== undefined) {
+    clauses.push('asset_id IN (SELECT id FROM assets WHERE task_group_id = ?)')
+    params.push(filter.taskGroupId)
+  }
   if (filter.assetId !== undefined) {
     clauses.push('asset_id = ?')
     params.push(filter.assetId)
@@ -146,7 +151,7 @@ export class SegmentsRepository {
    * paged readers report total/hasMore without fetching every row (PB-041).
    */
   count(
-    filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
+    filter: Pick<SegmentQuery, 'assetId' | 'taskGroupId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
   ): number {
     const { where, params } = buildSegmentWhere(filter)
     const row = this.db.db
@@ -157,7 +162,7 @@ export class SegmentsRepository {
 
   /** Filtered ID index in the same deterministic order as query(); used as stable virtual row keys. */
   queryIds(
-    filter: Pick<SegmentQuery, 'assetId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
+    filter: Pick<SegmentQuery, 'assetId' | 'taskGroupId' | 'segmentIds' | 'status' | 'currentStageState' | 'search'> = {},
   ): string[] {
     const { where, params } = buildSegmentWhere(filter)
     const rows = this.db.db
@@ -227,16 +232,17 @@ export class SegmentsRepository {
    * summaries that must stay O(count) regardless of project size (PB-031).
    * Every known status is present in the result (0 when absent).
    */
-  countByStatus(): Record<SegmentStatus, number> {
+  countByStatus(taskGroupId?: string): Record<SegmentStatus, number> {
     const counts: Record<SegmentStatus, number> = {
       untranslated: 0,
       draft: 0,
       translated: 0,
       reviewed: 0,
     }
+    const { where, params } = buildSegmentWhere({ taskGroupId })
     const rows = this.db.db
-      .prepare('SELECT status, COUNT(*) AS n FROM segments GROUP BY status')
-      .all() as { status: SegmentStatus; n: number }[]
+      .prepare(`SELECT status, COUNT(*) AS n FROM segments ${where} GROUP BY status`)
+      .all(...params) as { status: SegmentStatus; n: number }[]
     for (const row of rows) {
       if (row.status in counts) counts[row.status] = Number(row.n)
     }
@@ -244,15 +250,16 @@ export class SegmentsRepository {
   }
 
   /** 当前任务阶段的进度聚合；与绝对 SegmentStatus 保持正交。 */
-  countByCurrentStageState(): Record<CurrentStageState, number> {
+  countByCurrentStageState(taskGroupId?: string): Record<CurrentStageState, number> {
     const counts: Record<CurrentStageState, number> = {
       untouched: 0,
       draft: 0,
       confirmed: 0,
     }
+    const { where, params } = buildSegmentWhere({ taskGroupId })
     const rows = this.db.db
-      .prepare('SELECT current_stage_state, COUNT(*) AS n FROM segments GROUP BY current_stage_state')
-      .all() as { current_stage_state: CurrentStageState; n: number }[]
+      .prepare(`SELECT current_stage_state, COUNT(*) AS n FROM segments ${where} GROUP BY current_stage_state`)
+      .all(...params) as { current_stage_state: CurrentStageState; n: number }[]
     for (const row of rows) {
       if (row.current_stage_state in counts) {
         counts[row.current_stage_state] = Number(row.n)

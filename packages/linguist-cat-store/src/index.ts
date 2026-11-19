@@ -257,3 +257,5 @@ export {
 } from './integrity'
 
 export { CatStore, type CatStoreOptions, type OpenProjectOptions } from './store'
+
+export type { TaskGroup, TaskGroupChange } from './repositories/task-groups'

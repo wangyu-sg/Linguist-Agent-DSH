@@ -71,6 +71,7 @@ export function readWorkspaceBriefSource(workspaceRoot: string, ref: string): Br
 export function readProjectBrief(input: {
   workspaceRoot: string
   identity: ProjectBrief['projectIdentity']
+  sourceVisible?: (ref: string) => boolean
   resolveSource: (ref: string) => BriefSourceVersion | undefined
 }): ProjectBriefDigest | undefined {
   const canonical = resolveWorkspaceFile(input.workspaceRoot, PROJECT_BRIEF_PATH)
@@ -86,6 +87,7 @@ export function readProjectBrief(input: {
     || identity.sourceLocale !== input.identity.sourceLocale
     || identity.targetLocale !== input.identity.targetLocale) throw new Error('项目简报身份或语言对不匹配')
 
+  if (input.sourceVisible && value.sources.some(source => !input.sourceVisible!(source.ref))) return undefined
   const sources = new Map(value.sources.map(source => [source.ref, source]))
   if (sources.size !== value.sources.length
     || new Set(value.requirements.map(item => item.id)).size !== value.requirements.length) {

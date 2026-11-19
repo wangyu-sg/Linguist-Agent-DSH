@@ -24,6 +24,12 @@ test('missing required input blocks native child start and frozen scope survives
     bindings.bindSession('synthetic-child', frozen)
     assert.deepEqual(new BindingStore(root).session('synthetic-child'), frozen)
     assert.deepEqual(frozen.delegatedScope?.segmentIds, [segment.id])
+    assert.deepEqual(frozen.delegatedScope?.assetIds, [imported.assetId])
+    const question = freezeLinguistDelegation(service, binding, { role: 'reviewer' })
+    assert.deepEqual(question.delegatedScope?.segmentIds, [])
+    const otherGroup = service.openProject(project.id).taskGroups.change({ action: 'create', name: 'Another scope' })
+    const otherBinding = freezeLinguistDelegation(service, { ...binding, taskGroupId: otherGroup }, { role: 'reviewer', scope: { segmentIds: [segment.id] } })
+    assert.equal(otherBinding.taskGroupId, 'ungrouped')
     let started = false
     const agent = { id: 'synthetic-parent' }
     const { tool } = createLinguistDelegationTool({

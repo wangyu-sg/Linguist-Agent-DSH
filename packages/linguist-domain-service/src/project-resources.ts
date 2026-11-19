@@ -1,3 +1,4 @@
+import { deriveStableIdV2 } from '@linguist/cat-core'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { sha256Hex } from '@linguist/cat-formats'
@@ -77,6 +78,8 @@ export class ProjectResources {
     this.context.getProject(projectId)
     const db = this.context.openProject(projectId)
     return this.context.call(() => {
+      const hidden = db.taskGroups.hidden(query.taskGroupId)
+      const hiddenSources = new Set([...hidden].filter(key => key.startsWith('reference:')).map(key => deriveStableIdV2('tms', [projectId, key.slice(10)])))
       const items = db.tmUnits.list(query)
       const total = db.tmUnits.count(query)
       return {
@@ -85,8 +88,8 @@ export class ProjectResources {
         limit: query.limit,
         offset: query.offset,
         hasMore: query.offset + items.length < total,
-        imports: db.referenceImports.list('tm'),
-        tmSources: db.tmSources.list(),
+        imports: db.referenceImports.list('tm').filter(item => !hidden.has('reference:' + item.id)),
+        tmSources: db.tmSources.list().filter(source => !hiddenSources.has(source.id) && !hidden.has('tm-source:' + source.id)),
       }
     }, projectId)
   }
@@ -98,6 +101,7 @@ export class ProjectResources {
     this.context.getProject(projectId)
     const db = this.context.openProject(projectId)
     return this.context.call(() => {
+      const hidden = db.taskGroups.hidden(query.taskGroupId)
       const items = db.termEntries.list(query)
       const total = db.termEntries.count(query)
       return {
@@ -106,7 +110,7 @@ export class ProjectResources {
         limit: query.limit,
         offset: query.offset,
         hasMore: query.offset + items.length < total,
-        imports: db.referenceImports.list('terms'),
+        imports: db.referenceImports.list('terms').filter(item => !hidden.has('reference:' + item.id)),
       }
     }, projectId)
   }
@@ -138,11 +142,24 @@ export class ProjectResources {
         ({ source, result } = db.catDb.transaction(`import ${kind} reference source`, () => {
           const reference = db.referenceImports.insert({
             kind,
+            ...(input.xlsxMapping ? { interpretation: JSON.stringify([project.sourceLocale, project.targetLocale, input.xlsxMapping.sheetName, input.xlsxMapping.columns.source, input.xlsxMapping.columns.target]) } : {}),
             originalFilename: input.filename,
             sourceSha256,
             blobRelpath,
           })
+          const backing = 'reference:' + reference.id
+          const refs = db.taskGroups.refs()
+          const prior = refs.some(ref => ref.backing_key === backing)
+          const wasRetired = refs.some(ref => ref.resource_key === backing && ref.scope === '@retired')
+          // A source imported before task groups keeps its original shared registration.
+          if (!prior && (kind === 'tm' ? db.tmSources.get(deriveStableIdV2('tms', [projectId, reference.id]))?.enabled : db.termEntries.countBySource()[reference.id])) {
+            db.taskGroups.ref(backing, '', backing)
+          }
+          db.catDb.db.prepare("DELETE FROM task_resource_refs WHERE resource_key=? AND scope='@retired'").run(backing)
+          if (input.libraryKey) db.taskGroups.updateBacking(input.libraryKey, backing)
+          else db.taskGroups.ref(backing, input.taskGroupId ?? '', backing)
           const tmSource = kind === 'tm' ? db.tmSources.ensureImported(reference) : undefined
+          if (tmSource && wasRetired) db.tmSources.update(tmSource.id, { enabled: true })
           return {
             source: reference,
             result: kind === 'tm'
@@ -201,7 +218,7 @@ export class ProjectResources {
 
   listTermConflicts(
     projectId: string,
-    options: Pick<TermMatchOptions, 'statuses' | 'module' | 'category'>,
+    options: Pick<TermMatchOptions, 'statuses' | 'module' | 'category' | 'taskGroupId'>,
   ): TermEntryConflict[] {
     this.context.getProject(projectId)
     const db = this.context.openProject(projectId)
@@ -243,72 +260,29 @@ export class ProjectResources {
     const db = this.context.openProject(projectId)
     return this.context.call(() => {
       const text = query.query
-      const page = <T>(items: T[], total: number): ReferenceQueryPage<T> => ({
-        items,
-        total,
-        limit: query.limit,
-        offset: query.offset,
-        hasMore: query.offset + items.length < total,
-      })
+      const hidden = db.taskGroups.hidden(query.taskGroupId)
+      const scopedPage = <T extends { id: string }>(prefix: string, total: number, list: (limit: number, offset: number) => T[], key = (item: T) => item.id): ReferenceQueryPage<T> => {
+        const needsFilter = [...hidden].some(item => item.startsWith(prefix))
+        const rows = needsFilter ? list(total, 0).filter(item => !hidden.has(prefix + key(item))) : undefined
+        const items = rows ? rows.slice(query.offset, query.offset + query.limit) : list(query.limit, query.offset)
+        total = rows?.length ?? total
+        return { items, total, limit: query.limit, offset: query.offset, hasMore: query.offset + items.length < total }
+      }
       switch (kind) {
-        case 'styleGuideRules': {
-          const filter = { ...(text !== undefined ? { query: text } : {}) }
-          return page(
-            db.styleGuideRules.list({
-              ...filter,
-              limit: query.limit,
-              offset: query.offset,
-            }),
-            db.styleGuideRules.count(filter),
-          )
-        }
+        case 'styleGuideRules':
+          return scopedPage('rule:', db.styleGuideRules.count({ query: text }), (limit, offset) => db.styleGuideRules.list({ query: text, limit, offset }))
         case 'sentencePatterns': {
-          const filter = {
-            ...(text !== undefined ? { query: text } : {}),
-            ...(query.status !== undefined ? { status: query.status } : {}),
-          }
-          return page(
-            db.sentencePatterns.list({
-              ...filter,
-              limit: query.limit,
-              offset: query.offset,
-            }),
-            db.sentencePatterns.count(filter),
-          )
+          const filter = { query: text, status: query.status }
+          return scopedPage('pattern:', db.sentencePatterns.count(filter), (limit, offset) => db.sentencePatterns.list({ ...filter, limit, offset }))
         }
         case 'contextDocs': {
-          const filter = {
-            ...(text !== undefined ? { query: text } : {}),
-            ...(query.segmentId !== undefined ? { segmentId: query.segmentId } : {}),
-          }
-          return page(
-            db.contextDocs.list({
-              ...filter,
-              limit: query.limit,
-              offset: query.offset,
-            }),
-            db.contextDocs.count(filter),
-          )
+          const filter = { query: text, segmentId: query.segmentId }
+          return scopedPage('document:', db.contextDocs.count(filter), (limit, offset) => db.contextDocs.list({ ...filter, limit, offset }), item => item.parentContextDocId ?? item.id)
         }
         case 'techConstraints':
-          return page(
-            db.techConstraints.list({
-              limit: query.limit,
-              offset: query.offset,
-            }),
-            db.techConstraints.count(),
-          )
-        case 'voiceProfiles': {
-          const filter = { ...(text !== undefined ? { query: text } : {}) }
-          return page(
-            db.voiceProfiles.list({
-              ...filter,
-              limit: query.limit,
-              offset: query.offset,
-            }),
-            db.voiceProfiles.count(filter),
-          )
-        }
+          return scopedPage('rule:', db.techConstraints.count(), (limit, offset) => db.techConstraints.list({ limit, offset }))
+        case 'voiceProfiles':
+          return scopedPage('voice:', db.voiceProfiles.count({ query: text }), (limit, offset) => db.voiceProfiles.list({ query: text, limit, offset }))
       }
     }, projectId)
   }

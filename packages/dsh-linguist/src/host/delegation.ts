@@ -15,11 +15,11 @@ export function freezeLinguistDelegation(
   request: LinguistDelegationRequest,
 ): SessionBinding {
   if (parent.role !== 'general') throw new Error('Only a General Session can delegate a Linguist role')
-  if (request.fileMode || !parent.projectId || (parent.workMode !== 'cat' && !request.scope)) {
+  if (request.fileMode || !parent.projectId || (!request.scope && !parent.delegatedScope)) {
     const { delegatedScope: _scope, reviewSnapshot: _snapshot, ...binding } = parent
-    return { ...binding, role: request.role ?? parent.role, workMode: request.fileMode ?? parent.workMode }
+    return { ...binding, role: request.role ?? parent.role, workMode: request.fileMode ?? parent.workMode,
+      ...(!request.fileMode && parent.projectId && parent.workMode === 'cat' ? { delegatedScope: { assetIds: [], segmentIds: [] } } : {}) }
   }
-  if (!parent.projectId) throw new Error('CAT scope requires a project')
   const db = service.openProject(parent.projectId)
   const assetIds = [...new Set(request.scope?.assetIds ?? [])]
   const selected = [...new Set(request.scope?.segmentIds ?? [])]
@@ -27,19 +27,21 @@ export function freezeLinguistDelegation(
     if (!db.assets.get(assetId)) throw new Error(`Delegated Asset does not belong to project: ${assetId}`)
     selected.push(...db.segments.queryIds({ assetId }))
   }
-  const segmentIds = [...new Set(selected.length || request.scope ? selected : db.segments.queryIds())]
+  const segmentIds = [...new Set(request.scope ? selected : parent.delegatedScope!.segmentIds)]
   if (!segmentIds.length) throw new Error('Delegated scope contains no Segment')
-  if (db.segments.getByIds(segmentIds).length !== segmentIds.length) throw new Error('Delegated scope contains a Segment outside the project')
+  const rows = db.segments.getByIds(segmentIds)
+  if (rows.length !== segmentIds.length) throw new Error('Delegated scope contains a Segment outside the project')
   if (parent.delegatedScope && segmentIds.some(id => !parent.delegatedScope!.segmentIds.includes(id))) {
     throw new Error('Child scope exceeds the parent delegated scope')
   }
-  return { ...parent, role: request.role ?? parent.role, delegatedScope: { assetIds, segmentIds } }
+  const batches = [...new Set(rows.map(row => row.assetId))]
+  return { ...parent, taskGroupId: db.taskGroups.forAssets(batches, parent.taskGroupId), role: request.role ?? parent.role, delegatedScope: { assetIds: batches, segmentIds } }
 }
 
 /** Native DSH run completion is separate from the CAT decision audit. */
 export function linguistDelegationOutcome(service: LinguistProjectService, sessionId: string, binding: SessionBinding) {
   const stage = binding.role === 'translator' ? 'translation' : binding.role === 'reviewer' ? 'editing' : binding.role === 'proofreader' ? 'proofreading' : undefined
-  if (!stage || !binding.projectId || !binding.delegatedScope) return undefined
+  if (!stage || !binding.projectId || !binding.delegatedScope?.segmentIds.length) return undefined
   const db = service.openProject(binding.projectId)
   const evidenceState = db.stageEvidence.list(stage).find(state => state.sessionId === sessionId)
   const evidence = evidenceState && db.stageEvidence.getCompletion(evidenceState.stageRunId)

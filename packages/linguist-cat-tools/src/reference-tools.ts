@@ -189,7 +189,10 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       const remainingSegments = params.rulesOnly ? [] : segments.slice(cursorOffset)
       const linkedContextBySegment = new Map<string, CatLinkedContextEvidence[]>()
       const pendingEvidenceBySegment = new Map<string, Array<Omit<CatUnprovidedReference, 'segmentIds' | 'history'>>>()
-      const contextDocs = params.rulesOnly ? [] : db.contextDocs.list({ limit: db.contextDocs.count() })
+      const groupId = db.taskGroups.forAssets(segments.map(row => row.assetId), deps.taskGroupId)
+      if (deps.delegatedScopeSegmentIds && groupId !== (deps.taskGroupId ?? 'ungrouped')) throw new LinguistCatInvalidArgumentError('segmentIds', 'outside the delegated task group')
+      const hidden = db.taskGroups.hidden(groupId)
+      const contextDocs = params.rulesOnly ? [] : db.contextDocs.list({ limit: db.contextDocs.count() }).filter(doc => !hidden.has('document:' + (doc.parentContextDocId ?? doc.id)))
       const requestedIds = new Set(remainingSegments.map(segment => segment.id as string))
       const requestedAssets = new Set(remainingSegments.map(segment => segment.assetId as string))
       const contextEvidence = contextDocs.flatMap(doc => {
@@ -283,7 +286,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         for (const group of localeGroups.values()) {
           const candidates = db.tmUnits.listCandidates(
             group[0]!.sourceLocale,
-            group[0]!.targetLocale,
+            group[0]!.targetLocale, undefined, groupId,
           )
           let cachedEvidence = automaticTmEvidence.get(candidates)
           if (cachedEvidence === undefined) {
@@ -316,7 +319,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
           }
         }
       }
-      const voices = remainingSegments.some(segment => segment.context?.meta?.speaker !== undefined) ? db.voiceProfiles.list({ limit: db.voiceProfiles.count() }) : []
+      const voices = remainingSegments.some(segment => segment.context?.meta?.speaker !== undefined) ? db.voiceProfiles.list({ limit: db.voiceProfiles.count() }).filter(profile => !hidden.has('voice:' + profile.id)) : []
       const contexts: ResolvedTranslationContext[] = []
       for (const segment of remainingSegments) {
         const neighbors = neighborCount === 0
@@ -691,15 +694,15 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       if (mode === 'segment') {
         const candidates = db.tmUnits.listCandidates(
           project.sourceLocale,
-          project.targetLocale,
+          project.targetLocale, undefined, deps.taskGroupId,
         )
         segmentMatches = matchTmCandidates(query, candidates, { minimumScore: params.minimumScore ?? 75,
           ...(deps.taskId === undefined ? {} : { context: { taskId: deps.taskId } }) })
       }
       const results: TmUnit[] | TmMatchDiagnostics[] = mode === 'segment'
         ? segmentMatches.slice(0, page.limit)
-        : db.tmUnits.concordance({ query, limit: page.limit })
-      const total = mode === 'segment' ? segmentMatches.length : db.tmUnits.count({ query })
+        : db.tmUnits.concordance({ query, limit: page.limit, taskGroupId: deps.taskGroupId })
+      const total = mode === 'segment' ? segmentMatches.length : db.tmUnits.count({ query, taskGroupId: deps.taskGroupId })
       const dto: CatSearchTmResult = {
         query,
         results,
@@ -732,8 +735,8 @@ export function createReferenceTools(runtime: CatToolRuntime) {
       }
       const { db } = resolveBoundProject('cat_search_terms', toolCallId)
       const page = resolvePage(params, CAT_TOOL_PAGE_LIMITS.searchTerms)
-      const results = db.termEntries.search({ query, limit: page.limit })
-      const total = db.termEntries.count({ query })
+      const results = db.termEntries.search({ query, limit: page.limit, taskGroupId: deps.taskGroupId })
+      const total = db.termEntries.count({ query, taskGroupId: deps.taskGroupId })
       const dto: CatSearchTermsResult = {
         query,
         results,
@@ -786,8 +789,10 @@ export function createReferenceTools(runtime: CatToolRuntime) {
         ...(params.textType !== undefined ? { textType: params.textType } : {}),
         ...(params.status !== undefined ? { status: params.status } : {}),
       }
-      const items = db.sentencePatterns.list({ ...filter, limit: page.limit, offset: page.offset })
-      const total = db.sentencePatterns.count(filter)
+      const hidden = db.taskGroups.hidden(deps.taskGroupId)
+      const visible = db.sentencePatterns.list({ ...filter, limit: db.sentencePatterns.count(filter) }).filter(item => !hidden.has('pattern:' + item.id))
+      const items = visible.slice(page.offset, page.offset + page.limit)
+      const total = visible.length
       const dto: CatSearchSentencePatternsResult = {
         items,
         total,
@@ -820,7 +825,7 @@ export function createReferenceTools(runtime: CatToolRuntime) {
     async execute(toolCallId, params) {
       const { db } = resolveBoundProject('cat_read_context_doc', toolCallId)
       const doc = db.contextDocs.get(params.docId)
-      if (doc === undefined) throw new StoreNotFoundError('context doc', params.docId)
+      if (doc === undefined || db.taskGroups.hidden(deps.taskGroupId).has('document:' + (doc.parentContextDocId ?? doc.id))) throw new StoreNotFoundError('context doc', params.docId)
       const metadataOnly = params.metadataOnly === true
       if (metadataOnly && (params.docVersion === undefined || params.offset === undefined || params.limit === undefined)) {
         throw new LinguistCatInvalidArgumentError('metadataOnly', 'requires the previous docVersion, offset and returned limit')

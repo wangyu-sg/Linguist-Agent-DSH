@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { initializeStorage } from '../packages/dsh-linguist/src/host/config.ts'
@@ -11,15 +11,12 @@ const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH
 const home = join(homedir(), '.dsh')
 const desktopUserDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop')
 const appPath = '/Applications/DeepSeek Harness.app'
-const dmg = join(root, '.toolchain/desktop/deepseek-harness-0.2.0-rc.2-mac-arm64.dmg')
-const dmgSha256 = '7c32c459c403d8a035ac60600f240ed2025312f0a7afde283f454f30ec4ed96e'
 const bskPath = join(dataRoot, 'runtime/browser-skill/bin/bsk')
 const bskHome = join(dataRoot, 'browser-skill/home')
 const receipts = join(dataRoot, 'receipts')
 const pack = JSON.parse(readFileSync(join(root, 'artifacts/pack.json'), 'utf8'))
 const desktopManifest = join(home, 'profiles/desktop/package.json')
 if (!existsSync(desktopManifest)) throw new Error('请先打开官方 DeepSeek Harness，完成首次初始化，再重试安装辅助命令。普通插件安装请使用 DSH 的“插件 → 安装本地插件”。')
-if (!pack.browserSkill) throw new Error('该作者安装辅助需要固定 BrowserSkill 包；先按 integrations/browser-skill/README.md 构建，普通 LA 安装不需要此命令。')
 const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 const run = (command, args) => {
@@ -28,40 +25,20 @@ const run = (command, args) => {
   return { ...result, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
 }
 
-assert(pack.dshVersion === '0.2.0-rc.2', 'pack must match official Desktop 0.2.0-rc.2')
-assert(sha256(dmg) === dmgSha256, 'official Desktop DMG SHA-256 changed')
-for (const key of ['linguist', 'browserSkill']) assert(sha256(pack[key].path) === pack[key].sha256, `${key} pack changed`)
+const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
+assert(pack.dshVersion === baseline.dshVersion, 'pack must match the supported Desktop baseline')
+assert(existsSync(appPath), '请先安装并打开官方 DeepSeek Harness。')
+assert(sha256(pack.linguist.path) === pack.linguist.sha256, 'linguist pack changed')
 const prior = join(dataRoot, 'current.json')
 const installationId = initializeStorage({ dataRoot, installationId: existsSync(prior) ? JSON.parse(readFileSync(prior, 'utf8')).installationId : '' }).installationId
 const staged = {
   linguist: join(dataRoot, 'runtime/packages', `linguist-dsh-plugin-${pack.linguist.sha256.slice(0, 12)}.tgz`),
-  browserSkill: join(dataRoot, 'runtime/packages', `browser-skill-dsh-plugin-${pack.browserSkill.version}.tgz`),
 }
-for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'runtime/browser-skill/bin'), bskHome, join(dataRoot, 'browser-skill/session-state'), join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
-for (const key of ['linguist', 'browserSkill']) {
-  if (existsSync(staged[key])) assert(sha256(staged[key]) === pack[key].sha256, `${basename(staged[key])} exists with another hash`)
-  else copyFileSync(pack[key].path, staged[key])
-}
-const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
-if (!existsSync(bskPath) || sha256(bskPath) !== baseline.cliRelease.binarySha256) {
-  const incoming = join(root, '.toolchain/browser-skill/bin/bsk')
-  assert(sha256(incoming) === baseline.cliRelease.binarySha256, 'downloaded BrowserSkill CLI differs')
-  copyFileSync(incoming, `${bskPath}.tmp`)
-  renameSync(`${bskPath}.tmp`, bskPath)
-}
-assert(sha256(bskPath) === baseline.cliRelease.binarySha256, 'pinned BrowserSkill CLI differs')
-const extension = join(dataRoot, `runtime/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}`)
-cpSync(join(root, `.toolchain/browser-skill/extension-v${baseline.extensionRelease.manifestVersion}`), extension, { recursive: true })
-if (!existsSync(appPath)) {
-  const mount = join(tmpdir(), `la-dsh-official-${process.pid}`)
-  mkdirSync(mount)
-  execFileSync('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, dmg], { stdio: 'ignore' })
-  try {
-    execFileSync('/usr/bin/ditto', [join(mount, 'DeepSeek Harness.app'), appPath])
-  } finally { execFileSync('/usr/bin/hdiutil', ['detach', mount], { stdio: 'ignore' }) }
-}
+for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'runtime/browser-skill/bin'), bskHome, join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
+if (existsSync(staged.linguist)) assert(sha256(staged.linguist) === pack.linguist.sha256, `${basename(staged.linguist)} exists with another hash`)
+else copyFileSync(pack.linguist.path, staged.linguist)
 const plist = join(appPath, 'Contents/Info.plist')
-for (const [key, value] of [['CFBundleIdentifier', 'com.deepseek.dsh'], ['CFBundleShortVersionString', '0.2.0-rc.2']]) {
+for (const [key, value] of [['CFBundleIdentifier', 'com.deepseek.dsh'], ['CFBundleShortVersionString', baseline.dshVersion]]) {
   assert(execFileSync('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist], { encoding: 'utf8' }).trim() === value, `official app ${key} differs`)
 }
 const codesign = run('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath])
@@ -76,30 +53,27 @@ writeFileSync(signatureLog, `codesign --verify --deep --strict ${appPath}\n${cod
 writeFileSync(spctlLog, `spctl --assess --type execute --verbose=4 ${appPath}\n${spctl.output}exitCode=0\n`, { mode: 0o600 })
 const attestationPath = join(receipts, `desktop-signature-${installationId}.json`)
 writeFileSync(attestationPath, `${JSON.stringify({
-  appPath, dmgSha256, bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.2', teamId: 'NAN929V4UM',
+  appPath, bundleId: 'com.deepseek.dsh', version: baseline.dshVersion, teamId: 'NAN929V4UM',
   codesign: { path: signatureLog, sha256: sha256(signatureLog), exitCode: 0, target: appPath },
   spctl: { path: spctlLog, sha256: sha256(spctlLog), exitCode: 0, target: appPath },
 }, null, 2)}\n`, { mode: 0o600 })
-const patchPath = join(home, 'cordis.patch.yml')
-const patch = `# Linguist Agent plugin configuration.\n- id: session-log-deepseek\n  disabled: true\n- id: session-telemetry-otel\n  disabled: true\n- id: time-context\n  disabled: false\n- id: schedule\n  disabled: false\n- id: ui-schedule\n  disabled: false\n- id: browserskill\n  config:\n    bskPath: ${JSON.stringify(bskPath)}\n    bskHome: ${JSON.stringify(bskHome)}\n    fileStagingDirectory: ${JSON.stringify(join(dataRoot, 'staging'))}\n    sessionStateDirectory: ${JSON.stringify(join(dataRoot, 'browser-skill/session-state'))}\n    lazyTools: true\n- id: linguist\n  config:\n    dataRoot: ${JSON.stringify(dataRoot)}\n    installationId: ${JSON.stringify(installationId)}\n`
-
 const current = {
   installationId, dshVersion: pack.dshVersion, profile: 'desktop', home, desktopUserDataDir, dataRoot, appPath, bskPath, bskHome,
-  desktopArtifact: { path: dmg, sha256: dmgSha256, appPath, bundleId: 'com.deepseek.dsh', version: '0.2.0-rc.2', teamId: 'NAN929V4UM', attestationPath },
+  desktopArtifact: { appPath, bundleId: 'com.deepseek.dsh', version: baseline.dshVersion, teamId: 'NAN929V4UM', attestationPath },
+  browserSkill: { channel: 'official-release', extensionStoreUrl: baseline.extension.storeUrl },
   plugins: {
     linguist: { sha256: pack.linguist.sha256, version: pack.linguist.version, tarball: staged.linguist },
-    browserSkill: { sha256: pack.browserSkill.sha256, version: pack.browserSkill.version, tarball: staged.browserSkill },
   },
 }
 const manifest = JSON.parse(readFileSync(desktopManifest, 'utf8'))
-const wanted = [['@linguist/dsh-plugin', staged.linguist], ['@wxg-prc-cpg/browser-skill-dsh-plugin', staged.browserSkill]]
-const scheduleBundle = '@deepseek-ai/dsh-experimental-schedule-bundle'
-const installed = manifest.dsh?.profile?.bundles?.includes(scheduleBundle) && wanted.every(([name, tarball]) => manifest.dependencies?.[name] === `file:${tarball}` && manifest.dsh?.profile?.bundles?.filter(item => item === name).length === 1)
+const name = '@linguist/dsh-plugin'
+const spec = manifest.dependencies?.[name]
+const installed = spec?.startsWith('file:') && existsSync(spec.slice(5)) && sha256(spec.slice(5)) === pack.linguist.sha256
+  && manifest.dsh?.profile?.bundles?.filter(item => item === name).length === 1
 if (!installed) {
-  console.log(JSON.stringify({ status: 'NATIVE_INSTALL_PENDING', installationId, staged, appPath, requiredBundle: `${scheduleBundle}@${pack.dshVersion}`, profile: join(home, 'profiles/desktop') }, null, 2))
+  console.log(JSON.stringify({ status: 'NATIVE_INSTALL_PENDING', installationId, staged, appPath, profile: join(home, 'profiles/desktop') }, null, 2))
   process.exitCode = 2
 } else {
-  if (!existsSync(patchPath)) writeFileSync(patchPath, patch, { mode: 0o600 })
   if (existsSync(prior) && !existsSync(join(receipts, 'pre-desktop-current.json'))) copyFileSync(prior, join(receipts, 'pre-desktop-current.json'))
   const tmp = `${prior}.${process.pid}.tmp`
   writeFileSync(tmp, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })

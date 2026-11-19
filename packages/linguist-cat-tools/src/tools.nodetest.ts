@@ -700,7 +700,7 @@ test('workbook tools preview evidence and save a reusable bound-project profile'
 test('voice tools reuse profiles and translated segments as bounded approved context', async () => {
   const fixture = setup()
   try {
-    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture) })
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture), taskGroupId: 'ungrouped' })
     const profile = (await invoke(toolByName(tools, 'cat_upsert_voice_profile'), {
       speaker: 'Narrator',
       textType: 'dialogue',
@@ -854,6 +854,21 @@ test('cat_run_qa + cat_get_qa_findings: persist deterministic findings and page 
   } finally {
     fixture.db.close()
   }
+})
+
+test('QA discards a worker result when its batch moved while checking', async () => {
+  const fixture = setup()
+  try {
+    const target = fixture.db.taskGroups.change({ action: 'create', name: 'New task group' })
+    const tools = createLinguistCatTools({ resolveProject: makeOkResolver(fixture),
+      qaWorker: async () => {
+        fixture.db.taskGroups.change({ action: 'moveBatches', id: target, batchIds: [fixture.assetA.id] })
+        return { findings: [], workerThreadId: 1 }
+      },
+    })
+    await assert.rejects(invoke(toolByName(tools, 'cat_run_qa'), { batchId: fixture.assetA.id }), /批次归属或资料已变化/)
+    assert.equal(fixture.db.qaFindings.count({ assetId: fixture.assetA.id }), 0)
+  } finally { fixture.db.close() }
 })
 
 test('cat_project_summary: locales, counts, JSON round-trip; resolver receives call info', async () => {
@@ -2144,6 +2159,12 @@ test('proposal mode preserves the existing Stage and enforces the trusted delega
 
     await assertThrowsCode(invoke(toolByName(tools, 'cat_propose_translations'), {
       snapshotIds, segmentProposals: [{ segmentId: outside.id, proposedTarget: '越界建议' }],
+    }), 'INVALID_ARGUMENT')
+    await assertThrowsCode(invoke(toolByName(tools, 'cat_export_batch'), {
+      batchId: outside.assetId, destinationPath: '/tmp/synthetic-outside-scope.csv',
+    }), 'INVALID_ARGUMENT')
+    await assertThrowsCode(invoke(toolByName(tools, 'cat_add_approved_exemplar'), {
+      segmentId: outside.id, speaker: 'Synthetic', textType: 'Dialogue',
     }), 'INVALID_ARGUMENT')
     assert.equal(prepareStageCalls, 0)
     const outsideAfter = fixture.db.segments.getById(outside.id)!

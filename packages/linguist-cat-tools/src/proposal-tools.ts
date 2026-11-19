@@ -396,8 +396,9 @@ export function createProposalTools(runtime: CatToolRuntime) {
     signal?: AbortSignal,
     onUpdate?: LinguistToolUpdateCallback<unknown>,
   ) => {
-    const total = db.segments.count()
-    const segments = total === 0 ? [] : db.segments.query({ limit: total })
+    const filter = { taskGroupId: deps.taskGroupId ?? 'ungrouped', segmentIds: deps.delegatedScopeSegmentIds ?? deps.reviewScopeSegmentIds }
+    const total = db.segments.count(filter)
+    const segments = total === 0 ? [] : db.segments.query({ ...filter, limit: total })
     const request = {
       segments,
       options: {
@@ -406,7 +407,7 @@ export function createProposalTools(runtime: CatToolRuntime) {
         profile: normalizeQaProfile(project.qaProfile),
         ...(project.tagProfile !== undefined ? { tagProfile: project.tagProfile } : {}),
       },
-      persistedFindings: db.qaFindings.list({ status: 'open' }),
+      persistedFindings: db.qaFindings.list({ ...filter, status: 'open' }),
     }
     const worker = deps.consistencyWorker ?? (async () => ({
       pass: analyzeBatchConsistency(request),

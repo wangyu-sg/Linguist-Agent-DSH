@@ -1,7 +1,7 @@
 /**
  * Asset — one imported bilingual file inside a project. Pure data.
  * `sourceSha256` anchors the asset to exact source bytes (CAS), so the
- * derived id is stable for re-imports of the same file.
+ * store can reuse an existing import within its task group.
  */
 
 import { deriveAssetId, type AssetId, type ProjectId } from './ids'
@@ -9,6 +9,7 @@ import { deriveAssetId, type AssetId, type ProjectId } from './ids'
 export interface Asset {
   id: AssetId
   projectId: ProjectId
+  taskGroupId?: string
   /** Bilingual format identifier, e.g. 'phrase_mxliff' | 'mqxliff' | 'sdlxliff' | 'xliff' | 'csv' | 'xlsx'. */
   formatId: string
   originalFilename: string
@@ -20,6 +21,8 @@ export interface Asset {
 }
 
 export interface CreateAssetInput {
+  id?: AssetId
+  taskGroupId?: string
   projectId: ProjectId
   formatId: string
   originalFilename: string
@@ -30,8 +33,9 @@ export interface CreateAssetInput {
 
 export function createAsset(input: CreateAssetInput): Asset {
   return {
-    id: deriveAssetId(input.projectId, input.sourceSha256, input.originalFilename),
+    id: input.id ?? deriveAssetId(input.projectId, input.sourceSha256, input.originalFilename),
     projectId: input.projectId,
+    ...(input.taskGroupId ? { taskGroupId: input.taskGroupId } : {}),
     formatId: input.formatId,
     originalFilename: input.originalFilename,
     sourceSha256: input.sourceSha256,

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, writeFil
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+const baseline = JSON.parse(readFileSync(new URL('../integrations/browser-skill/BASELINE.json', import.meta.url), 'utf8'))
 const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH')
 const current = JSON.parse(readFileSync(join(dataRoot, 'current.json'), 'utf8'))
 const appPath = '/Applications/DeepSeek Harness.app'
@@ -11,7 +12,7 @@ const userDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/ds
 const lockPath = join(userDataDir, 'SingletonLock')
 const receipts = join(dataRoot, 'receipts')
 
-if (current.profile !== 'desktop' || current.dshVersion !== '0.2.0-rc.2' || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this official Desktop plugin installation')
+if (current.profile !== 'desktop' || current.dshVersion !== baseline.dshVersion || current.dataRoot !== dataRoot || current.home !== join(homedir(), '.dsh') || current.appPath !== appPath || current.desktopUserDataDir !== userDataDir || current.desktopArtifact?.appPath !== appPath || current.bskHome !== join(dataRoot, 'browser-skill/home')) throw new Error('current.json does not identify this official Desktop plugin installation')
 if (!existsSync(executable) || !existsSync(join(current.home, 'profiles/desktop/package.json')) || !existsSync(userDataDir)) throw new Error('official Desktop, desktop profile, or Chromium data directory is missing')
 
 function ownedMainPid() {

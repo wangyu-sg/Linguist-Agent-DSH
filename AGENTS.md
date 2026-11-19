@@ -5,20 +5,19 @@
 - 不默认认同用户判断；先检查前提、逻辑、缺失信息和未经证实判断，区分事实、推测、观点和未知。
 - 不保留内部旧实现的向后兼容层；删除废弃路径。只写满足当前要求的最小实现，复用已有依赖，避免推测性抽象。
 - 保持模块边界清楚；必须先形成端到端可用版本，再逐层增加能力。
-- 不修改无关文件。成功条件须明确，并在验证通过前持续修复。
-- 提交或推送前必须对待提交 diff 运行 `/ponytail-review`，仅当结果为 `Lean already. Ship.` 才能继续。
+- 只改当前任务所需文件。
 - 仅在系统边界校验；不为不可能场景增加防御式分支，不吞错误；一次性操作不建抽象。
 
 ## 产品与维护边界
 
 LA 是 DSH 原生 Host + Client 的游戏本地化插件。DSH 管理会话、模型、权限、通用工具、子任务与调度；LA 管理 CAT、格式、项目资源、专业决策与必要界面。BrowserSkill 是唯一正式浏览器控制链。使用公开 SDK、原生 Slots 与主题，不重做宿主或 Agent 运行时。
 
-- 源仓库 /Users/wangyu/Desktop/linguist-agent-next 只读；目标已有文件、用户未提交修改及配置保留。
+- 保留工作区已有文件、用户未提交的修改及配置。
 - 保留 General、Translator、Reviewer、Proofreader 和 CAT、工作副本、浏览器三种工作方式。岗位不限制宿主通用工具或用户权限。
 - 审校覆盖已确定的 Source／当前 Target／必要上下文范围；保留标签、锁定、稳定 ID、修订冲突、撤销、恢复与当前修订的真实执行者证据。提案不等于审校完成，导出不等于平台提交。
-- LA 控制的单文件接收上限为 512 MiB，普通批次与参考资源一致；共享常量是事实来源。HTTP 请求预算与逻辑批次分开，分请求上传须保留同批 Phrase 配对。接收上限不保证所有格式的解析性能。
+- LA 控制的单文件接收上限为 1 GiB（1024 MiB），普通批次与参考资源一致；共享常量是事实来源。HTTP 请求预算与逻辑批次分开，分请求上传须保留同批 Phrase 配对。接收上限不保证所有格式的解析性能。
 - 暂存完成或取消后释放；待确认与在途输入受到保护；过期和重启孤儿回收仅操作 LA 自有 staging。保护原稿、正式数据、备份与交付物。
-- 正常构建、测试与打包只依赖当前源码、声明的依赖和合成样本，不依赖旧源码镜像、历史功能清单或作者手制回执。保留有用回归，只验证相关改动；已知代码断点须修复或准确报告。
+- 正常构建、测试与打包只依赖当前源码、声明的依赖和合成样本，不依赖旧源码镜像、历史功能清单或作者手制回执。按改动运行相关合成测试、类型检查或本地打包，修复本次引入的问题后重跑；交付时说明实际通过的检查和仍待验证的部分。该本地循环可连续执行。
 - 主要入口：packages/dsh-linguist/src/index.ts、src/host、src/client；packages/linguist-cat-*、packages/linguist-domain-service；integrations/browser-skill。linguist-legacy-migration 是旧数据导入能力，保留。
 - 正常命令：pnpm install --frozen-lockfile、pnpm typecheck、pnpm test:required、pnpm build、pnpm pack:plugin；工具版本见 CONTRIBUTING.md。
 

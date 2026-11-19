@@ -13,6 +13,8 @@ import type {
   LinguistExportFileInfo,
   LinguistPrepareDeliveryResult,
   LinguistProjectInfo,
+  LinguistProjectSummary,
+  TaskGroup,
   LinguistProposalDiff,
   LinguistApplyTranslationsResult,
   LinguistProposalListResult,
@@ -53,19 +55,19 @@ export interface ProposalReviewPlan {
   excluded: Array<{ segmentId: string; ordinal: number; reason: string }>
 }
 
-export async function loadProposalReviewPlan(projectId: string, selection: { kind: 'segments' | 'proposals'; ids: readonly string[] }, operation: ProposalReviewPlan['operation'], t: ReturnType<typeof useT>): Promise<ProposalReviewPlan> {
+export async function loadProposalReviewPlan(projectId: string, selection: { kind: 'segments' | 'proposals'; ids: readonly string[] }, operation: ProposalReviewPlan['operation'], t: ReturnType<typeof useT>, taskGroupId?: string): Promise<ProposalReviewPlan> {
   if (selection.kind === 'segments' && selection.ids.length > 200) throw new Error(t('单次最多核对 200 个所选句段，请缩小选择范围。'))
   const plan: ProposalReviewPlan = { operation, idempotencyKey: crypto.randomUUID(), selectedCount: selection.ids.length, items: [], actionableSegmentIds: [], excluded: [] }
   let proposalIds = selection.ids
   if (selection.kind === 'segments') {
-    const contexts = await Promise.all(selection.ids.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
+    const contexts = await Promise.all(selection.ids.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, taskGroupId, segmentId })))
     proposalIds = contexts.flatMap(({ segment, pendingProposal }) => {
       if (pendingProposal) return [pendingProposal.id]
       plan.excluded.push({ segmentId: segment.id, ordinal: segment.ordinal + 1, reason: t('没有待审建议') })
       return []
     })
   }
-  const latest = await Promise.all(proposalIds.map((proposalId) => required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, proposalId })))
+  const latest = await Promise.all(proposalIds.map((proposalId) => required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, taskGroupId, proposalId })))
   for (const diff of latest) {
     const reason = diff.proposal.status !== 'pending' ? t('建议已处理') : operation === 'accept' && diff.locked ? t('片段已锁定') : operation === 'accept' && diff.currentRevision !== diff.baseRevision ? t('建议基于旧版本') : ''
     if (reason) plan.excluded.push({ segmentId: diff.proposal.segmentId, ordinal: diff.originalOrdinal, reason })
@@ -123,7 +125,7 @@ function QaFindingText({ projectId, finding }: { projectId: string; finding: Lin
   </details>
 }
 
-export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSegmentId, mutation, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentId?: string; focusFindingId?: string; focusSegmentId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
+export function QaPanel({ projectId, taskGroupId, assetId, segmentId, focusFindingId, focusSegmentId, mutation, archived, onNavigate, onChanged }: { projectId: string; taskGroupId?: string; assetId?: string; segmentId?: string; focusFindingId?: string; focusSegmentId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistCatListQaFindingsResult>()
   const [status, setStatus] = React.useState('open')
@@ -147,20 +149,20 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
     let live = true
     setLoading(true)
     setLoadError('')
-    required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId: scopedSegmentId ? undefined : assetId, segmentId: scopedSegmentId, status: status || undefined, severity: severity || undefined, disposition: disposition || undefined, limit: 100, offset: page * 100 })
+    required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, taskGroupId, assetId: scopedSegmentId ? undefined : assetId, segmentId: scopedSegmentId, status: status || undefined, severity: severity || undefined, disposition: disposition || undefined, limit: 100, offset: page * 100 })
       .then((next) => { if (live) { setList(next); setMessage(''); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
     return () => { live = false }
-  }, [projectId, assetId, scopedSegmentId, status, severity, disposition, page, refresh, mutation])
+  }, [projectId, taskGroupId, assetId, scopedSegmentId, status, severity, disposition, page, refresh, mutation])
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived || mutating) return false
     setMutating(true)
-    try { await required(operation, input); setRefresh((value) => value + 1); onChanged(); setMessage(t("操作已完成")); return true }
+    try { await required(operation, { ...input, taskGroupId }); setRefresh((value) => value + 1); onChanged(); setMessage(t("操作已完成")); return true }
     catch (error) { setMessage(describeProjectError(error, t)); return false }
     finally { setMutating(false) }
   }
   const prepareBulkWaiver = async (code: string) => {
     try {
-      const found = await required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, code, status: 'open', limit: 200, offset: 0 })
+      const found = await required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, taskGroupId, code, status: 'open', limit: 200, offset: 0 })
       setBulkWaiver({ code, findingIds: found.items.map((item) => item.id), total: found.total })
     } catch (error) { setMessage(describeProjectError(error, t)) }
   }
@@ -172,7 +174,7 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
     <div className={styles.toolbar}><strong>QA Findings {list?.total ?? ''}</strong><select aria-label={t("QA 状态")} value={status} onChange={(event) => { setStatus(event.target.value); setPage(0) }}><option value="open">{t("开放")}</option><option value="resolved">{t("已解决")}</option><option value="waived">{t("已豁免")}</option><option value="">{t("全部")}</option></select><select aria-label={t("严重度")} value={severity} onChange={(event) => { setSeverity(event.target.value); setPage(0) }}><option value="">{t("全部等级")}</option>{(['L0','L1','L2','L3','L4'] as const).map((item) => <option key={item} value={item}>{t(qaSeverityLabel(item))} · {t(qaTierLabel(qaSeverityTier(item)))}</option>)}</select><select aria-label={t('QA 处置')} value={disposition} onChange={(event) => { setDisposition(event.target.value); setPage(0) }}><option value="">{t('全部处置')}</option><option value="defect">{t('缺陷')}</option><option value="needs_review">{t('需要人工复核')}</option><option value="query">{t('疑问')}</option><option value="info">{t('信息')}</option></select>{scopedSegmentId && <Button variant="outline" size="sm" onClick={() => { setScopedSegmentId(undefined); setCurrentSegmentOnly(false); setPage(0) }}>{t('显示完整 QA 范围')}</Button>}<div className={styles.toolbarActions}><Button variant="primary" size="sm" disabled={archived || mutating || !assetId} onClick={() => assetId && void mutate('linguistCatRunQa', { projectId, assetId })}>{t("运行 QA")}</Button><Button variant="outline" size="sm" onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button></div></div>
     <div className={styles.toolbar}>{segmentId && <Checkbox label={t('仅当前句段')} checked={currentSegmentOnly} onChange={(checked) => { setCurrentSegmentOnly(checked); setScopedSegmentId(checked ? segmentId : undefined); setPage(0) }} />}</div>
     <details className={styles.callout}><summary>{t('豁免操作人和理由')}</summary><div className={styles.toolbar}><Input disabled={archived} maxLength={120} aria-label={t("豁免操作人")} placeholder={t("豁免操作人")} value={operator} onChange={(event) => setOperator(event.target.value)} /><Input disabled={archived} maxLength={500} aria-label={t("豁免理由")} placeholder={t("填写豁免理由")} value={reason} onChange={(event) => setReason(event.target.value)} /></div></details>
-    {bulkWaiver && <div className={styles.callout} role="alert"><p>{t('将在整个项目中豁免规则 {code} 的 {count} 条开放 Finding。', { code: bulkWaiver.code, count: bulkWaiver.findingIds.length })}{bulkWaiver.total > bulkWaiver.findingIds.length && ` ${t('该规则共 {total} 条，本批只处理前 {count} 条。', { total: bulkWaiver.total, count: bulkWaiver.findingIds.length })}`}</p><p>{t('理由')}：{reason} · {t('操作者')}：{operator}</p><Button variant="outline" size="sm" disabled={archived || bulkWaiver.findingIds.length === 0 || !reason.trim() || !operator.trim()} onClick={() => void confirmBulkWaiver()}>{t('确认项目范围豁免')}</Button><Button variant="outline" size="sm" onClick={() => setBulkWaiver(undefined)}>{t('取消')}</Button></div>}
+    {bulkWaiver && <div className={styles.callout} role="alert"><p>{t(taskGroupId ? '将在本组中豁免规则 {code} 的 {count} 条开放 Finding。' : '将在整个项目中豁免规则 {code} 的 {count} 条开放 Finding。', { code: bulkWaiver.code, count: bulkWaiver.findingIds.length })}{bulkWaiver.total > bulkWaiver.findingIds.length && ` ${t('该规则共 {total} 条，本批只处理前 {count} 条。', { total: bulkWaiver.total, count: bulkWaiver.findingIds.length })}`}</p><p>{t('理由')}：{reason} · {t('操作者')}：{operator}</p><Button variant="outline" size="sm" disabled={archived || bulkWaiver.findingIds.length === 0 || !reason.trim() || !operator.trim()} onClick={() => void confirmBulkWaiver()}>{t(taskGroupId ? '确认本组豁免' : '确认项目范围豁免')}</Button><Button variant="outline" size="sm" onClick={() => setBulkWaiver(undefined)}>{t('取消')}</Button></div>}
     {message && <p role="status">{message}</p>}
     {!assetId && <p className={styles.notice}>{t('选择一个工作批次以运行 QA。')}</p>}
     {loading && <p role="status">{t('正在读取 QA…')}</p>}
@@ -184,14 +186,14 @@ export function QaPanel({ projectId, assetId, segmentId, focusFindingId, focusSe
       <div className={styles.toolbar}><Button variant="ghost" size="sm" onClick={() => onNavigate(finding.segmentId)}>{t("定位句段")}</Button>{finding.status === 'open' && <>
         <Button variant="outline" size="sm" disabled={archived || mutating || finding.currentRevision <= finding.segmentRevision} title={finding.currentRevision <= finding.segmentRevision ? t("需先修改句段") : undefined} onClick={() => void mutate('linguistCatResolveQaFinding', { projectId, findingId: finding.id })}>{t("标记已解决")}</Button>
         <Button variant="outline" size="sm" disabled={archived || mutating || !reason.trim() || !operator.trim()} onClick={() => void mutate('linguistCatWaiveQaFinding', { projectId, findingId: finding.id, reason: reason.trim(), operator: operator.trim() })}>{t("豁免")}</Button>
-        {!scopedSegmentId && <Button variant="outline" size="sm" disabled={archived || mutating || !reason.trim() || !operator.trim()} onClick={() => void prepareBulkWaiver(finding.code)}>{t("豁免项目内同规则")}</Button>}
+        {!scopedSegmentId && <Button variant="outline" size="sm" disabled={archived || mutating || !reason.trim() || !operator.trim()} onClick={() => void prepareBulkWaiver(finding.code)}>{t(taskGroupId ? '豁免本组同规则' : '豁免项目内同规则')}</Button>}
       </>}</div>
     </article>)}
     <div className={styles.toolbar}><Button variant="outline" size="sm" disabled={loading || page === 0} onClick={() => setPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {page + 1} {t("页")}</span><Button variant="outline" size="sm" disabled={loading || !list?.hasMore} onClick={() => setPage((value) => value + 1)}>{t("下一页")}</Button></div>
   </section>
 }
 
-export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId, mutation, archived, onNavigate, onChanged }: { projectId: string; assetId?: string; segmentIds: readonly string[]; focusProposalId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
+export function ProposalPanel({ projectId, taskGroupId, assetId, segmentIds, focusProposalId, mutation, archived, onNavigate, onChanged }: { projectId: string; taskGroupId?: string; assetId?: string; segmentIds: readonly string[]; focusProposalId?: string; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void }): React.ReactElement {
   const t = useT()
   const [list, setList] = React.useState<LinguistProposalListResult>()
   const [status, setStatus] = React.useState('pending')
@@ -209,34 +211,34 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   const [batchBusy, setBatchBusy] = React.useState(false)
   const [refresh, setRefresh] = React.useState(0)
   const [focusedDiff, setFocusedDiff] = React.useState<LinguistProposalDiff>()
-  React.useEffect(() => { setSelected(new Set()); setBulkReview(undefined); setMessage('') }, [projectId, assetId, status, page])
+  React.useEffect(() => { setSelected(new Set()); setBulkReview(undefined); setMessage('') }, [projectId, taskGroupId, assetId, status, page])
   React.useEffect(() => {
     if (!focusProposalId) { setFocusedDiff(undefined); return }
     let live = true
     setFocusedDiff(undefined)
-    required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, proposalId: focusProposalId })
+    required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, taskGroupId, proposalId: focusProposalId })
       .then((diff) => { if (live) setFocusedDiff(diff) })
       .catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, focusProposalId, refresh, mutation])
+  }, [projectId, taskGroupId, focusProposalId, refresh, mutation])
   React.useEffect(() => {
     let live = true
     setLoading(true)
     setLoadError('')
-    required<LinguistProposalListResult>('linguistProposalsList', { projectId, assetId, status: status || undefined, limit: 100, offset: page * 100 })
+    required<LinguistProposalListResult>('linguistProposalsList', { projectId, taskGroupId, assetId, status: status || undefined, limit: 100, offset: page * 100 })
       .then((next) => { if (live) { setList(next); setLoading(false) } }).catch((error: unknown) => { if (live) { setLoadError(describeProjectError(error, t)); setLoading(false) } })
     return () => { live = false }
-  }, [projectId, assetId, status, page, refresh, mutation])
+  }, [projectId, taskGroupId, assetId, status, page, refresh, mutation])
   const mutate = async (operation: string, input: object): Promise<boolean> => {
     if (archived) return false
-    try { await required(operation, input); setSelected(new Set()); setRefresh((value) => value + 1); onChanged(); setMessage(t("建议已处理")); return true }
+    try { await required(operation, { ...input, taskGroupId }); setSelected(new Set()); setRefresh((value) => value + 1); onChanged(); setMessage(t("建议已处理")); return true }
     catch (error) { setMessage(describeProjectError(error, t)); setRefresh((value) => value + 1); return false }
   }
   const prepareBulk = async (operation: 'accept' | 'reject') => {
     if (archived || selected.size === 0 || reviewBusy) return
     setReviewBusy(true); setMessage('')
     try {
-      setBulkReview(await loadProposalReviewPlan(projectId, { kind: 'proposals', ids: [...selected] }, operation, t))
+      setBulkReview(await loadProposalReviewPlan(projectId, { kind: 'proposals', ids: [...selected] }, operation, t, taskGroupId))
     } catch (cause) { setMessage(describeProjectError(cause, t)) }
     finally { setReviewBusy(false) }
   }
@@ -249,7 +251,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   const loadBatch = async () => {
     setBatchBusy(true)
     try {
-      const rows = await Promise.all(segmentIds.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
+      const rows = await Promise.all(segmentIds.map((segmentId) => required<LinguistCatContextResult>('linguistCatGetContext', { projectId, taskGroupId, segmentId })))
       setBatchRows(rows)
       setBatchTargets(Object.fromEntries(rows.map((row) => [row.segment.id, row.segment.target])))
       setBatchResult(undefined)
@@ -265,7 +267,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
     if (edits.length === 0) return
     setBatchBusy(true)
     try {
-      const result = await required<LinguistApplyTranslationsResult>('linguistProposalsApplyTranslations', { projectId, edits, mode })
+      const result = await required<LinguistApplyTranslationsResult>('linguistProposalsApplyTranslations', { projectId, taskGroupId, edits, mode })
       setBatchResult(result)
       setBatchRows(undefined)
       setRefresh((value) => value + 1)
@@ -276,7 +278,7 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   }
   const refreshDiff = async (proposalId: string) => {
     try {
-      const diff = await required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, proposalId })
+      const diff = await required<LinguistProposalDiff>('linguistProposalsGetDiff', { projectId, taskGroupId, proposalId })
       setList((current) => current && { ...current, items: current.items.map((item) => item.proposal.id === proposalId ? diff : item) })
       setEdits((current) => { const next = { ...current }; delete next[proposalId]; return next })
       setMessage(t('已核对最新建议差异'))
@@ -317,8 +319,12 @@ export function ProposalPanel({ projectId, assetId, segmentIds, focusProposalId,
   </section>
 }
 
-export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archived, onNavigate, onChanged, onSendAgentTask }: { projectId: string; assetId?: string; segmentIds: readonly string[]; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void> }): React.ReactElement {
+export function ReferencePanel({ projectId, taskGroupId, assetId, segmentIds, mutation, archived, onNavigate, onChanged, onSendAgentTask }: { projectId: string; taskGroupId?: string; assetId?: string; segmentIds: readonly string[]; mutation: number; archived: boolean; onNavigate: (id: string) => void; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void> }): React.ReactElement {
   const t = useT()
+  const [manageProject, setManageProject] = React.useState(false)
+  const referenceGroup = manageProject ? undefined : taskGroupId
+  const [loadedScope, setLoadedScope] = React.useState<string | undefined>()
+  const scopedReadOnly = archived || Boolean(referenceGroup) || loadedScope !== referenceGroup
   const [kind, setKind] = React.useState<'tm' | 'terms'>('terms')
   const [query, setQuery] = React.useState('')
   const [termFilter, setTermFilter] = React.useState<LinguistTermInfo['status'] | ''>('')
@@ -363,21 +369,21 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     const operation = kind === 'terms' ? 'linguistReferencesQueryTerms' : 'linguistReferencesQueryTm'
     const reads = [
       required<LinguistReferenceQueryResult<LinguistTermInfo | LinguistTmReferenceInfo>>(operation, {
-        projectId, query: query || undefined, status: kind === 'terms' && termFilter ? termFilter : undefined,
+        projectId, taskGroupId: referenceGroup, query: query || undefined, status: kind === 'terms' && termFilter ? termFilter : undefined,
         limit: 100, offset: page * 100,
       }),
       kind === 'terms' ? required<LinguistTermConflictsResult>('linguistReferencesListTermConflicts', {
-        projectId, statuses: ['preferred', 'required'],
+        projectId, taskGroupId: referenceGroup, statuses: ['preferred', 'required'],
       }) : Promise.resolve(undefined),
     ] as const
     Promise.all(reads).then(([next, conflictList]) => {
-      if (live) { setList(next); setConflicts(conflictList); setSelectedTermIds(new Set()); setMessage('') }
+      if (live) { setLoadedScope(referenceGroup); setList(next); setConflicts(conflictList); setSelectedTermIds(new Set()); setMessage('') }
     }).catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, kind, query, termFilter, page, refresh, mutation])
+  }, [projectId, referenceGroup, kind, query, termFilter, page, refresh, mutation])
 
   const mutate = async (operation: string, input: object): Promise<boolean> => {
-    if (archived) return false
+    if (scopedReadOnly) return false
     try {
       await required(operation, input)
       setRefresh((value) => value + 1)
@@ -391,7 +397,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     setCaseSensitive(false); setModule(''); setCategory(''); setNote('')
   }
   const importFile = async (file: File) => {
-    if (archived) return
+    if (scopedReadOnly) return
     setImporting(true)
     try {
       const tokens = await stageFiles([file])
@@ -418,7 +424,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   }
   const saveTerm = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (archived) return
+    if (scopedReadOnly) return
     const saved = await mutate('linguistReferencesUpsertTerm', {
       projectId, id: editingTermId, term: term.trim(), translation: translation.trim(), status: termStatus,
       caseSensitive, note: note.trim() || undefined, module: module.trim() || undefined,
@@ -427,7 +433,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     if (saved) resetTerm()
   }
   const deleteSelectedTerms = async () => {
-    if (archived) return
+    if (scopedReadOnly) return
     try {
       const result = await required<LinguistTermsDeleteResult>('linguistReferencesDeleteTerms', { projectId, termIds: [...selectedTermIds] })
       setSelectedTermIds(new Set())
@@ -462,6 +468,7 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
   const sheet = candidate?.requiresXlsxMapping ? candidate.preview.sheets.find(entry => entry.name === sheetName) : undefined
   const mappingValid = sheet !== undefined && columns.source !== '' && columns.target !== '' && columns.source !== columns.target
   return <section className={styles.panel} aria-label={t("TM 与术语库")}>
+    {taskGroupId && <label><input type="checkbox" checked={manageProject} disabled={archived || importing} onChange={event => setManageProject(event.target.checked)} />{t('管理项目共用资料')}</label>}
     <div className={styles.toolbar}>
       <strong>{t("参考库")}</strong>
       <select aria-label={t("参考类别")} value={kind} disabled={importing || candidate !== undefined} onChange={(event) => { setKind(event.target.value as 'tm' | 'terms'); setPage(0) }}><option value="terms">{t("术语 TB")}</option><option value="tm">{t("翻译记忆 TM")}</option></select>
@@ -470,25 +477,25 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
     </div>
     <div className={styles.referenceActions}>
       {kind === 'terms' && <>
-        <Button variant="outline" size="sm" disabled={archived} aria-expanded={termEditorOpen} onClick={() => { setTermEditorOpen(!termEditorOpen); setFocusTermEditor(!termEditorOpen) }}>{termEditorOpen ? t('收起术语编辑') : editingTermId ? t('继续编辑术语') : t('新增术语')}</Button>
+        <Button variant="outline" size="sm" disabled={scopedReadOnly} aria-expanded={termEditorOpen} onClick={() => { setTermEditorOpen(!termEditorOpen); setFocusTermEditor(!termEditorOpen) }}>{termEditorOpen ? t('收起术语编辑') : editingTermId ? t('继续编辑术语') : t('新增术语')}</Button>
         <Button variant="outline" size="sm" disabled={segmentIds.length === 0 || segmentIds.length > 200} title={segmentIds.length === 0 ? t('先在 CAT 网格选择句段，再校验术语。') : undefined} onClick={() => void validateSelectedSegments()}>{t('校验所选句段术语 {count} 段', { count: segmentIds.length })}</Button>
       </>}
       <details className={styles.referenceManagement}>
         <summary>{t('参考库管理')} <small>{kind === 'terms' ? t('导入与术语整理') : t('导入与 TM 来源')}{kind === 'terms' && conflicts && conflicts.count > 0 && ` · ${conflicts.count} ${t('组术语有多条生效译法')}`}</small></summary>
         <div className={styles.referenceManagementBody}>
           <div className={styles.toolbar}>
-            <label>{t("导入文件")} <input type="file" disabled={archived || importing || candidate !== undefined} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
-            {kind === 'terms' && <Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : assetId ? t('让 Agent 整理本批术语') : t('让 Agent 整理项目术语')}</Button>}
+            <label>{t("导入文件")} <input type="file" disabled={scopedReadOnly || importing || candidate !== undefined} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = '' }} /></label>
+            {kind === 'terms' && <Button variant="outline" size="sm" disabled={scopedReadOnly || agentSending} onClick={() => void organizeTerms()}>{agentSending ? t('发送中…') : assetId ? t('让 Agent 整理本批术语') : t('让 Agent 整理项目术语')}</Button>}
           </div>
-          {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {t(TERM_STATUS_LABELS[entry.status])}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={archived} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
+          {kind === 'terms' && conflicts && conflicts.count > 0 && <section className={styles.callout} aria-label={t("术语冲突")}><strong>{conflicts.count} {t("组术语有多条生效译法")}</strong>{conflicts.conflicts.map((conflict) => <div key={conflict.normalizedTerm} className={styles.item}><strong>{conflict.entries[0]?.term ?? conflict.normalizedTerm}</strong>{conflict.entries.filter((entry) => entry.status === 'required' || entry.status === 'preferred').map((entry) => <p key={entry.id}>{entry.translation} · {t(TERM_STATUS_LABELS[entry.status])}{entry.module ? ` · ${entry.module}` : ''} <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => void keepConflictTerm(conflict, entry.id)}>{t('保留此译法')}</Button></p>)}</div>)}</section>}
           {kind === 'tm' && list?.sources && list.sources.length > 0 && <section className={styles.referenceManagementBody} aria-label={t('TM 来源')}>
             <strong>{t('TM 来源')}</strong>
-            {list.sources.map((source) => <div key={source.id} className={styles.toolbar}><Checkbox label={source.displayName} disabled={archived} checked={source.enabled} onChange={(checked) => void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, enabled: checked })} /><span>{source.unitCount} {t("条")}</span><label>{t("优先级")} <Input type="number" disabled={archived} key={`${source.id}:${source.priority}`} defaultValue={source.priority} aria-label={t('{name} 优先级', { name: source.displayName })} onBlur={(event) => { const priority = Number(event.target.value); if (Number.isSafeInteger(priority) && priority !== source.priority) void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, priority }); else if (!Number.isSafeInteger(priority)) setMessage(t("优先级必须是整数")) }} /></label></div>)}
+            {list.sources.map((source) => <div key={source.id} className={styles.toolbar}><Checkbox label={source.displayName} disabled={scopedReadOnly} checked={source.enabled} onChange={(checked) => void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, enabled: checked })} /><span>{source.unitCount} {t("条")}</span><label>{t("优先级")} <Input type="number" disabled={scopedReadOnly} key={`${source.id}:${source.priority}`} defaultValue={source.priority} aria-label={t('{name} 优先级', { name: source.displayName })} onBlur={(event) => { const priority = Number(event.target.value); if (Number.isSafeInteger(priority) && priority !== source.priority) void mutate('linguistReferencesUpdateTmSource', { projectId, sourceId: source.id, priority }); else if (!Number.isSafeInteger(priority)) setMessage(t("优先级必须是整数")) }} /></label></div>)}
           </section>}
         </div>
       </details>
     </div>
-    {kind === 'terms' && <fieldset disabled={archived} hidden={!termEditorOpen} className={`${styles.formFields} ${styles.referenceEditor}`}><form ref={focusTermForm} className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>
+    {kind === 'terms' && <fieldset disabled={scopedReadOnly} hidden={!termEditorOpen} className={`${styles.formFields} ${styles.referenceEditor}`}><form ref={focusTermForm} className={styles.form} aria-label={editingTermId ? t("编辑术语") : t("新增术语")} onSubmit={(event) => void saveTerm(event)}>
       <Input required aria-label={t("术语")} placeholder={t("术语")} value={term} onChange={(event) => setTerm(event.target.value)} />
       <Input required aria-label={t("译法")} placeholder={t("译法")} value={translation} onChange={(event) => setTranslation(event.target.value)} />
       <select aria-label={t("术语约束")} value={termStatus} onChange={(event) => setTermStatus(event.target.value as LinguistTermInfo['status'])}>{Object.entries(TERM_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select>
@@ -525,21 +532,21 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
       </>}
       <div className={styles.toolbar}>
         <Button variant="outline" size="sm" disabled={importing} onClick={() => setPreview({ operation: 'linguistReferencesPreviewCandidate', input: { projectId, kind, candidateId: candidate.candidateId, sourceSha256: candidate.sourceSha256 } })}>{t("查看原文件")}</Button>
-        {candidate.requiresXlsxMapping ? <Button variant="outline" size="sm" disabled={archived || importing || !mappingValid} onClick={() => void previewMapping()}>{t('预览参考候选')}</Button> : <Button variant="primary" size="sm" disabled={archived || importing} onClick={() => void finishCandidate('linguistReferencesConfirmImport')}>{t("确认导入")}</Button>}
-        <Button variant="ghost" size="sm" disabled={importing} onClick={() => { if (archived) setCandidate(undefined); else void finishCandidate('linguistReferencesCancelImport') }}>{t("取消")}</Button>
+        {candidate.requiresXlsxMapping ? <Button variant="outline" size="sm" disabled={scopedReadOnly || importing || !mappingValid} onClick={() => void previewMapping()}>{t('预览参考候选')}</Button> : <Button variant="primary" size="sm" disabled={scopedReadOnly || importing} onClick={() => void finishCandidate('linguistReferencesConfirmImport')}>{t("确认导入")}</Button>}
+        <Button variant="ghost" size="sm" disabled={importing} onClick={() => { if (scopedReadOnly) setCandidate(undefined); else void finishCandidate('linguistReferencesCancelImport') }}>{t("取消")}</Button>
       </div>
     </div>}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
     {kind === 'terms' && selectedTermIds.size > 0 && <div className={`${styles.toolbar} ${styles.referenceSelection}`} role="group" aria-label={t('已选 {count} 条术语', { count: selectedTermIds.size })}>
       <strong>{t('已选 {count} 条术语', { count: selectedTermIds.size })}</strong>
-      <Button variant="outline" size="sm" disabled={archived} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button>
+      <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => void deleteSelectedTerms()}>{t('删除所选术语 {count} 条', { count: selectedTermIds.size })}</Button>
       <Button variant="ghost" size="sm" onClick={() => setSelectedTermIds(new Set())}>{t('清除术语选择')}</Button>
     </div>}
     {list?.items.length === 0 && <p>{t("当前筛选没有参考条目。")}</p>}
     {list?.items.map((item) => <article className={styles.item} key={item.id}>
       <div className={styles.toolbar}>{'term' in item && <Checkbox label={item.term} title={t('选择术语 {term}', { term: item.term })} checked={selectedTermIds.has(item.id)} onChange={() => setSelectedTermIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} />}{'source' in item && <strong>{item.source}</strong>}<span>→ {'translation' in item ? item.translation : item.target}</span>{'status' in item && <small>{t(TERM_STATUS_LABELS[item.status])}{item.caseSensitive ? t(" · 区分大小写") : ''}</small>}
-        {'term' in item && <Button variant="outline" size="sm" disabled={archived} onClick={() => editTerm(item)}>{t("编辑")}</Button>}
-        <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistReferencesDelete', { projectId, kind, id: item.id })}>{t("删除")}</Button>
+        {'term' in item && <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => editTerm(item)}>{t("编辑")}</Button>}
+        <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => void mutate('linguistReferencesDelete', { projectId, kind, id: item.id })}>{t("删除")}</Button>
       </div>{'note' in item && item.note && <p>{item.note}</p>}
     </article>)}
     <div className={styles.toolbar}><Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {page + 1} {t("页")}</span><Button variant="ghost" size="sm" disabled={!list?.hasMore} onClick={() => setPage((value) => value + 1)}>{t("下一页")}</Button></div>
@@ -548,14 +555,19 @@ export function ReferencePanel({ projectId, assetId, segmentIds, mutation, archi
 
 type AssetKind = 'contextDocs' | 'styleGuideRules' | 'sentencePatterns' | 'voiceProfiles' | 'techConstraints'
 
-export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archived, onChanged, onSendAgentTask, onOpenBatchPreview }: { projectId: string; segmentId?: string; focusDocId?: string; mutation: number; archived: boolean; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void>; onOpenBatchPreview: (assetId: string) => void }): React.ReactElement {
+export function AssetsPanel({ projectId, taskGroupId, segmentId, focusDocId, mutation, archived, onChanged, onSendAgentTask, onOpenBatchPreview }: { projectId: string; taskGroupId?: string; segmentId?: string; focusDocId?: string; mutation: number; archived: boolean; onChanged: () => void; onSendAgentTask: (text: string) => Promise<void>; onOpenBatchPreview: (assetId: string) => void }): React.ReactElement {
   const t = useT()
+  const [manageProject, setManageProject] = React.useState(false)
+  const referenceGroup = manageProject ? undefined : taskGroupId
+  const [loadedScope, setLoadedScope] = React.useState<string | undefined>()
+  const scopedReadOnly = archived || Boolean(referenceGroup) || loadedScope !== referenceGroup
   const [kind, setKind] = React.useState<AssetKind>('contextDocs')
   const [items, setItems] = React.useState<LinguistAssetsQueryResult>()
   const [assetQuery, setAssetQuery] = React.useState('')
   const [assetPage, setAssetPage] = React.useState(0)
   const [sentenceStatus, setSentenceStatus] = React.useState('')
   const [summary, setSummary] = React.useState<LinguistAssetInfo[]>([])
+  const [groups, setGroups] = React.useState<TaskGroup[]>([])
   const [preview, setPreview] = React.useState<PreviewRequest>()
   const [importing, setImporting] = React.useState(false)
   const [agentSending, setAgentSending] = React.useState(false)
@@ -573,19 +585,19 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
   React.useEffect(() => {
     let live = true
     Promise.all([
-      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind, query: assetQuery || undefined, status: kind === 'sentencePatterns' && sentenceStatus ? sentenceStatus : undefined, limit: 200, offset: assetPage * 200 }),
-      required<{ assets: LinguistAssetInfo[] }>('linguistProjectsGetSummary', { projectId }),
-    ]).then(([data, overview]) => { if (live) { setItems(data); setSummary(overview.assets) } }).catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
+      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, taskGroupId: referenceGroup, kind, query: assetQuery || undefined, status: kind === 'sentencePatterns' && sentenceStatus ? sentenceStatus : undefined, limit: 200, offset: assetPage * 200 }),
+      required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId, taskGroupId }),
+    ]).then(([data, overview]) => { if (live) { setLoadedScope(referenceGroup); setItems(data); setSummary(overview.assets); setGroups(overview.taskGroups ?? []) } }).catch((error: unknown) => { if (live) setMessage(describeProjectError(error, t)) })
     return () => { live = false }
-  }, [projectId, kind, assetQuery, assetPage, sentenceStatus, refresh, mutation])
+  }, [projectId, referenceGroup, kind, assetQuery, assetPage, sentenceStatus, refresh, mutation])
   const changed = () => { setRefresh((value) => value + 1); onChanged() }
   const mutate = async (operation: string, input: object): Promise<boolean> => {
-    if (archived) return false
+    if (scopedReadOnly) return false
     try { await required(operation, input); changed(); setMessage(t("操作已完成")); return true }
     catch (error) { setMessage(describeProjectError(error, t)); return false }
   }
   const importResource = async (file: File, operation: 'linguistAssetsImportContextDoc' | 'linguistAssetsImportSentencePatterns') => {
-    if (archived) return
+    if (scopedReadOnly) return
     try {
       const fileTokens = await stageFiles([file])
       if (operation === 'linguistAssetsImportSentencePatterns') {
@@ -640,13 +652,13 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
     : [{ items: items?.items ?? [] }]
   return <section className={styles.panel} aria-label={t("批次与语言资产")}>
     <h3>{t("工作批次")}</h3>
-    <BatchImport projectId={projectId} archived={archived} importing={importing} setImporting={setImporting} onImported={changed} />
+    <BatchImport projectId={projectId} groups={groups} taskGroupId={taskGroupId} archived={archived} importing={importing} setImporting={setImporting} onImported={changed} />
     <span className={styles.notice}>{summary.length} {t('个批次')}</span>
-    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /><Button variant="outline" size="sm" disabled={archived || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
+    {summary.map((asset) => <p key={asset.assetId}>{asset.filename} · {t(describeLinguistFormat(asset.formatId))} · {asset.segmentCount} {t("段 ·")} {asset.currentStageCounts.confirmed} {t("已确认")} <small title={asset.sourceSha256}>SHA-256 {asset.sourceSha256.slice(0, 12)}…{asset.sourceSha256.slice(-4)}</small> <Button variant="outline" size="sm" onClick={() => void writeClipboard(asset.sourceSha256).then((copied) => setMessage(t(copied ? 'SHA-256 已复制' : '无法复制 SHA-256'))).catch(() => setMessage(t('无法复制 SHA-256')))}>{t('复制 SHA-256')}</Button> {isGenericXliffFallback(asset.filename, asset.formatId) && <span role="note">{t('已按通用 XLIFF 打开；memoQ 专有结构未完全验证')}</span>} <Button variant="outline" size="sm" onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览批次')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /><Button variant="outline" size="sm" disabled={scopedReadOnly || importing} onClick={() => void mutate('linguistProjectsUndoImportAsset', { projectId, assetId: asset.assetId })}>{t("撤销导入")}</Button></p>)}
     {preview && <PreviewView request={preview} onClose={() => setPreview(undefined)} />}
-    <hr /><div className={styles.toolbar}><strong>{t("项目语言资产")}</strong><select aria-label={t("语言资产类别")} value={kind} onChange={(event) => { setKind(event.target.value as AssetKind); setAssetPage(0); setEditingId(undefined); setForm({ first: '', second: '', third: '', fourth: '' }); setExtra({ sourceExample: '', module: '', suggestedTarget: '', reviewer: '', person: '', toneMarkers: '', taboos: '' }) }}><option value="contextDocs">{t("Context 文档与图像")}</option><option value="styleGuideRules">Style Guide</option><option value="sentencePatterns">{t("句型")}</option><option value="voiceProfiles">Voice Profile</option><option value="techConstraints">{t("技术约束")}</option></select><Input aria-label={t("搜索语言资产")} placeholder={t("搜索语言资产")} value={assetQuery} onChange={(event) => { setAssetQuery(event.target.value); setAssetPage(0) }} />{kind === 'sentencePatterns' && <select aria-label={t("句型状态")} value={sentenceStatus} onChange={(event) => { setSentenceStatus(event.target.value); setAssetPage(0) }}><option value="">{t("全部状态")}</option><option value="pending">{t("待审")}</option><option value="confirmed">{t("已确认")}</option><option value="rejected">{t("已拒绝")}</option></select>}{(kind === 'contextDocs' || kind === 'sentencePatterns') && <label>{t("导入文件")} <input type="file" disabled={archived} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importResource(file, kind === 'contextDocs' ? 'linguistAssetsImportContextDoc' : 'linguistAssetsImportSentencePatterns'); event.target.value = '' }} /></label>}{kind === 'voiceProfiles' && <Button variant="outline" size="sm" disabled={archived || agentSending} onClick={() => void summarizeVoice()}>{agentSending ? t('发送中…') : t('让 Agent 从已确认台词总结角色声音')}</Button>}</div>
+    <hr />{taskGroupId && <label><input type="checkbox" checked={manageProject} disabled={archived || importing} onChange={event => setManageProject(event.target.checked)} />{t('管理项目共用资料')}</label>}<div className={styles.toolbar}><strong>{t("项目语言资产")}</strong><select aria-label={t("语言资产类别")} value={kind} onChange={(event) => { setKind(event.target.value as AssetKind); setAssetPage(0); setEditingId(undefined); setForm({ first: '', second: '', third: '', fourth: '' }); setExtra({ sourceExample: '', module: '', suggestedTarget: '', reviewer: '', person: '', toneMarkers: '', taboos: '' }) }}><option value="contextDocs">{t("Context 文档与图像")}</option><option value="styleGuideRules">Style Guide</option><option value="sentencePatterns">{t("句型")}</option><option value="voiceProfiles">Voice Profile</option><option value="techConstraints">{t("技术约束")}</option></select><Input aria-label={t("搜索语言资产")} placeholder={t("搜索语言资产")} value={assetQuery} onChange={(event) => { setAssetQuery(event.target.value); setAssetPage(0) }} />{kind === 'sentencePatterns' && <select aria-label={t("句型状态")} value={sentenceStatus} onChange={(event) => { setSentenceStatus(event.target.value); setAssetPage(0) }}><option value="">{t("全部状态")}</option><option value="pending">{t("待审")}</option><option value="confirmed">{t("已确认")}</option><option value="rejected">{t("已拒绝")}</option></select>}{(kind === 'contextDocs' || kind === 'sentencePatterns') && <label>{t("导入文件")} <input type="file" disabled={scopedReadOnly} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importResource(file, kind === 'contextDocs' ? 'linguistAssetsImportContextDoc' : 'linguistAssetsImportSentencePatterns'); event.target.value = '' }} /></label>}{kind === 'voiceProfiles' && <Button variant="outline" size="sm" disabled={scopedReadOnly || agentSending} onClick={() => void summarizeVoice()}>{agentSending ? t('发送中…') : t('让 Agent 从已确认台词总结角色声音')}</Button>}</div>
     {message && <p role="status">{message}</p>}
-    <fieldset disabled={archived} className={styles.formFields}>
+    <fieldset disabled={scopedReadOnly} className={styles.formFields}>
     <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void saveAsset() }}>
       {kind === 'techConstraints' ? <select aria-label={t("约束类别")} value={form.first} required onChange={(event) => setForm((current) => ({ ...current, first: event.target.value }))}><option value="">{t("选择约束")}</option><option value="length">{t("长度")}</option><option value="rich_text">{t("富文本")}</option><option value="tag_note">{t("Tag 备注")}</option></select> : <Input aria-label={kind === 'styleGuideRules' ? t("规则") : kind === 'sentencePatterns' ? t("源句型") : kind === 'voiceProfiles' ? t("说话人") : t("文档备注")} placeholder={kind === 'styleGuideRules' ? t("规则文字") : kind === 'sentencePatterns' ? t("Source 句型") : kind === 'voiceProfiles' ? t("说话人") : t("文档备注")} value={form.first} onChange={(event) => setForm((current) => ({ ...current, first: event.target.value }))} required={kind !== 'contextDocs'} />}
       {kind !== 'contextDocs' && <Input aria-label={t("分类或译法")} placeholder={t("分类 / 译法 / Text type / Scope")} value={form.second} onChange={(event) => setForm((current) => ({ ...current, second: event.target.value }))} />}
@@ -662,14 +674,14 @@ export function AssetsPanel({ projectId, segmentId, focusDocId, mutation, archiv
       <div className={styles.toolbar}>
         <strong>{'ruleText' in item ? item.ruleText : 'source' in item ? item.source : 'speaker' in item ? item.speaker : 'originalFilename' in item ? item.originalFilename : item.kind}</strong>
         {'originalFilename' in item && <Button variant="outline" size="sm" onClick={() => setPreview({ operation: 'linguistAssetsPreviewContextDoc', input: { projectId, docId: item.id } })}>{t('预览原件')}</Button>}
-        <Button variant="outline" size="sm" disabled={archived} onClick={() => startEdit(item)}>{t('编辑')}</Button>
-        <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistAssetsDelete', { projectId, kind, id: item.id })}>{t('删除')}</Button>
+        <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => startEdit(item)}>{t('编辑')}</Button>
+        <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => void mutate('linguistAssetsDelete', { projectId, kind, id: item.id })}>{t('删除')}</Button>
       </div>
       {'ruleText' in item && <><p>{item.groupKey ?? t('未指定分组')}{item.sourceExample ? ` · Source: ${item.sourceExample}` : ''}</p>{item.goodExample && <p>✓ {t('正例')}：{item.goodExample}</p>}{item.badExample && <p>✗ {t('反例')}：{item.badExample}</p>}</>}
-      {'source' in item && <><p>{t('状态')}：{t({ pending: '待审', confirmed: '已确认', rejected: '已拒绝' }[item.status])}{item.textType ? ` · ${item.textType}` : ''}{item.module ? ` · ${item.module}` : ''}</p>{item.draftTarget && <p>{t('草稿译法')}：{item.draftTarget}</p>}{item.suggestedTarget && <p>{t('建议译法')}：{item.suggestedTarget}</p>}{item.reviewer && <p>{t('审校人')}：{item.reviewer}</p>}<div className={styles.toolbar}>{(['pending', 'confirmed', 'rejected'] as const).filter((status) => status !== item.status).map((status) => <Button variant="outline" key={status} size="sm" disabled={archived} onClick={() => void transitionSentence(item, status)}>{t({ pending: '打回待审', confirmed: '确认句型', rejected: '拒绝句型' }[status])}</Button>)}</div></>}
+      {'source' in item && <><p>{t('状态')}：{t({ pending: '待审', confirmed: '已确认', rejected: '已拒绝' }[item.status])}{item.textType ? ` · ${item.textType}` : ''}{item.module ? ` · ${item.module}` : ''}</p>{item.draftTarget && <p>{t('草稿译法')}：{item.draftTarget}</p>}{item.suggestedTarget && <p>{t('建议译法')}：{item.suggestedTarget}</p>}{item.reviewer && <p>{t('审校人')}：{item.reviewer}</p>}<div className={styles.toolbar}>{(['pending', 'confirmed', 'rejected'] as const).filter((status) => status !== item.status).map((status) => <Button variant="outline" key={status} size="sm" disabled={scopedReadOnly} onClick={() => void transitionSentence(item, status)}>{t({ pending: '打回待审', confirmed: '确认句型', rejected: '拒绝句型' }[status])}</Button>)}</div></>}
       {'speaker' in item && <><p>{[item.textType, item.register, item.person].filter(Boolean).join(' · ')}</p>{item.toneMarkers && item.toneMarkers.length > 0 && <p>{t('语气')}：{item.toneMarkers.join('、')}</p>}{item.taboos && item.taboos.length > 0 && <p>{t('禁忌')}：{item.taboos.join('、')}</p>}{item.notes && <p>{item.notes}</p>}</>}
       {'valueJson' in item && <><p>{item.scope ?? t('全项目')}</p><pre>{item.valueJson}</pre>{item.note && <p>{item.note}</p>}</>}
-      {'originalFilename' in item && <><p>{item.kind === 'image' ? t('图片') : t('文档')} · {item.hasTextExtract ? t('可阅读 {count} 字', { count: item.textExtractLength ?? 0 }) : t('无文本抽取')}</p>{item.note && <p>{item.note}</p>}{item.kind === 'image' && item.previewUrl?.startsWith('/la/v1/files/') && <img className={styles.preview} alt={item.originalFilename} src={item.previewUrl} />}{segmentId && <Button variant="outline" size="sm" disabled={archived} onClick={() => void mutate('linguistAssetsSetContextDocSegmentLink', { projectId, docId: item.id, segmentId, linked: true })}>{t('关联当前句段')}</Button>}</>}
+      {'originalFilename' in item && <><p>{item.kind === 'image' ? t('图片') : t('文档')} · {item.hasTextExtract ? t('可阅读 {count} 字', { count: item.textExtractLength ?? 0 }) : t('无文本抽取')}</p>{item.note && <p>{item.note}</p>}{item.kind === 'image' && item.previewUrl?.startsWith('/la/v1/files/') && <img className={styles.preview} alt={item.originalFilename} src={item.previewUrl} />}{segmentId && <Button variant="outline" size="sm" disabled={scopedReadOnly} onClick={() => void mutate('linguistAssetsSetContextDocSegmentLink', { projectId, docId: item.id, segmentId, linked: true })}>{t('关联当前句段')}</Button>}</>}
     </article>)}</section>)}
     <div className={styles.toolbar}><Button variant="outline" size="sm" disabled={assetPage === 0} onClick={() => setAssetPage((value) => value - 1)}>{t("上一页")}</Button><span>{t("第")} {assetPage + 1} {t("页 · 共")} {items?.total ?? 0} {t("条")}</span><Button variant="outline" size="sm" disabled={!items?.hasMore} onClick={() => setAssetPage((value) => value + 1)}>{t("下一页")}</Button></div>
   </section>

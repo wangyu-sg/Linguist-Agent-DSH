@@ -33,8 +33,7 @@ export class AssetsRepository {
    * failure rolls everything back — a project never ends up with half an
    * asset.
    */
-  insertImported(imported: ImportedCatAsset): InsertImportedResult {
-    const asset = createAsset({
+  insertImported(imported: ImportedCatAsset, asset = createAsset({
       projectId: this.projectId,
       formatId: imported.asset.formatId,
       originalFilename: imported.asset.originalFilename,
@@ -43,7 +42,7 @@ export class AssetsRepository {
       ...(imported.asset.formatConfigJson === undefined
         ? {}
         : { formatConfigJson: imported.asset.formatConfigJson }),
-    })
+    })): InsertImportedResult {
     const segments = bindImportedSegments(imported.segments, asset.id)
     this.insert(asset, segments)
     return { asset, segments }
@@ -55,7 +54,7 @@ export class AssetsRepository {
       this.db
         .db
         .prepare(
-          'INSERT INTO assets (id, project_id, format_id, original_filename, source_sha256, segment_count, format_config_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO assets (id, project_id, format_id, original_filename, source_sha256, segment_count, format_config_json, created_at, task_group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           asset.id,
@@ -66,6 +65,7 @@ export class AssetsRepository {
           asset.segmentCount,
           asset.formatConfigJson ?? null,
           this.now(),
+          asset.taskGroupId ?? 'ungrouped',
         )
       const insertSegment = this.db.db.prepare(
         `INSERT INTO segments (id, asset_id, ordinal, key, source, target, source_locale, target_locale, status, locked, revision, source_hash, context_json, current_stage_state, imported_native_status)
@@ -75,6 +75,11 @@ export class AssetsRepository {
         insertSegment.run(...segmentToParams(segment))
       }
     })
+  }
+
+  findBySource(sha256: string, groupId = 'ungrouped'): Asset | undefined {
+    const row = this.db.db.prepare('SELECT * FROM assets WHERE task_group_id = ? AND source_sha256 = ? ORDER BY created_at, id LIMIT 1').get(groupId, sha256) as AssetRow | undefined
+    return row && assetFromRow(row)
   }
 
   listByProject(): Asset[] {

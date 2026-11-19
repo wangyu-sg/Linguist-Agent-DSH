@@ -270,7 +270,7 @@ const PHRASE_NATIVE_TAG_PROFILE = {
       pattern: '<(?<phraseContainer>bpt|ept|ph|it|mrk|g|x|bx|ex)\\b[^>]*>[\\s\\S]*?<\\/\\k<phraseContainer>>',
       class: 'singleton' as const,
     },
-    { id: 'phrase-change', pattern: '\\{u>|<u\\}', class: 'singleton' as const },
+    { id: 'phrase-format', pattern: '\\{[biu]{1,3}>|<[biu]{1,3}\\}', class: 'singleton' as const },
     { id: 'phrase-variable', pattern: '\\{(?!\\d+\\})[^{}\\r\\n]+\\}', class: 'singleton' as const },
   ],
 }
@@ -298,18 +298,17 @@ function replacePhrasePlaceholders(value: string, replace: (placeholder: string)
   return output + value.slice(cursor)
 }
 
-function phraseChangeWrappers(value: string): { count: number; valid: boolean } {
-  let depth = 0
-  let count = 0
-  for (const match of value.matchAll(/\{u>|<u\}/g)) {
-    if (match[0] === '{u>') {
-      depth += 1
-      count += 1
-    } else if (--depth < 0) {
-      return { count, valid: false }
-    }
+function phraseFormattingBalanced(value: string): boolean {
+  const opaque = scanTags(value, { profile: PHRASE_NATIVE_TAG_PROFILE })
+    .filter(tag => tag.familyId === 'phrase-inline-container' || tag.familyId === 'xml')
+  const stack: string[] = []
+  for (const match of value.matchAll(/\{([biu]{1,3})>|<([biu]{1,3})\}/g)) {
+    if (opaque.some(tag => tag.start <= match.index && tag.end >= match.index + match[0].length)) continue
+    const flags = (match[1] ?? match[2])!
+    if (match[1] !== undefined) stack.push(flags)
+    else if (stack.pop() !== flags) return false
   }
-  return { count, valid: depth === 0 }
+  return stack.length === 0
 }
 
 export function inspectPhraseRecovery(
@@ -320,9 +319,7 @@ export function inspectPhraseRecovery(
   for (const segment of segments) {
     const sourceMarkers = phrasePlaceholders(segment.source)
     const targetMarkers = phrasePlaceholders(segment.target)
-    const sourceWrappers = phraseChangeWrappers(segment.source)
-    const targetWrappers = phraseChangeWrappers(segment.target)
-    if (!sourceWrappers.valid || !targetWrappers.valid || targetWrappers.count > sourceWrappers.count
+    if (!phraseFormattingBalanced(segment.source) || !phraseFormattingBalanced(segment.target)
       || targetMarkers.some((marker) => !sourceMarkers.includes(marker))) {
       unsupported.push(segment.key ?? `#tu-${segment.ordinal}`)
     } else if (sourceMarkers.length > 0) {
@@ -519,9 +516,7 @@ export async function probePhraseMasterPair(
     const sourceText = decodeXmlInline(source.inner)
     const placeholders = phrasePlaceholders(sourceText)
     const targetText = decodeXmlInline(findDirectChild(match[3] ?? '', 'target')?.inner ?? '')
-    const sourceWrappers = phraseChangeWrappers(sourceText)
-    const targetWrappers = phraseChangeWrappers(targetText)
-    if (!sourceWrappers.valid || !targetWrappers.valid || targetWrappers.count > sourceWrappers.count
+    if (!phraseFormattingBalanced(sourceText) || !phraseFormattingBalanced(targetText)
       || phrasePlaceholders(targetText).some((marker) => !placeholders.includes(marker))) {
       unsupportedSegments += 1
       if (sampleKeys.length < 5) sampleKeys.push(key)
@@ -737,11 +732,14 @@ export class PhraseMxliffAdapter implements CatFormatAdapter {
         )
       }
       if (segment.target === rehydratePhraseValue(unit.targetText, mapping)) continue
-      if (unit.locked) {
+      if (unit.locked || segment.locked) {
         throw new FormatExportError(
           this.id,
           `segment ${JSON.stringify(unit.key)} is locked (translate="no"/m:locked) but its target was changed; refusing to write or skip it`,
         )
+      }
+      if (!phraseFormattingBalanced(segment.target)) {
+        throw new FormatExportError(this.id, `segment ${JSON.stringify(unit.key)} has unbalanced native formatting`)
       }
       edits.push({
         start,
@@ -761,7 +759,7 @@ export class PhraseMxliffAdapter implements CatFormatAdapter {
 
   /** Rewrites a single trans-unit's `<target>`; everything else stays verbatim. */
   private rewriteUnit(tuFull: string, newTarget: string): string {
-    const encoded = encodeXmlInline(newTarget)
+    const encoded = encodeXmlInline(newTarget, tuFull)
     const target = findDirectChild(tuFull, 'target')
     if (target) {
       const attrsRaw = newTarget === '' ? target.attrsRaw : setAttr(target.attrsRaw, 'state', 'translated')

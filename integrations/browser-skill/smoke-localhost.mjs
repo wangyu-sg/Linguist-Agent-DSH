@@ -3,14 +3,13 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, "../..");
-const baseline = JSON.parse(await readFile(join(here, "BASELINE.json"), "utf8"));
-const bsk = join(root, ".toolchain/browser-skill/bin/bsk");
+const current = JSON.parse(await readFile(join(homedir(), "Library/Application Support/Linguist-Agent-DSH/current.json"), "utf8"));
+const bsk = current.bskPath;
 const receiptFile = join(here, "dist/LOCALHOST_SMOKE.json");
 const home = process.env.BSK_HOME;
 assert(home, "set BSK_HOME to the new product's BrowserSkill home or an isolated test home");
@@ -99,7 +98,7 @@ try {
   assert.match(await fixtureResponse.text(), /LA-DSH synthetic browser fixture/);
   evidence.checks.fixtureHttp = "PASS";
 
-  assert.equal(await required(["--version"]), `bsk ${baseline.cliRelease.version}`);
+  const cliVersion = (await required(["--version"])).replace(/^bsk /, "");
   evidence.checks.cli = "PASS";
   const status = await cli(["status", "--json"]);
   if (status.code !== 0) {
@@ -108,8 +107,7 @@ try {
     evidence.daemonResponse = status.stdout || status.stderr;
   } else {
     const daemon = JSON.parse(status.stdout);
-    assert.equal(daemon.daemon_version, baseline.cliRelease.version);
-    assert.equal(daemon.protocol_version, "1.8");
+    assert.equal(daemon.daemon_version, cliVersion);
     evidence.checks.daemon = "PASS";
     evidence.daemon = { version: daemon.daemon_version, protocol: daemon.protocol_version, wsPort: daemon.ws_port };
     evidence.connectedBrowsers = daemon.browsers.map(({ instance_id, extension_version, browser_name }) => ({ instance_id, extension_version, browser_name }));
@@ -127,7 +125,7 @@ try {
         evidence.blocker = "Select the intended connected browser with BSK_BROWSER_ID";
         evidence.checks.extension = "BLOCKED_ENV";
       } else {
-        assert.equal(browser.extension_version, baseline.extensionRelease.manifestVersion);
+        assert.equal(browser.version_skew, false, "connected extension and daemon are incompatible");
         evidence.checks.extension = "PASS";
         requestId = `${Date.now() + 300_000}:${randomUUID()}`;
         assert.equal(JSON.parse(await required(["session", "request", requestId, "--prepare", "--json"])).state, "prepared");

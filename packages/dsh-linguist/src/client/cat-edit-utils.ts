@@ -46,8 +46,8 @@ export function targetSaveCompletion(
 export function editKeyAction(
   input: EditKeyInput,
 ): 'save' | 'confirm-and-advance' | 'cancel' | 'undo' | 'redo' | null {
-  if (input.key === 'Escape') return 'cancel'
   if (input.isComposing) return null
+  if (input.key === 'Escape') return 'cancel'
   const modifier = input.metaKey || input.ctrlKey
   if (input.key === 'Enter' && modifier) return 'confirm-and-advance'
   const key = input.key.toLowerCase()

@@ -66,7 +66,7 @@ function codeSignature(text: string, codes: readonly MqInlineCode[]): string[] {
 
 function encodeMqTarget(text: string, sourceInner: string): string {
   const codes = inlineCodes(sourceInner)
-  if (codes.length === 0) return encodeXmlInline(text)
+  if (codes.length === 0) return encodeXmlInline(text, sourceInner)
   const expected = codes.map((code) => code.value)
   const actual = codeSignature(text, codes)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {

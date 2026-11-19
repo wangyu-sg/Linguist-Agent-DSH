@@ -47,6 +47,6 @@ test('compact menu keeps the full identity and workbench action available', () =
   assert.match(badge, /id === 'open'\) runOpen\(\)/)
   assert.match(badge, /openCat\(sessionId, binding\.projectId!\)/)
   assert.match(badge, /openWorkingCopy\(sessionId\)/)
-  assert.match(badge, /openBrowser\(sessionId\)/)
+  assert.doesNotMatch(source, /browserskill-observation|openBrowser\(/)
   assert.doesNotMatch(badge, /useHeaderDensity|ResizeObserver/)
 })

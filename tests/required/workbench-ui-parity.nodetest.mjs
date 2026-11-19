@@ -65,12 +65,14 @@ function mount(file, symbol, props, { required = async () => { throw new Error('
     if (name === './qa-severity') return { qaSeverityTier: () => 'blocking', qaSeverityLabel: value => value, qaTierLabel: value => value }
     if (name === './proposal-view') return { groupProposalRuns: () => [], textDiffParts: () => [] }
     if (name === './ReferenceMatches') return referenceViews.ReferenceMatches
+    if (name === './InlineTaggedText') return referenceViews.InlineTaggedText
     if (name === './cat-editor-state') return catEditorState
     if (name === './workflow-ui') return workflow
     if (name === './Panels') return { groupStyleGuideRules: panelHelpers.groupStyleGuideRules }
     if (name === './format-labels') return { describeLinguistFormat: value => value }
     if (name === './ProjectSessions') return { ProjectSessions: 'project-sessions' }
     if (name === './PdfPreview') return { PdfPreview: 'pdf-preview' }
+    if (name === './TaskGroupsPage') return { TaskGroupsPage: 'task-groups-page' }
     if (name === './ProjectLocaleSelect') return { ProjectLocaleSelect: 'locale-select' }
     if (name === './ProjectCreateForm') return { ...projectCreateForm, ProjectCreateForm: 'project-create-form' }
     if (name === '../project-input') return { PROJECT_NAME_MAX_LENGTH }
@@ -560,6 +562,32 @@ test('empty batch preview explains the absence of segments instead of rendering 
   component.dispose()
 })
 
+test('batch preview renders Phrase source and target rich formatting with preserved raw markers and whole chips only for that format', async () => {
+  const source = '{u>source {0}<u}', target = '{u>target {0}<u}'
+  for (const formatId of ['phrase_mxliff_1_2', 'sdlxliff_1_2']) {
+    const asset = { assetId: 'asset-1', filename: 'synthetic.mxliff', formatId, segmentCount: 1, segmentCounts: {}, currentStageCounts: {} }
+    const segment = { id: 'preview-1', assetId: asset.assetId, ordinal: 0, source, target, sourceLocale: 'zh-CN', targetLocale: 'en-US', status: 'translated' }
+    const component = mount('BatchPreview.tsx', 'BatchPreview', { projectId: 'p', asset, onClose() {} }, { required: async operation => operation === 'linguistProjectsGetSummary' ? { project: {}, assets: [asset] } : { total: 1, segments: [segment], hasMore: false } })
+    component.render(); await tick()
+    const text = component.render()
+    if (formatId === 'phrase_mxliff_1_2') {
+      assert(text.includes('source {0}') && text.includes('target {0}') && !text.includes('{u>'), 'rich preview hides only native style markers')
+      const codes = component.nodes().filter(node => node.props?.['data-inline-format-code'])
+      assert.deepEqual(codes.map(node => node.props['data-inline-raw']), ['{u>', '<u}', '{u>', '<u}'])
+      assert(codes.every(node => node.props.hidden === true))
+    } else assert(text.includes(source) && text.includes(target), 'other formats retain their literal text')
+    const decorated = component.nodes().filter(node => node.props?.['data-inline-decoration'] === 'underline')
+    assert.equal(decorated.length, formatId === 'phrase_mxliff_1_2' ? 4 : 0)
+    if (decorated.length) {
+      assert.equal(decorated.filter(node => node.props['data-inline-raw'] === '{0}').length, 2)
+      component.nodes().find(node => node.type === 'button' && node.props.children === '格式码').props.onClick()
+      const codes = component.render()
+      assert(codes.includes(source) && codes.includes(target), 'preview code view shows the original raw fields')
+    }
+    component.dispose()
+  }
+})
+
 test('create success resets all five fields while cancel and request failure retain the draft and Workspace', async () => {
   const workspace = { workspaceId: 'workspace-create', title: 'Synthetic create', path: '/synthetic/create' }
   const requests = [], opened = []
@@ -801,12 +829,12 @@ test('compact project controls preserve all four roles, three work modes and Wor
   assert.deepEqual(Array.from(requests.find(request => request.operation === 'linguistProjectsReorderActive').input.orderedProjectIds), ['two', 'one'])
   assert.equal(component.button('one').variant, 'ghost')
   await component.click('one'); await tick(); component.render()
-  assert.deepEqual(openedProjects, ['one'], 'project title uses ensure/open independently of explicit role/mode creation')
-  assert.equal(entered.length, 1, 'opening the title does not call the explicit new-Session path')
-  projectOpenError = new Error('Synthetic project open refused')
-  await component.click('one'); await tick()
-  assert.match(component.render(), /Synthetic project open refused/)
-  assert.equal(component.button('one').disabled, false)
+  const groupPage = component.nodes().find(node => node.props.project?.id === 'one' && node.props.onOpenBatch)
+  assert(groupPage, 'project title opens its task groups')
+  assert.deepEqual(openedProjects, [])
+  assert.equal(entered.length, 1, 'browsing task groups does not create a Session')
+  await groupPage.props.onOpenBatch({ id: 'group-A' }, 'asset-A')
+  assert.deepEqual(openedProjects, ['one'])
   component.dispose()
 })
 

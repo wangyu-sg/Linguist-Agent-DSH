@@ -53,7 +53,7 @@ export function createTerminologyTools(runtime: CatToolRuntime) {
           ...entry,
           status: entry.status as TermEntryStatus,
           caseSensitive: entry.caseSensitive ?? false,
-        })))
+        }, deps.taskGroupId)))
       notifyMutation({ kind: 'project-updated' })
       return toolResult({ terms, count: terms.length }, deps.resultProjectId)
     },
@@ -73,7 +73,7 @@ export function createTerminologyTools(runtime: CatToolRuntime) {
       }
       const { db } = resolveBoundProject('cat_delete_terms', toolCallId)
       db.catDb.transaction('delete terminology batch', () => {
-        for (const id of params.termIds) db.termEntries.delete(id)
+        for (const id of params.termIds) db.termEntries.delete(id, deps.taskGroupId)
       })
       notifyMutation({ kind: 'project-updated' })
       return toolResult({ deletedTermIds: params.termIds, count: params.termIds.length }, deps.resultProjectId)
@@ -92,6 +92,7 @@ export function createTerminologyTools(runtime: CatToolRuntime) {
     async execute(toolCallId, params) {
       const { db } = resolveBoundProject('cat_list_term_conflicts', toolCallId)
       const conflicts = db.termEntries.listConflicts({
+        taskGroupId: deps.taskGroupId,
         ...(params.statuses === undefined ? {} : { statuses: params.statuses as TermEntryStatus[] }),
         ...params,
       })
@@ -116,6 +117,7 @@ export function createTerminologyTools(runtime: CatToolRuntime) {
       const found = new Set(segments.map((segment) => segment.id as string))
       const missing = params.segmentIds.find((id) => !found.has(id))
       if (missing !== undefined) throw new StoreNotFoundError('segment', missing)
+      if (deps.delegatedScopeSegmentIds) db.taskGroups.assertContains(deps.taskGroupId ?? 'ungrouped', 'segments', params.segmentIds)
       const result = db.termEntries.validateSegments(segments)
       return toolResult(result, deps.resultProjectId, params.segmentIds)
     },

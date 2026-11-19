@@ -74,17 +74,19 @@ const repetitionUndoLabels: Record<string, string> = {
   'segment revision entry no longer exists': '缺少修订记录',
 }
 
-export function CatWorkbench({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
+export function CatWorkbench({ projectId, taskGroupId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities }: { projectId: string; taskGroupId?: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode }): React.ReactElement {
   const editorState = getCatEditorState(sessionId, projectId)
-  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onCancelRun={onCancelRun} onOpenSession={onOpenSession} capabilities={capabilities} editorState={editorState} /></Provider>
+  return <Provider store={editorState.store}><WorkbenchBody projectId={projectId} taskGroupId={taskGroupId} sessionId={sessionId} onSendAgentTask={onSendAgentTask} onOpenBatchPreview={onOpenBatchPreview} onCancelRun={onCancelRun} onOpenSession={onOpenSession} capabilities={capabilities} editorState={editorState} /></Provider>
 }
 
-function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities, editorState }: { projectId: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
+function WorkbenchBody({ projectId, taskGroupId: boundGroupId, sessionId, onSendAgentTask, onOpenBatchPreview, onCancelRun, onOpenSession, capabilities, editorState }: { projectId: string; taskGroupId?: string; sessionId: string; onSendAgentTask: (text: string, context: LinguistTurnContextV1) => Promise<void>; onOpenBatchPreview: (assetId: string) => void; onCancelRun: () => Promise<void>; onOpenSession: (sessionId: string) => Promise<void>; capabilities: React.ReactNode; editorState: CatEditorState }): React.ReactElement {
   const t = useT()
   const navigation = useCatNavigation(sessionId, projectId)
   const editingId = useAtomValue(editorState.editingId)
   const [editorViews, setEditorViews, editorViewsError] = useEditorViewOptions()
-  const storedLocation = React.useMemo(() => readWorkbenchLocation(projectId), [projectId])
+  const previousLocationKey = boundGroupId ? projectId + '/' + boundGroupId : projectId
+  const locationKey = previousLocationKey + '/session/' + sessionId
+  const storedLocation = React.useMemo(() => readWorkbenchLocation(locationKey, previousLocationKey), [locationKey, previousLocationKey])
   const [project, setProject] = React.useState<LinguistProjectInfo>()
   const [summary, setSummary] = React.useState<LinguistProjectSummary>()
   const [loadError, setLoadError] = React.useState('')
@@ -94,7 +96,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [propagateRepeated, setPropagateRepeated] = useAtom(editorState.propagateRepeated)
   const [repeatResult, setRepeatResult] = React.useState<NonNullable<LinguistCatEditResult['repetition']> & { undo?: LinguistRunUndoResult; error?: string }>()
   const [repeatUndoBusy, setRepeatUndoBusy] = React.useState(false)
-  const [assetId, setAssetId] = React.useState<string | undefined>(storedLocation.value.assetId)
+  const [chosenGroup, setChosenGroup] = React.useState(storedLocation.value.taskGroupId)
+  const [chosenAsset, setAssetId] = React.useState<string | undefined>(storedLocation.value.assetId)
   const [assetSearch, setAssetSearch] = React.useState('')
   const [search, setSearch] = React.useState('')
   const [stageFilter, setStageFilter] = React.useState('')
@@ -120,7 +123,12 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   const [displayOpen, setDisplayOpen] = React.useState(false)
   const navigationTrigger = React.useRef<HTMLButtonElement>(null)
   const inspectorTrigger = React.useRef<HTMLButtonElement>(null)
-  const [dataset, setDataset] = React.useState<Dataset>()
+  const taskGroupId = boundGroupId ?? chosenGroup
+  const scopedAssets = React.useMemo(() => summary?.assets.filter(asset => asset.taskGroupId === taskGroupId), [summary, taskGroupId])
+  const assetId = scopedAssets?.find(asset => asset.assetId === chosenAsset)?.assetId
+  const [cachedDataset, setDataset] = React.useState<Dataset>()
+  const scopeKey = projectId + '\0' + (taskGroupId ?? '') + '\0'
+  const dataset = cachedDataset?.signature.startsWith(scopeKey) ? cachedDataset : undefined
   const currentDataset = React.useRef(dataset)
   currentDataset.current = dataset
   const [loading, setLoading] = React.useState(true)
@@ -150,7 +158,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [])
   const loadingPages = React.useRef(new Map<number, { ids: string[]; request: Promise<LinguistSegmentInfo[]> }>())
   const pendingNavigation = React.useRef<{ id: string; signature: string }>()
-  const signature = `${projectId}\0${assetId ?? ''}\0${stageFilter}\0${search}`
+  const signature = `${scopeKey}${assetId ?? ''}\0${stageFilter}\0${search}`
   const currentSignature = React.useRef(signature)
   currentSignature.current = signature
   React.useLayoutEffect(() => {
@@ -159,6 +167,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     setFocusIndex(undefined)
   }, [signature])
   const active = selectedId === undefined ? undefined : [...(dataset?.rows.values() ?? [])].find((row) => row.id === selectedId)
+  const currentGroup = summary?.taskGroups?.find(group => group.id === taskGroupId)
+  const archived = Boolean(project?.archivedAt || currentGroup?.archived)
   const workflowStage = project?.workflowStage ?? 'translation'
   const assetMaximum = workbenchSize.width ? Math.max(180, Math.min(420, Math.floor(workbenchSize.width <= 980 ? workbenchSize.width * .86 : workbenchSize.width - 560 - (inspectorOpen ? 240 : 0)))) : 420
   const inspectorMaximum = workbenchSize.width ? Math.max(240, Math.min(480, Math.floor(workbenchSize.width <= 980 ? workbenchSize.width * .9 : workbenchSize.width - (assetNavigatorOpen ? Math.min(assetNavigatorWidth, assetMaximum) : 0) - 560))) : 480
@@ -166,13 +176,14 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
 
   React.useEffect(() => { if (storedLocation.error) setNotice(t('工作台位置读取失败，已使用默认布局：{error}', { error: storedLocation.error })) }, [storedLocation])
   React.useEffect(() => {
-    const location: WorkbenchLocation = { assetId, segmentId: selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight }
+    if (!summary || !taskGroupId) return
+    const location: WorkbenchLocation = { taskGroupId, assetId, segmentId: selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight }
     const timer = window.setTimeout(() => {
-      try { writeWorkbenchLocation(projectId, location) }
+      try { writeWorkbenchLocation(locationKey, location) }
       catch (cause) { setNotice(t('工作台位置保存失败：{error}', { error: String(cause) })) }
     }, 150)
     return () => window.clearTimeout(timer)
-  }, [projectId, assetId, selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight])
+  }, [locationKey, Boolean(summary), taskGroupId, assetId, selectedId, assetNavigatorOpen, assetNavigatorWidth, inspectorWidth, dockOpen, dock, dockHeight])
 
   React.useEffect(() => {
     rowSignalLoaded.current = new Set()
@@ -211,7 +222,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     return () => window.clearTimeout(timer)
   }, [projectId, dataset?.ids, visibleRange.start, visibleRange.end, mutation, reload, rowSignalRefresh, rowSignalArrival])
 
-  React.useEffect(() => { setSelectedIds(new Set()); setProposalReview(undefined) }, [assetId])
+  React.useEffect(() => { setSelectedIds(new Set()); setProposalReview(undefined) }, [assetId, taskGroupId])
   React.useLayoutEffect(() => { uiRevision.current += 1 }, [assetId, selectedId, selectedIds, agentReference, dock, search, stageFilter])
   React.useLayoutEffect(() => {
     if (!project) return
@@ -266,29 +277,33 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [project?.id])
 
   const refreshSummary = React.useCallback(async () => {
-    const next = await required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId })
+    const next = await required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId, taskGroupId: boundGroupId })
     setSummary(next)
     setProject(next.project)
-    setAssetId((current) => current !== undefined && !next.assets.some((asset) => asset.assetId === current)
-      ? next.assets[0]?.assetId : current)
-  }, [projectId])
+    setChosenGroup(group => group && next.taskGroups.some(item => item.id === group) ? group : 'ungrouped')
+  }, [projectId, boundGroupId])
 
   React.useEffect(() => {
     let live = true
     Promise.all([
       required<LinguistProjectOpenResult>('linguistProjectsOpen', { projectId }),
-      required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId }),
+      required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId, taskGroupId: boundGroupId }),
     ]).then(([opened, overview]) => {
       if (!live) return
       setProject(opened.project)
       setSummary(overview)
-      setAssetId((current) => pendingNavigation.current ? undefined : current ?? overview.assets[0]?.assetId)
+      const saved = storedLocation.value
+      const previousAsset = overview.assets.find(asset => asset.assetId === saved.assetId)
+      const group = boundGroupId ?? previousAsset?.taskGroupId ?? overview.taskGroups.find(item => item.id === saved.taskGroupId)?.id
+        ?? overview.assets.find(asset => overview.taskGroups.some(item => item.id === asset.taskGroupId && !item.archived))?.taskGroupId ?? 'ungrouped'
+      setChosenGroup(group)
+      setAssetId(previousAsset && previousAsset.taskGroupId === group ? previousAsset.assetId : saved.taskGroupId === group ? undefined : overview.assets.find(asset => asset.taskGroupId === group)?.assetId)
       setLoadError('')
     }).catch((error: unknown) => {
       if (live) setLoadError(String(error))
     })
     return () => { live = false }
-  }, [projectId, openRetry])
+  }, [projectId, boundGroupId, openRetry, storedLocation])
 
   React.useEffect(() => { setJobUpdates(new Map()) }, [projectId, sessionId])
   React.useEffect(() => subscribeProject(projectId, 0, (event) => {
@@ -306,7 +321,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [mutation, refreshSummary])
 
   React.useEffect(() => {
-    if (project === undefined) return
+    if (project === undefined || !taskGroupId) return
     let live = true
     const queryRevision = navigationRevision.current
     const datasetRevision = confirmedDatasetRevision.current
@@ -314,7 +329,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     setLoading(true)
     setQueryError('')
     required<LinguistCatQueryResult>('linguistCatQuery', {
-      projectId, assetId, currentStageState: stageFilter || undefined,
+      projectId, taskGroupId, assetId, currentStageState: stageFilter || undefined,
       search: search || undefined, limit: PAGE_SIZE, offset: 0, includeIndex: true,
     }).then((page) => {
       if (!live || datasetRevision !== confirmedDatasetRevision.current) return
@@ -331,7 +346,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       if (live) { setQueryError(String(error)); setLoading(false) }
     })
     return () => { live = false }
-  }, [project, projectId, assetId, stageFilter, search, reload])
+  }, [project, projectId, taskGroupId, assetId, stageFilter, search, reload])
 
   const loadPage = React.useCallback((offset: number, indexed: Dataset): Promise<LinguistSegmentInfo[]> => {
     if (indexed.signature !== currentSignature.current) return Promise.resolve([])
@@ -339,7 +354,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     if (pending?.ids === indexed.ids) return pending.request
     if (indexed.rows.has(offset)) return Promise.resolve(indexed.ids.slice(offset, offset + PAGE_SIZE).map((_, index) => indexed.rows.get(offset + index)!))
     const request: Promise<LinguistSegmentInfo[]> = required<LinguistCatQueryResult>('linguistCatQuery', {
-      projectId, assetId, currentStageState: stageFilter || undefined,
+      projectId, taskGroupId, assetId, currentStageState: stageFilter || undefined,
       search: search || undefined, limit: PAGE_SIZE, offset, includeIndex: false,
     }).then((page) => {
       setDataset((current) => current?.ids === indexed.ids
@@ -348,7 +363,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     }).finally(() => { if (loadingPages.current.get(offset)?.request === request) loadingPages.current.delete(offset) })
     loadingPages.current.set(offset, { ids: indexed.ids, request })
     return request
-  }, [projectId, assetId, stageFilter, search])
+  }, [projectId, taskGroupId, assetId, stageFilter, search])
 
   const updateRow = React.useCallback((row: LinguistSegmentInfo) => {
     setDataset((current) => {
@@ -362,17 +377,17 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }, [])
 
   const reloadRow = React.useCallback(async (segmentId: string) => {
-    const context = await required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })
+    const context = await required<LinguistCatContextResult>('linguistCatGetContext', { projectId, taskGroupId, segmentId })
     updateRow(context.segment)
     return context.segment
-  }, [projectId, updateRow])
+  }, [projectId, taskGroupId, updateRow])
 
   const save = React.useCallback(async (segment: LinguistSegmentInfo, target: string): Promise<TargetSaveResult> => {
     try {
       const draftAtom = editorState.drafts.get(segment.id)
       const reference = draftAtom === undefined ? undefined : editorState.store.get(draftAtom)?.tmReference
       const result = await invoke<LinguistCatEditResult>('linguistCatEditSegment', {
-        projectId, segmentId: segment.id, target, expectedRevision: segment.revision,
+        projectId, taskGroupId, segmentId: segment.id, target, expectedRevision: segment.revision,
         ...(reference?.target === target ? { tmUnitId: reference.unitId } : {}),
         propagateRepeated, excludedSegmentIds: protectedCatDraftSegmentIds(projectId).filter((id) => id !== segment.id),
       })
@@ -387,13 +402,13 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       setNotice(result.data.repetition ? '' : t("译文已保存"))
       return 'saved'
     } catch (error) { setNotice(String(error)); return 'failed' }
-  }, [editorState, projectId, propagateRepeated, refreshSummary, updateRow])
+  }, [editorState, projectId, taskGroupId, propagateRepeated, refreshSummary, updateRow])
 
   const undoRepetition = async (repetition: NonNullable<typeof repeatResult>) => {
     setRepeatUndoBusy(true)
     try {
       const undo = await required<LinguistRunUndoResult>('linguistCatUndoLatestRun', {
-        projectId, sessionId, expectedRunId: repetition.runId, excludedSegmentIds: protectedCatDraftSegmentIds(projectId),
+        projectId, taskGroupId, sessionId, expectedRunId: repetition.runId, excludedSegmentIds: protectedCatDraftSegmentIds(projectId),
       })
       setRepeatResult((current) => current?.runId === repetition.runId ? { ...current, undo, error: undefined } : current)
       setRowSignalRefresh((value) => value + 1)
@@ -410,7 +425,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       if (confirm && latest.currentStageState === 'confirmed') return
       if (!confirm && latest.currentStageState !== 'confirmed') return
       const next = await required<LinguistSegmentInfo>(confirm ? 'linguistCatConfirmStage' : 'linguistCatUnconfirmStage', {
-        projectId, sessionId, segmentId: latest.id, expectedRevision: latest.revision,
+        projectId, taskGroupId, sessionId, segmentId: latest.id, expectedRevision: latest.revision,
       })
       updateRow(next)
       setRowSignalRefresh((value) => value + 1)
@@ -418,7 +433,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       setNotice(confirm ? t(stageCompletionLabel(workflowStage)) : t("已撤销当前阶段确认"))
       if (confirm && dataset !== undefined && navigationRevision.current === requestRevision && currentSignature.current === dataset.signature) {
         const page = await required<LinguistCatQueryResult>('linguistCatQuery', {
-          projectId, assetId, currentStageState: stageFilter || undefined,
+          projectId, taskGroupId, assetId, currentStageState: stageFilter || undefined,
           search: search || undefined, limit: PAGE_SIZE, offset: 0, includeIndex: true,
         })
         if (navigationRevision.current !== requestRevision || currentSignature.current !== dataset.signature) return
@@ -445,17 +460,17 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         else setNotice(t('当前批次和筛选范围内没有下一个可编辑句段'))
       }
     } catch (error) { setNotice(String(error)) }
-  }, [projectId, sessionId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage, assetId, stageFilter, search])
+  }, [projectId, taskGroupId, sessionId, reloadRow, updateRow, refreshSummary, dataset, loadPage, workflowStage, assetId, stageFilter, search])
 
   const confirmSelected = async () => {
     const ids = [...selectedIds]
     if (ids.length === 0 || ids.length > PAGE_SIZE || bulkBusy) return
     setBulkBusy(true)
     try {
-      const contexts = await Promise.all(ids.map((segmentId) => invoke<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId })))
+      const contexts = await Promise.all(ids.map((segmentId) => invoke<LinguistCatContextResult>('linguistCatGetContext', { projectId, taskGroupId, segmentId })))
       const items = contexts.flatMap((result) => result.ok ? [{ segmentId: result.data.segment.id, expectedRevision: result.data.segment.revision }] : [])
       if (items.length === 0) { setNotice(t("所选句段均无法读取，未执行阶段确认")); return }
-      const result = await required<LinguistCatConfirmStageBulkResult>('linguistCatConfirmStageBulk', { projectId, sessionId, items })
+      const result = await required<LinguistCatConfirmStageBulkResult>('linguistCatConfirmStageBulk', { projectId, taskGroupId, sessionId, items })
       result.succeeded.forEach(updateRow)
       const failed = new Set([...contexts.flatMap((entry, index) => entry.ok ? [] : [ids[index]!]), ...result.failed.map((entry) => entry.segmentId)])
       setSelectedIds(failed)
@@ -470,7 +485,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const requestRevision = uiRevision.current
     setBulkBusy(true); setProposalReviewError('')
     try {
-      const plan = await loadProposalReviewPlan(projectId, { kind: 'segments', ids: [...selectedIds] }, operation, t)
+      const plan = await loadProposalReviewPlan(projectId, { kind: 'segments', ids: [...selectedIds] }, operation, t, taskGroupId)
       if (uiRevision.current === requestRevision) setProposalReview(plan)
     } catch (cause) { if (uiRevision.current === requestRevision) setNotice(String(cause)) }
     finally { setBulkBusy(false) }
@@ -480,7 +495,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const plan = proposalReview
     setBulkBusy(true); setProposalReviewError('')
     try {
-      await required(plan.operation === 'accept' ? 'linguistProposalsAcceptSelected' : 'linguistProposalsRejectSelected', { projectId, items: plan.items, idempotencyKey: plan.idempotencyKey })
+      await required(plan.operation === 'accept' ? 'linguistProposalsAcceptSelected' : 'linguistProposalsRejectSelected', { projectId, taskGroupId, items: plan.items, idempotencyKey: plan.idempotencyKey })
       const completed = new Set(plan.actionableSegmentIds)
       setSelectedIds((current) => new Set([...current].filter((id) => !completed.has(id))))
       setProposalReview(undefined); setMutation((value) => value + 1)
@@ -505,7 +520,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     pendingNavigation.current = undefined
     const index = dataset?.ids.indexOf(id) ?? -1
     if (index >= 0) { setSelectedId(id); setFocusIndex(index); return }
-    pendingNavigation.current = { id, signature: `${projectId}\0\0\0` }
+    pendingNavigation.current = { id, signature: `${scopeKey}\0\0` }
     setAssetId(undefined)
     setStageFilter('')
     setSearch('')
@@ -518,15 +533,15 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const requestRevision = navigationRevision.current
     try {
       const [all, untouched] = await Promise.all([
-        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, search: search || undefined, limit: 1, includeIndex: true }),
-        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, search: search || undefined, currentStageState: 'untouched', limit: 1, includeIndex: true }),
+        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, taskGroupId, assetId, search: search || undefined, limit: 1, includeIndex: true }),
+        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, taskGroupId, assetId, search: search || undefined, currentStageState: 'untouched', limit: 1, includeIndex: true }),
       ])
       if (navigationRevision.current !== requestRevision) return
       const available = new Set(untouched.segmentIds)
       const current = all.segmentIds.indexOf(selectedId ?? '')
       const next = [...all.segmentIds.slice(current + 1), ...all.segmentIds.slice(0, current + 1)].find((id) => available.has(id))
       if (!next) { setNotice(t('当前范围没有待处理句段。')); return }
-      pendingNavigation.current = { id: next, signature: `${projectId}\0${assetId ?? ''}\0\0${search}` }
+      pendingNavigation.current = { id: next, signature: `${scopeKey}${assetId ?? ''}\0\0${search}` }
       setStageFilter('')
       setReload((value) => value + 1)
     } catch (cause) { setNotice(String(cause)) }
@@ -539,10 +554,10 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     const requestRevision = navigationRevision.current
     try {
       const [all, first] = await Promise.all([
-        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, assetId, limit: 1, includeIndex: true }),
-        required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId, status: 'open', limit: 200, offset: 0 }),
+        required<LinguistCatQueryResult>('linguistCatQuery', { projectId, taskGroupId, assetId, limit: 1, includeIndex: true }),
+        required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, taskGroupId, assetId, status: 'open', limit: 200, offset: 0 }),
       ])
-      const pages = first.hasMore ? await Promise.all(Array.from({ length: Math.ceil(first.total / 200) - 1 }, (_, index) => required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, assetId, status: 'open', limit: 200, offset: (index + 1) * 200 }))) : []
+      const pages = first.hasMore ? await Promise.all(Array.from({ length: Math.ceil(first.total / 200) - 1 }, (_, index) => required<LinguistCatListQaFindingsResult>('linguistCatListQaFindings', { projectId, taskGroupId, assetId, status: 'open', limit: 200, offset: (index + 1) * 200 }))) : []
       if (navigationRevision.current !== requestRevision) return
       const bySegment = new Map([...first.items, ...pages.flatMap((page) => page.items)].map((finding) => [finding.segmentId, finding]))
       const current = all.segmentIds.indexOf(selectedId ?? '')
@@ -574,7 +589,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     setReviewingIds(new Set(reviewingProposals.current))
     try {
       await required(action === 'accept' ? 'linguistProposalsAccept' : 'linguistProposalsReject', {
-        projectId, proposalId: proposal.id, expectedRevision: segment.revision, idempotencyKey: crypto.randomUUID(),
+        projectId, taskGroupId, proposalId: proposal.id, expectedRevision: segment.revision, idempotencyKey: crypto.randomUUID(),
       })
       await reloadRow(segment.id)
       await refreshSummary()
@@ -585,32 +600,40 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
     finally { reviewingProposals.current.delete(proposal.id); setReviewingIds(new Set(reviewingProposals.current)) }
   }
 
-  React.useEffect(() => {
-    if (navigation === undefined) return
+  const chooseGroup = (group: string) => {
     navigationRevision.current += 1
+    pendingNavigation.current = undefined
+    setChosenGroup(group)
+    setAssetId(undefined); setSelectedId(undefined); setSelectedIds(new Set()); setAgentReference(undefined)
+    setQaNavigation(undefined); setProposalNavigation(undefined); setRepeatResult(undefined); setAssetSearch('')
+  }
+
+  React.useEffect(() => {
+    if (!navigation || !summary) return
+    const request = ++navigationRevision.current
+    let live = true
     pendingNavigation.current = undefined
     if (navigation.dock) { setDock(navigation.dock); setDockOpen(true) }
     if (navigation.inspector) { setInspectorOpen(true); if (compactLayout.current) setAssetNavigatorOpen(false) }
-    if (navigation.segmentId) {
-      pendingNavigation.current = { id: navigation.segmentId, signature: `${projectId}\0\0\0` }
-      setAssetId(undefined)
-      setStageFilter('')
-      setSearch('')
-      setReload((value) => value + 1)
-    } else if (navigation.assetId) {
-      setAssetId(navigation.assetId)
-      setStageFilter('')
-      setSearch('')
+    if (navigation.assetId || navigation.segmentId) {
+      const openTarget = async () => {
+        const targetId = navigation.assetId ?? (await required<LinguistCatContextResult>('linguistCatGetContext', {
+          projectId, taskGroupId: boundGroupId, segmentId: navigation.segmentId,
+        })).segment.assetId
+        if (!live || request !== navigationRevision.current) return
+        const group = summary.assets.find(asset => asset.assetId === targetId)?.taskGroupId
+        if (!group || (boundGroupId && boundGroupId !== group)) { setNotice(t('目标批次不在当前会话范围内。')); return }
+        if (group !== taskGroupId) chooseGroup(group)
+        if (navigation.segmentId) pendingNavigation.current = { id: navigation.segmentId, signature: `${projectId}\0${group}\0${targetId}\0\0` }
+        setAssetId(targetId); setStageFilter(''); setSearch(''); setReload(value => value + 1)
+      }
+      void openTarget().catch(cause => { if (live && request === navigationRevision.current) setNotice(String(cause)) })
     } else if (navigation.dock === 'qa' || navigation.dock === 'proposals') {
-      setAssetId(undefined)
-      setSelectedId(undefined)
-      setSelectedIds(new Set())
-      setQaNavigation(undefined)
-      setProposalNavigation(undefined)
-      setStageFilter('')
-      setSearch('')
+      setAssetId(undefined); setSelectedId(undefined); setSelectedIds(new Set())
+      setQaNavigation(undefined); setProposalNavigation(undefined); setStageFilter(''); setSearch('')
     }
-  }, [navigation])
+    return () => { live = false }
+  }, [navigation, Boolean(summary)])
 
   if (loadError && project === undefined) return <div role="alert" className={styles.center}>{loadError}<Button variant="outline" size="sm" onClick={() => { setLoadError(''); setOpenRetry((value) => value + 1) }}>{t("重试")}</Button></div>
   if (project === undefined) return <div role="status" className={styles.center}>{t("正在打开本地化项目…")}</div>
@@ -622,16 +645,19 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
   }}>
     <header className={styles.header}>
       <div className={styles.title}>
-        <div className={styles.projectIdentity}><span className={styles.workbenchLabel}>{t('CAT 工作台')}</span><strong title={project.name}>{project.name}</strong></div>
+        <div className={styles.projectIdentity}><span className={styles.workbenchLabel}>{t('CAT 工作台')}</span><strong title={[project.name, currentGroup?.name].filter(Boolean).join(' / ')}>{project.name}{currentGroup && ' / ' + currentGroup.name}</strong></div>
         <span className={styles.languagePair}>{project.sourceLocale}<span aria-hidden="true">→</span>{project.targetLocale}</span>
-        <select className={styles.stageBadge} aria-label={t('当前工作阶段')} disabled={project.archivedAt !== undefined || workflowBusy || bulkBusy} value={workflowStage} onChange={(event) => void changeWorkflowStage(event.target.value as LinguistWorkflowStage)}>{(['translation', 'editing', 'proofreading'] as const).map((stage) => <option key={stage} value={stage}>{t(stageName(stage))}</option>)}</select>
+        <select className={styles.stageBadge} aria-label={t('当前工作阶段')} disabled={archived || workflowBusy || bulkBusy} value={workflowStage} onChange={(event) => void changeWorkflowStage(event.target.value as LinguistWorkflowStage)}>{(['translation', 'editing', 'proofreading'] as const).map((stage) => <option key={stage} value={stage}>{t(stageName(stage))}</option>)}</select>
       </div>
       <div className={styles.controls}>
         <div className={styles.scopeControls} role="group" aria-label={t('工作范围')}>
           <Tooltip portal label={t('批次导航')}><Button className={styles.iconButton} ref={navigationTrigger} variant="ghost" size="sm" aria-label={t('批次导航')} aria-expanded={assetNavigatorOpen} onClick={() => { setAssetNavigatorOpen((value) => !value); if (compactLayout.current) setInspectorOpen(false) }}><IconPanelLeftOutlineRegular size={16} /></Button></Tooltip>
+          {!boundGroupId && <select className={styles.batchSelect} aria-label={t('任务组')} value={taskGroupId ?? ''} onChange={event => chooseGroup(event.target.value)}>
+            {summary?.taskGroups.filter(group => !group.archived || group.id === taskGroupId).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+          </select>}
           <select className={styles.batchSelect} aria-label={t("工作批次")} value={assetId ?? ''} onChange={(event) => setAssetId(event.target.value || undefined)}>
             <option value="">{t("全部批次")}</option>
-            {summary?.assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
+            {scopedAssets?.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.filename}</option>)}
           </select>
         </div>
         <div className={styles.searchControls} role="group" aria-label={t('查找与筛选')}>
@@ -641,7 +667,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
           </select>
         </div>
         <div className={styles.workbenchActions} role="group" aria-label={t('编辑与视图')}>
-          <Checkbox className={styles.repeatToggle} label={t('重复句联动')} checked={propagateRepeated} onChange={setPropagateRepeated} disabled={project.archivedAt !== undefined || repeatUndoBusy} title={t('保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。')} />
+          <Checkbox className={styles.repeatToggle} label={t('重复句联动')} checked={propagateRepeated} onChange={setPropagateRepeated} disabled={archived || repeatUndoBusy} title={t('保存时自动同步当前句段所在批次中原文和标签完全相同的句段；仅同步未锁定、未确认，且译文为空或等于修改前译文的句段。未保存草稿会跳过。')} />
           <Tooltip portal label={t(nextStageItemLabel(workflowStage))}><Button className={styles.nextButton} variant="outline" size="sm" aria-label={t('下一待处理')} disabled={jumpBusy} onClick={() => void nextUntouched()}>{t('下一待处理')}<IconChevronDownOutlineRegular size={14} /></Button></Tooltip>
           <EditorViewControls options={editorViews} onChange={setEditorViews} />
           <Button className={styles.referenceToggle} ref={inspectorTrigger} variant="ghost" size="sm" aria-label={t('句段参考')} aria-expanded={inspectorOpen} aria-controls={`linguist-inspector-${sessionId}`} onClick={() => { setInspectorOpen((value) => !value); if (compactLayout.current) setAssetNavigatorOpen(false) }}>{t('句段参考')}</Button>
@@ -659,8 +685,8 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
       </div>
       {editorViewsError && <p role="alert">{t('编辑辅助显示设置未能保存')}：{editorViewsError}</p>}
       {(selectedIds.size > 0 || agentReference) && <div className={styles.selectionActions}>
-        {selectedIds.size > 0 && <Button variant="primary" size="sm" disabled={bulkBusy || project.archivedAt !== undefined || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>}
-        {selectedIds.size > 0 && <><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('accept')}>{t('接受所选建议')}</Button><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || project.archivedAt !== undefined} onClick={() => void prepareSelectedProposals('reject')}>{t('拒绝所选建议')}</Button></>}
+        {selectedIds.size > 0 && <Button variant="primary" size="sm" disabled={bulkBusy || archived || selectedIds.size > PAGE_SIZE} title={selectedIds.size > PAGE_SIZE ? t("一次最多确认 200 段") : undefined} onClick={() => void confirmSelected()}>{t(stageActionLabel(workflowStage))} {selectedIds.size} {t("段")}</Button>}
+        {selectedIds.size > 0 && <><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || archived} onClick={() => void prepareSelectedProposals('accept')}>{t('接受所选建议')}</Button><Button variant="outline" size="sm" disabled={bulkBusy || reviewingIds.size > 0 || archived} onClick={() => void prepareSelectedProposals('reject')}>{t('拒绝所选建议')}</Button></>}
         <Button variant="outline" size="sm" onClick={() => void sendScopedAgentTask('请按当前岗位职责处理本次明确勾选或引用的句段。先读取完整必要上下文、当前 Target、术语与结构约束；仅把实际查看并裁定的句段计入本轮覆盖，逐项报告未解决问题。').catch((error: unknown) => setNotice(String(error)))}>{t('让 Agent 处理所选')}</Button>
       </div>}
     </header>
@@ -670,36 +696,36 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
           const count = repeatResult.skipped.filter((entry) => entry.reason === reason).length
           return count ? [t('{reason} {count} 段', { reason: t(label), count })] : []
         }).join(' · ')}</>}</span>
-        {(!repeatResult.undo || repeatResult.undo.refused.length > 0) && repeatResult.updatedSegmentIds.length > 0 && <Button variant="outline" size="sm" disabled={repeatUndoBusy || project.archivedAt !== undefined} onClick={() => void undoRepetition(repeatResult)}>{t(repeatUndoBusy ? '正在撤销联动…' : '撤销本次联动')}</Button>}
+        {(!repeatResult.undo || repeatResult.undo.refused.length > 0) && repeatResult.updatedSegmentIds.length > 0 && <Button variant="outline" size="sm" disabled={repeatUndoBusy || archived} onClick={() => void undoRepetition(repeatResult)}>{t(repeatUndoBusy ? '正在撤销联动…' : '撤销本次联动')}</Button>}
         <Button variant="ghost" size="sm" aria-label={t('关闭联动提示')} disabled={repeatUndoBusy} onClick={() => setRepeatResult(undefined)}>×</Button>
       </div>
       {repeatResult.undo && <span>{repeatResult.undo.status === 'already-undone' ? t('本次联动已撤销') : t('已撤销联动 {count} 段，跳过 {skipped} 段', { count: repeatResult.undo.reverted.filter((entry) => entry.entityType === 'segment').length, skipped: repeatResult.undo.refused.length })}{repeatResult.undo.refused.length > 0 && `：${[...new Set(repeatResult.undo.refused.map((entry) => t(repetitionUndoLabels[entry.reason] ?? entry.reason)))].join(' · ')}`}</span>}
       {repeatResult.error && <span role="alert">{repeatResult.error}</span>}
     </div>}
-    <ProposalReviewConfirmation plan={proposalReview} archived={project.archivedAt !== undefined} busy={bulkBusy} error={proposalReviewError} onConfirm={() => void confirmSelectedProposals()} onClose={() => setProposalReview(undefined)} />
+    <ProposalReviewConfirmation plan={proposalReview} archived={archived} busy={bulkBusy} error={proposalReviewError} onConfirm={() => void confirmSelectedProposals()} onClose={() => setProposalReview(undefined)} />
     {agentReference && <div className={styles.agentReference} role="status" title={agentReference.segmentId}>{t('已为 Agent 引用句段')} {`#${agentReference.ordinal + 1}`}<Button variant="outline" size="sm" onClick={() => setAgentReference(undefined)}>{t('移除引用')}</Button></div>}
     {!project.archivedAt && <UnknownTagNotice key={projectId} projectId={projectId} scanRevision={`${project.updatedAt}|${summary?.assets.map((asset) => `${asset.assetId}:${asset.sourceSha256}`).sort().join('|') ?? ''}`} onView={() => { setDock('settings'); setDockOpen(true) }} onSendAgentTask={sendScopedAgentTask} />}
     <div ref={bodyRef} className={styles.body}>
       {assetNavigatorOpen && <nav id={`linguist-batches-${sessionId}`} className={styles.assets} style={{ width: Math.min(assetNavigatorWidth, assetMaximum) }} aria-label={t("批次导航")}>
         <div className={styles.assetContents}>
-        <div className={styles.contextHeading}><strong>{t("工作批次")} {summary?.assetCount ?? ''}</strong><Button variant="ghost" size="sm" aria-label={t("收起批次导航")} onClick={() => { setAssetNavigatorOpen(false); navigationTrigger.current?.focus() }}>×</Button></div>
+        <div className={styles.contextHeading}><strong>{t("工作批次")} {scopedAssets?.length ?? ''}</strong><Button variant="ghost" size="sm" aria-label={t("收起批次导航")} onClick={() => { setAssetNavigatorOpen(false); navigationTrigger.current?.focus() }}>×</Button></div>
         <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('管理批次')}</Button>
         <Input aria-label={t('搜索批次')} placeholder={t('搜索批次')} value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
-        {summary?.assets.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry} data-active={assetId === asset.assetId}><Button variant="ghost" size="sm" className={styles.asset} title={asset.filename} onClick={() => setAssetId(asset.assetId)}>
+        {scopedAssets?.filter((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())).map((asset: LinguistAssetInfo) => <div key={asset.assetId} className={styles.assetEntry} data-active={assetId === asset.assetId}><Button variant="ghost" size="sm" className={styles.asset} title={asset.filename} onClick={() => setAssetId(asset.assetId)}>
           <span>{asset.filename}</span>
-        </Button><div className={styles.assetDetails}><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small><Button variant="outline" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={project.archivedAt !== undefined} /></div></div>)}
-        {summary?.assets.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
-        {summary && summary.assets.length > 0 && !summary.assets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
+        </Button><div className={styles.assetDetails}><small>{t(stageCompletionLabel(workflowStage))} {asset.currentStageCounts.confirmed}/{asset.segmentCount}</small><Button variant="outline" size="sm" aria-label={t('预览批次 {filename}', { filename: asset.filename })} onClick={() => onOpenBatchPreview(asset.assetId)}>{t('预览')}</Button><BatchExportButton projectId={projectId} asset={asset} archived={archived} /></div></div>)}
+        {scopedAssets?.length === 0 && <p>{t("尚无批次。请在“资料”中导入文件。")}</p>}
+        {scopedAssets && scopedAssets.length > 0 && !scopedAssets.some((asset) => asset.filename.toLocaleLowerCase().includes(assetSearch.trim().toLocaleLowerCase())) && <p>{t('没有匹配的批次')}</p>}
         </div>
         <Splitter orientation="vertical" label={t('调整批次导航宽度')} controls={`linguist-batches-${sessionId}`} value={Math.min(assetNavigatorWidth, assetMaximum)} minimum={180} maximum={assetMaximum} defaultValue={workbenchDefaults.assetNavigatorWidth} onChange={setAssetNavigatorWidth} />
       </nav>}
       <div className={styles.gridColumn}>
         {queryError ? <div role="alert" className={styles.center}>{queryError}<Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>{t('重试')}</Button></div> : loading && dataset === undefined ? <div role="status" className={styles.center}>{t("正在读取句段…")}</div>
-          : dataset?.total === 0 ? <div className={styles.center}>{summary?.assetCount === 0 ? <div>
+          : dataset?.total === 0 ? <div className={styles.center}>{scopedAssets?.length === 0 ? <div>
             <p>{t('尚无批次。请在“资料”中导入文件。')}</p>
-            {!project.archivedAt && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
+            {!archived && <Button variant="outline" size="sm" onClick={() => { setDock('assets'); setDockOpen(true) }}>{t('导入批次与资料')}</Button>}
           </div> : t("没有匹配的句段。可切换批次或筛选条件。")}</div>
-            : dataset && <SegmentRows projectId={projectId} mutation={mutation} editorViews={editorViews} onNavigate={navigateToSegment} data={dataset} workflowStage={workflowStage} archived={project.archivedAt !== undefined} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} proposalReviewBusy={bulkBusy} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
+            : dataset && <SegmentRows projectId={projectId} mutation={mutation} editorViews={editorViews} onEditorViewsChange={setEditorViews} onNavigate={navigateToSegment} data={dataset} assets={scopedAssets} workflowStage={workflowStage} archived={archived} tagProfile={project.tagProfile} selectedId={selectedId} selectedIds={selectedIds} signals={rowSignals} reviewingIds={reviewingIds} proposalReviewBusy={bulkBusy} focusIndex={focusIndex} drafts={editorState.drafts} editingIdAtom={editorState.editingId} onVisibleRange={(start, end) => {
               setVisibleRange((current) => current.start === start && current.end === end ? current : { start, end })
               for (const offset of pageOffsetsForRange(start, end, PAGE_SIZE)) void loadPage(offset, dataset).catch((error: unknown) => {
                 if (currentSignature.current === dataset.signature && currentDataset.current?.ids === dataset.ids) setQueryError(String(error))
@@ -714,7 +740,7 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
               setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
             }} onReferenceAgent={(segment) => setAgentReference({ segmentId: segment.id, assetId: segment.assetId, ordinal: segment.ordinal })} onFocusSettled={(index) => setFocusIndex((current) => current === index ? undefined : current)} onSave={save} onReload={reloadRow} onConfirm={(segment) => mutateStage(segment, true)} onUnconfirm={(segment) => mutateStage(segment, false)} onEditorHandleChange={handleEditorChange} />}
       </div>
-      {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={workbenchDefaults.inspectorWidth} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); inspectorTrigger.current?.focus() }}>×</Button></div><ContextPanel projectId={projectId} tagProfile={project.tagProfile} draftAtom={active && active.id === editingId ? editorState.drafts.get(active.id) : undefined} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={project.archivedAt !== undefined} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
+      {inspectorOpen && <aside id={`linguist-inspector-${sessionId}`} className={styles.inspector} style={{ width: Math.min(inspectorWidth, inspectorMaximum) }} aria-label={t("句段参考检查器")}><Splitter orientation="vertical" direction={-1} label={t('调整参考检查器宽度')} controls={`linguist-inspector-${sessionId}`} value={Math.min(inspectorWidth, inspectorMaximum)} minimum={240} maximum={inspectorMaximum} defaultValue={workbenchDefaults.inspectorWidth} onChange={setInspectorWidth} /><div className={styles.inspectorContents}><div className={styles.contextHeading}><strong>{t("参考检查器")}</strong><Button variant="ghost" size="sm" aria-label={t("收起参考检查器")} onClick={() => { setInspectorOpen(false); inspectorTrigger.current?.focus() }}>×</Button></div><ContextPanel key={taskGroupId} projectId={projectId} taskGroupId={taskGroupId} tagProfile={project.tagProfile} draftAtom={active && active.id === editingId ? editorState.drafts.get(active.id) : undefined} segmentId={active?.id} editorHandle={active?.id === editor?.segmentId ? editor?.handle : undefined} archived={archived} mutation={mutation} onOpenTerms={() => { setDock('references'); setDockOpen(true) }} /></div></aside>}
     </div>
     <div ref={dockRef} id={`linguist-dock-${sessionId}`} className={dockOpen ? styles.dock : styles.dockCollapsed} style={dockOpen ? { height: Math.min(dockHeight, dockMaximum) } : undefined}>
       {dockOpen && <Splitter orientation="horizontal" direction={-1} label={t('调整辅助区高度')} controls={`linguist-dock-${sessionId}`} value={Math.min(dockHeight, dockMaximum)} minimum={80} maximum={dockMaximum} defaultValue={workbenchDefaults.dockHeight} onChange={setDockHeight} />}
@@ -730,23 +756,23 @@ function WorkbenchBody({ projectId, sessionId, onSendAgentTask, onOpenBatchPrevi
         }}>{t(item.label)}</Button>
       </React.Fragment>)}</div><Tooltip portal label={t(dockOpen ? '收起辅助区' : '展开辅助区')}><Button className={styles.dockToggle} variant="ghost" size="sm" aria-label={t(dockOpen ? '收起辅助区' : '展开辅助区')} aria-expanded={dockOpen} onClick={() => setDockOpen((value) => !value)}><IconChevronDownOutlineRegular size={16} /></Button></Tooltip></div>
       {dockOpen && <div id={`linguist-panel-${sessionId}`} role="tabpanel" aria-labelledby={`linguist-tab-${sessionId}-${dock}`} className={styles.dockBody}>
-        {dock === 'qa' && <QaPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'proposals' && <ProposalPanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
-        {dock === 'references' && <ReferencePanel mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={project.archivedAt !== undefined} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
-        {dock === 'assets' && <AssetsPanel mutation={mutation} projectId={projectId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={project.archivedAt !== undefined} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
-        {dock === 'delivery' && <DeliveryPanel mutation={mutation} projectId={projectId} assets={summary?.assets ?? []} archived={project.archivedAt !== undefined} />}
-        {dock === 'run' && <RunPanel projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} onOpenSession={onOpenSession} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={project.archivedAt !== undefined} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'qa' && <QaPanel key={taskGroupId} taskGroupId={taskGroupId} mutation={mutation} projectId={projectId} assetId={assetId} segmentId={active?.id} focusFindingId={qaNavigation?.findingId ?? (navigation?.dock === 'qa' ? navigation.findingId : undefined)} focusSegmentId={qaNavigation?.segmentId ?? (navigation?.dock === 'qa' ? navigation.segmentId : undefined)} archived={archived} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'proposals' && <ProposalPanel key={taskGroupId} taskGroupId={taskGroupId} mutation={mutation} projectId={projectId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} focusProposalId={proposalNavigation ?? (navigation?.dock === 'proposals' ? navigation.proposalId : undefined)} archived={archived} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} />}
+        {dock === 'references' && <ReferencePanel key={taskGroupId} mutation={mutation} projectId={projectId} taskGroupId={taskGroupId} assetId={assetId} segmentIds={selectedIds.size > 0 ? [...selectedIds] : active ? [active.id] : []} archived={archived} onNavigate={navigateToSegment} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} />}
+        {dock === 'assets' && <AssetsPanel key={taskGroupId} mutation={mutation} projectId={projectId} taskGroupId={taskGroupId} segmentId={active?.id} focusDocId={navigation?.dock === 'assets' ? navigation.docId : undefined} archived={archived} onChanged={() => setMutation((value) => value + 1)} onSendAgentTask={sendScopedAgentTask} onOpenBatchPreview={onOpenBatchPreview} />}
+        {dock === 'delivery' && <DeliveryPanel mutation={mutation} projectId={projectId} assets={scopedAssets ?? []} archived={archived} />}
+        {dock === 'run' && <RunPanel key={taskGroupId} taskGroupId={taskGroupId} projectId={projectId} sessionId={sessionId} onCancelRun={onCancelRun} onOpenSession={onOpenSession} jobUpdates={jobUpdates} assetId={assetId} selectedSegmentIds={[...selectedIds]} uiRevision={uiRevision.current} workflowStage={workflowStage} archived={archived} mutation={mutation} onChanged={() => setMutation((value) => value + 1)} />}
         {dock === 'settings' && <ProjectSettingsPanel mutation={mutation} onOpenHistory={(dock) => requestCatNavigation({ sessionId, projectId, dock })} project={project} hasBatches={summary?.assetCount !== 0} sessionId={sessionId} capabilities={capabilities} onChanged={() => setMutation((value) => value + 1)} />}
       </div>}
     </div>
-    <CatStatusBar projectId={projectId} assetId={assetId} summary={summary} active={active} selectedCount={selectedIds.size} revision={`${mutation}:${reload}`} />
+    <CatStatusBar projectId={projectId} assetId={assetId} summary={summary} taskGroupId={taskGroupId} active={active} selectedCount={selectedIds.size} revision={`${mutation}:${reload}`} />
     {notice && <div role="status" className={styles.notice}>{notice}<Button variant="ghost" size="sm" aria-label={t("关闭提示")} onClick={() => setNotice('')}>×</Button></div>}
   </section>
 }
 
 interface RowsProps {
-  projectId: string; mutation: number; editorViews: EditorViewOptions; onNavigate: (id: string) => void;
-  data: Dataset; workflowStage: NonNullable<LinguistProjectInfo['workflowStage']>; archived: boolean; tagProfile: LinguistProjectInfo['tagProfile'];
+  projectId: string; mutation: number; editorViews: EditorViewOptions; onEditorViewsChange: (patch: Partial<EditorViewOptions>) => void; onNavigate: (id: string) => void;
+  data: Dataset; assets?: readonly LinguistAssetInfo[]; workflowStage: NonNullable<LinguistProjectInfo['workflowStage']>; archived: boolean; tagProfile: LinguistProjectInfo['tagProfile'];
   selectedId?: string; selectedIds: ReadonlySet<string>; signals: ReadonlyMap<string, RowSignal>; reviewingIds: ReadonlySet<string>; proposalReviewBusy: boolean; focusIndex?: number;
   drafts: Map<string, PrimitiveAtom<TargetEditorDraft | undefined>>;
   editingIdAtom: PrimitiveAtom<string | undefined>;
@@ -834,7 +860,7 @@ function SegmentRows(props: RowsProps): React.ReactElement {
         }}>
           {segment === undefined ? <span role="status">{t("正在读取 #")}{item.index + 1}…</span> : <>
             <div className={styles.rowMeta} role="gridcell"><Checkbox label={`#${segment.ordinal + 1}`} title={t('选择句段 {number}', { number: segment.ordinal + 1 })} checked={props.selectedIds.has(id)} onChange={() => props.onToggleSelected(id)} />{segment.locked && <span title={t("锁定")}>{t("锁定")}</span>}<span className={styles.stageStatus} data-confirmed={segment.currentStageState === 'confirmed'} title={segmentStatusBadgeTitle(props.workflowStage, segment.currentStageState ?? 'untouched', segment.status, Boolean(segment.target), t)}>{segment.currentStageState === 'confirmed' && <IconCheckCircleFillRegular size={14} aria-hidden="true" />}<span>{t(stageProgressLabel(props.workflowStage, segment.currentStageState ?? 'untouched', Boolean(segment.target)))}</span></span></div>
-            <SegmentTextCells projectId={props.projectId} mutation={props.mutation} segment={segment} selected={id === props.selectedId} editing={editingId === id} draftAtom={draft!} options={props.editorViews} termMatches={terms.items.get(id)?.termMatches ?? []} termsTruncated={terms.items.get(id)?.truncated} archived={props.archived} tagProfile={props.tagProfile} sourceClassName={styles.source} targetClassName={styles.target} targetButtonClassName={styles.targetButton} proposal={signal?.proposal} onNavigate={props.onNavigate} onStartEdit={() => { props.onSelect(id); setEditingId(id) }} editorProps={{ index: segment.ordinal, confirmLabel: t(stageActionLabel(props.workflowStage)), onCancel: () => { pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(undefined) }, onSave: target => props.onSave(segment, target), onReload: () => props.onReload(id), onSaved: advance => { if (props.drafts.get(id) === draft) { if (currentEditingId.current === id && !advance) pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(current => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }, onHandleChange }} signals={Boolean(signal?.qaCount || signal?.proposal) && <div className={styles.rowSignals} dir="auto">
+            <SegmentTextCells projectId={props.projectId} mutation={props.mutation} segment={segment} formatId={props.assets?.find(asset => asset.assetId === segment.assetId)?.formatId} selected={id === props.selectedId} editing={editingId === id} draftAtom={draft!} options={props.editorViews} termMatches={terms.items.get(id)?.termMatches ?? []} termsTruncated={terms.items.get(id)?.truncated} archived={props.archived} tagProfile={props.tagProfile} sourceClassName={styles.source} targetClassName={styles.target} targetButtonClassName={styles.targetButton} proposal={signal?.proposal} onNavigate={props.onNavigate} onStartEdit={() => { props.onSelect(id); setEditingId(id) }} editorProps={{ onFormatCodesChange: formatCodes => props.onEditorViewsChange({ formatCodes }), onInvisiblesChange: invisibles => props.onEditorViewsChange({ invisibles }), index: segment.ordinal, confirmLabel: t(stageActionLabel(props.workflowStage)), onCancel: () => { pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(undefined) }, onSave: target => props.onSave(segment, target), onReload: () => props.onReload(id), onSaved: advance => { if (props.drafts.get(id) === draft) { if (currentEditingId.current === id && !advance) pendingRowFocus.current = id; props.drafts.delete(id); setEditingId(current => current === id ? undefined : current) } if (advance) void props.onConfirm(segment) }, onHandleChange }} signals={Boolean(signal?.qaCount || signal?.proposal) && <div className={styles.rowSignals} dir="auto">
               {signal?.qaCount && signal.highestSeverity ? <Button variant="ghost" size="sm" onClick={() => props.onOpenQa(id)} title={`${t('查看当前句段 QA')} · ${t(qaSeverityLabel(signal.highestSeverity))}`}>QA · {t(qaTierLabel(qaSeverityTier(signal.highestSeverity)))} · {signal.qaCount}</Button> : null}
               {signal?.proposal && <Button variant="ghost" size="sm" onClick={() => props.onOpenProposal(signal.proposal!)}>{t('待审建议')}</Button>}
             </div>} />
@@ -884,7 +910,7 @@ function evidenceCategory(reference: string): 'tm' | 'term' | 'style' | 'voice' 
   return 'other'
 }
 
-function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived, mutation, onOpenTerms, tagProfile }: { projectId: string; segmentId?: string; editorHandle?: TargetEditorHandle; draftAtom?: PrimitiveAtom<TargetEditorDraft | undefined>; archived: boolean; mutation: number; onOpenTerms: () => void; tagProfile: LinguistProjectInfo['tagProfile'] }): React.ReactElement {
+function ContextPanel({ projectId, taskGroupId, segmentId, editorHandle, draftAtom, archived, mutation, onOpenTerms, tagProfile }: { projectId: string; taskGroupId?: string; segmentId?: string; editorHandle?: TargetEditorHandle; draftAtom?: PrimitiveAtom<TargetEditorDraft | undefined>; archived: boolean; mutation: number; onOpenTerms: () => void; tagProfile: LinguistProjectInfo['tagProfile'] }): React.ReactElement {
   const t = useT()
   const [draft, setDraft] = useAtom(draftAtom ?? emptyDraftAtom)
   const scope = `${projectId}\0${segmentId}`
@@ -909,11 +935,11 @@ function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived,
     if (segmentId === undefined) return
     let live = true
     Promise.all([
-      required<LinguistCatContextResult>('linguistCatGetContext', { projectId, segmentId }),
-      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'contextDocs', segmentId, limit: 200, offset: 0 }),
-      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'contextDocs', limit: 200, offset: 0 }),
-      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'styleGuideRules', limit: 200, offset: 0 }),
-      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, kind: 'voiceProfiles', limit: 200, offset: 0 }),
+      required<LinguistCatContextResult>('linguistCatGetContext', { projectId, taskGroupId, segmentId }),
+      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, taskGroupId, kind: 'contextDocs', segmentId, limit: 200, offset: 0 }),
+      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, taskGroupId, kind: 'contextDocs', limit: 200, offset: 0 }),
+      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, taskGroupId, kind: 'styleGuideRules', limit: 200, offset: 0 }),
+      required<LinguistAssetsQueryResult>('linguistAssetsQuery', { projectId, taskGroupId, kind: 'voiceProfiles', limit: 200, offset: 0 }),
     ]).then(([next, linked, contextDocs, style, voice]) => { if (live) {
       const key = `${projectId}\0${next.segment.id}`
       if (exemplarSegment.current !== key) {
@@ -924,7 +950,7 @@ function ContextPanel({ projectId, segmentId, editorHandle, draftAtom, archived,
       setResult({ scope, data: next }); setDocs(linked.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setAllDocs(contextDocs.items.filter((item): item is LinguistContextDocInfo => 'originalFilename' in item)); setStyleRules(style.items.filter((item): item is LinguistStyleGuideRuleInfo => 'ruleText' in item)); setVoiceProfiles(voice.items.filter((item): item is LinguistVoiceProfileInfo => 'speaker' in item)); setError('')
     } }).catch((cause: unknown) => { if (live) setError(String(cause)) })
     return () => { live = false }
-  }, [projectId, segmentId, mutation, refresh])
+  }, [projectId, taskGroupId, segmentId, mutation, refresh])
   const candidates = allDocs.filter((item) => !docs.some((doc) => doc.id === item.id))
   const setLink = async (docId: string, linked: boolean) => {
     if (!segmentId || archived) return

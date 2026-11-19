@@ -109,8 +109,12 @@ test('导入预检真实解析，Phrase 恢复要求不随扩展名改变', asyn
     const targetWrapper = '<xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="wrapper"><source>Hello</source><target>{u>Hello&lt;u}</target></trans-unit></body></file></xliff>'
     const targetWrapperPath = join(rootDir, 'target-wrapper.xlf')
     writeFileSync(targetWrapperPath, targetWrapper)
-    assert.equal((await service.importResourcesFromPaths(project.id, rootDir, input([targetWrapperPath], true))).needsInput, 1)
-    await assert.rejects(service.importAsset(project.id, { filename: 'target-wrapper.xlf', bytes: Buffer.from(targetWrapper) }), /target-only/)
+    const wrapperPreview = await service.importResourcesFromPaths(project.id, rootDir, input([targetWrapperPath], true))
+    assert.equal(wrapperPreview.ready, 1)
+    assert.equal(wrapperPreview.needsInput, 0)
+    const wrapperImport = await service.importAsset(project.id, { filename: 'target-wrapper.xlf', bytes: Buffer.from(targetWrapper) })
+    assert.equal(wrapperImport.status, 'imported')
+    assert.equal(service.openProject(project.id).segments.query({ assetId: wrapperImport.assetId! })[0]?.target, '{u>Hello<u}')
 
     const literal = '<xliff version="1.2" xmlns:m="http://www.memsource.com/mxlf/2.0"><file><body><trans-unit id="literal"><source>Gain {0} points</source><target>获得 {0} 分</target></trans-unit></body></file></xliff>'
     const literalPath = join(rootDir, 'literal.xlf')

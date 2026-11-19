@@ -5,8 +5,7 @@
  * left this as a gap (asset rows only, no blob writes).
  *
  * Layout: <projectDir>/source/<assetId><ext> — ext comes from the asset
- * row's originalFilename (the asset id is content+filename derived, so
- * assetId and ext are always 1:1 and the path is deterministic). Writes
+ * row's originalFilename. Each independent batch has a persistent id. Writes
  * are atomic (tmp file + rename in the same directory).
  */
 

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { mock } from 'node:test'
 
+import { getWorkingCopyReferences } from './working-copy-references'
 import type { WorkingCopyContext } from './working-copy-service'
 import { readWorkingJson, type LinguistWorkingCopy } from './working-copy'
 
@@ -94,7 +96,7 @@ test('working copy counts only saved TM reuse retained through independent revie
     const project = await service.createProject({ name: 'Synthetic reuse', sourceLocale: 'en', targetLocale: 'zh-CN' })
     const db = service.openProject(project.id)
     db.tmUnits.importMany([{ source: 'Collect 10 coins', target: '领取 10 金币', sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic', occurrenceKey: 'one' }])
-    const unitId = db.tmUnits.listCandidates('en', 'zh-CN')[0]!.unitId
+    const unitId = db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.unitId
     const params = { sourcePath: 'source.csv', sourceLocale: 'en', targetLocale: 'zh-CN' }
     const context: WorkingCopyContext = { workspaceRoot: root, sessionId: 'translator', taskId: 'synthetic-task', project: { service, projectId: project.id }, provenance: { runId: 'synthetic-run', toolCallId: 'synthetic-deliver' } }
     const prepared = await executeWorkingCopyAction({ ...params, operation: 'prepare' }, () => context)
@@ -106,7 +108,7 @@ test('working copy counts only saved TM reuse retained through independent revie
       { segmentId: a!.id, target: '领取 20 金币', tmUnitId: unitId }, { segmentId: b!.id, target: '领取 30 金币', tmUnitId: unitId },
     ])
     const translated = await executeWorkingCopyAction({ ...params, operation: 'assemble', previousResultPath: prepared.path, decisionsPath: 'decisions.json' }, () => context)
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, undefined)
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, undefined)
     const reviewer = { ...context, sessionId: 'reviewer' }
     decisions(translated.artifactSha256, [{ segmentIds: [a!.id], decision: 'unchanged' }, { segmentIds: [b!.id], decision: 'corrected' }], [
       { segmentId: b!.id, target: '获得 30 金币' },
@@ -114,11 +116,11 @@ test('working copy counts only saved TM reuse retained through independent revie
     const reviewed = await executeWorkingCopyAction({ ...params, operation: 'assemble', previousResultPath: translated.path, decisionsPath: 'decisions.json' }, () => reviewer)
     decisions(reviewed.artifactSha256, [{ segmentIds: [a!.id, b!.id], decision: 'unchanged' }], [], ['synthetic-blocker'])
     await assert.rejects(executeWorkingCopyAction({ ...params, operation: 'deliver', previousResultPath: reviewed.path, decisionsPath: 'decisions.json' }, () => reviewer), /没有阻断/)
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, undefined)
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, undefined)
     decisions(reviewed.artifactSha256, [{ segmentIds: [a!.id, b!.id], decision: 'unchanged' }], [])
     await executeWorkingCopyAction({ ...params, operation: 'deliver', previousResultPath: reviewed.path, decisionsPath: 'decisions.json' }, () => reviewer)
     await executeWorkingCopyAction({ ...params, operation: 'deliver', previousResultPath: reviewed.path, decisionsPath: 'decisions.json' }, () => reviewer)
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '1')
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, '1')
     assert.equal(db.segments.getById(b!.id)!.target, '获得 30 金币')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
@@ -245,4 +247,58 @@ test('working delivery rolls back every batch when a later hard terminology chec
     service.closeAll()
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('working reference worker reuses private-group changes and observes committed edits from another process', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-reference-clock-'))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic' })
+  try {
+    service.init()
+    await service.reviewCache.setEnabled(false)
+    const { id: projectId } = await service.createProject({ name: 'Reference revisions', sourceLocale: 'en', targetLocale: 'zh-CN' })
+    const db = service.openProject(projectId)
+    const a = db.taskGroups.change({ action: 'create', name: 'A' })
+    const b = db.taskGroups.change({ action: 'create', name: 'B' })
+    const file = { filename: 'same.csv', bytes: Buffer.from('key,source,target\na,Find the key,\n') }
+    const first = await service.importAsset(projectId, { ...file, taskGroupId: a })
+    const other = await service.importAsset(projectId, { ...file, taskGroupId: b })
+    const ids = db.segments.queryIds({ assetId: first.assetId })
+    const term = db.termEntries.upsert({ term: 'key', translation: '钥匙', status: 'preferred', caseSensitive: false, note: 'Original' }, a)
+    db.tmUnits.importMany([{ source: 'Find the key', target: '找到钥匙', sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'legacy-test', occurrenceKey: 'one' }])
+    const doc = db.contextDocs.insert({ kind: 'doc', originalFilename: 'scene.txt', blobRelpath: 'scene.txt', textExtract: 'Cellar' })
+    const read = async () => {
+      const result = await getWorkingCopyReferences({ service, projectId, taskId: 'scope-test', sourceSha256: 'same',
+        allIds: ids, selectedIds: ids, wait: true })
+      const item = result.items[0]!
+      assert.ok(item.status === 'ready')
+      return item
+    }
+    const firstRead = await read()
+    assert.equal(firstRead.preferredTerms[0]?.note, 'Original')
+    assert.equal(firstRead.tm[0]?.target, '找到钥匙')
+    const stageVersion = db.taskGroups.materialVersion(a)
+    db.taskGroups.change({ action: 'rename', id: b, name: 'Other group' })
+    const privateTerm = db.termEntries.upsert({ ...term, id: undefined, note: 'B only' }, b)
+    db.contextDocs.setEvidenceLink({ contextDocId: doc.id, relation: { kind: 'asset', assetId: other.assetId }, requiredness: 'required', mappingRevision: 'b1' })
+    assert.equal(await read(), firstRead)
+    db.termEntries.delete(privateTerm.id, b)
+    assert.equal(await read(), firstRead)
+    assert.equal(db.taskGroups.materialVersion(a), stageVersion)
+
+    // This writer shares no connection, repository or in-process invalidation callback with the service.
+    const update = (sql: string, id: string) => execFileSync(process.execPath, ['--input-type=module', '-e',
+      "import { DatabaseSync } from 'node:sqlite'; const [path, sql, id]=process.argv.slice(1); const db=new DatabaseSync(path); db.prepare(sql).run(id); db.close()",
+      db.catDb.path, sql, id], { stdio: 'pipe' })
+    update("UPDATE term_entries SET note='Revised annotation' WHERE id=?", term.id)
+    const revisedTerm = await read()
+    assert.notEqual(revisedTerm, firstRead)
+    assert.equal(revisedTerm.preferredTerms[0]?.note, 'Revised annotation')
+    assert.notEqual(db.taskGroups.materialVersion(a), stageVersion)
+    update("UPDATE tm_units SET target='找到这把钥匙' WHERE id=?", firstRead.tm[0]!.unitId)
+    assert.equal((await read()).tm[0]?.target, '找到这把钥匙')
+    update('UPDATE segments SET locked=1 WHERE id=?', ids[0]!)
+    assert.equal((await read()).locked, true)
+    db.contextDocs.setEvidenceLink({ contextDocId: doc.id, relation: { kind: 'segment', segmentId: ids[0]! }, requiredness: 'required', mappingRevision: 'a1' })
+    assert.equal((await read()).contextRefs[0]?.requiredness, 'required')
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })

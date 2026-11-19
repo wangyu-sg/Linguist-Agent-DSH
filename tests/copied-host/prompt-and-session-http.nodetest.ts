@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
-import { LinguistProjectService } from '../../packages/linguist-domain-service/src/index.ts'
+import { LinguistProjectService, syncProjectLibrary } from '../../packages/linguist-domain-service/src/index.ts'
 import { BindingStore } from '../../packages/dsh-linguist/src/host/bindings.ts'
 import { buildLinguistPromptSection } from '../../packages/dsh-linguist/src/host/diagnostics.ts'
 import { ManagedFiles } from '../../packages/dsh-linguist/src/host/files.ts'
@@ -28,7 +28,7 @@ import { projectDiscoveryScope } from '../../packages/dsh-linguist/src/host/disc
 
 const professional = loadProfessionalResources(new URL('../../packages/dsh-linguist/resources/professional-judgment/', import.meta.url))
 
-test('native Linguist preset binds General, removes blank-session binding on exit, and does not guess between projects', async () => {
+test('native Linguist preset binds General, removes blank-session binding on exit, and does not guess between projects', async t => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-native-preset-')))
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic' })
   service.init()
@@ -38,6 +38,8 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   mkdirSync(multiplePath)
   const project = await service.createProject({ name: 'Single', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
   bindings.bindProject(project.id, single)
+  writeFileSync(join(root, 'reference.txt'), 'Synthetic project reference.')
+  await syncProjectLibrary(service, project.id, root, [{ path: 'reference.txt', kind: 'context' }])
   for (const name of ['One', 'Two']) {
     const other = await service.createProject({ name, sourceLocale: 'zh-CN', targetLocale: 'en-US' })
     bindings.bindProject(other.id, multiple)
@@ -55,6 +57,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   let agent = { id: SessionId('native-one'), session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
     agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
+    schedule: { catalog: async () => [] },
     skills: { registerProvider: () => () => {} }, webServer: { register: () => () => {} },
     workspaceRegistry: { list: () => workspaces, get: (id: string) => workspaces.find(row => row.id === id) },
   }
@@ -70,6 +73,13 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: single, role: 'general', workMode: 'cat', projectId: project.id })
     assert.ok(ctx.tools.get('cat_project_summary'))
+    const search = t.mock.method(service.reviewCache.constructor.prototype, 'search', async () => [[]])
+    for (const turn of [1, 2]) {
+      const messages = [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] })]
+      const decision = await ctx.waterfall('agent/pre-step', { agent, turn, step: 0, messages, signal: new AbortController().signal } as never, async () => ({ kind: 'enter' as const, messages }))
+      assert.deepEqual(decision.messages, messages)
+      assert.equal(search.mock.callCount(), 0, 'new and resumed chat reach the model without starting semantic search')
+    }
     preset = 'standard'
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.equal(new BindingStore(root).session(agent.id), undefined)
@@ -336,11 +346,18 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
     await assert.rejects(cat.execute({}, exec as never), /ERR_SQLITE_ERROR|unhealthy/)
     renameSync(`${path}.held`, path)
     assert.ok(await cat.execute({}, exec as never))
-    const prepared = await workingCopy.execute(workingArgs, exec as never) as {
-      path: string; segments: number; artifactSha256: string; sourceSha256: string
+    let prepared: { path: string; segments: number; artifactSha256: string; sourceSha256: string } | undefined
+    if (scenario === 'bound-scope' || scenario === 'parent-scope') {
+      await assert.rejects(workingCopy.execute(workingArgs, exec as never), /超过已委派的句段范围/)
+      writeFileSync(join(root, 'synthetic.csv'), 'key,source,target\na,Start,开始\nb,Next,下一步\n')
+      await assert.rejects(workingCopy.execute({ ...workingArgs, sourcePath: 'synthetic.csv' }, exec as never), /超过已委派的句段范围/)
+      assert.equal(service.openProject(project.id).assets.countByProject(), 1)
+    } else {
+      prepared = await workingCopy.execute(workingArgs, exec as never) as NonNullable<typeof prepared>
+      assert.equal(prepared.segments, 1, 'A restored canonical CAT permits prepare without a dispatched model request')
     }
-    assert.equal(prepared.segments, 1, 'A restored canonical CAT permits prepare without a dispatched model request')
     if (scenario === 'general') {
+      assert.ok(prepared)
       const baseline = JSON.parse(readFileSync(join(root, prepared.path), 'utf8'))
       writeFileSync(join(root, 'working-decisions.json'), JSON.stringify({
         sourceSha256: prepared.sourceSha256, previousResultSha256: prepared.artifactSha256,

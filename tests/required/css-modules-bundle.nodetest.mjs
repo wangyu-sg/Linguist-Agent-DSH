@@ -23,11 +23,38 @@ async function loadCss(name) {
   const code = await plugin.load.call({ addWatchFile: path => watched.push(path) }, id)
   const styles = []
   const module = {}
-  runInNewContext(ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
+  const compiled = ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  runInNewContext(compiled, {
     exports: module,
     document: { querySelector: () => null, createElement: () => ({ dataset: {}, textContent: '' }), head: { appendChild: element => styles.push(element) } },
   })
-  return { names: module.default, css: styles.map(style => style.textContent).join('\n'), watched }
+  return { names: module.default, css: styles.map(style => style.textContent).join('\n'), watched, compiled }
+}
+
+function styleDocument(initial = []) {
+  const elements = [...initial], counts = { created: 0, appended: 0 }
+  const document = {
+    querySelector(selector) {
+      assert.match(selector, /^style\[data-linguist-css="[^"]+"\]$/)
+      const tag = JSON.parse(selector.slice('style[data-linguist-css='.length, -1))
+      return elements.find(element => element.dataset.linguistCss === tag) ?? null
+    },
+    createElement(name) { assert.equal(name, 'style'); counts.created++; return styleElement() },
+    head: { appendChild(element) { assert(element.dataset.linguistCss); assert(element.textContent); counts.appended++; elements.push(element) } },
+  }
+  return { document, elements, counts }
+}
+
+function styleElement(tag, initial = '') {
+  let text = initial
+  return { dataset: tag ? { linguistCss: tag } : {}, writes: 0,
+    get textContent() { return text }, set textContent(value) { this.writes++; text = value } }
+}
+
+function executeCss(result, document) {
+  const module = {}
+  runInNewContext(result.compiled, { exports: module, document })
+  return module.default
 }
 
 function includesClass(value, expected) {
@@ -47,6 +74,49 @@ test('real client CSS loader emits shared rules and complete external/local comp
   assert(projects.css.includes(`.${shared.names.field}{`), 'final injected CSS must contain shared vertical field layout')
   assert(projects.css.includes(`.${shared.names.toolbar}{`), 'final injected CSS must contain shared toolbar layout')
   assert(projects.watched.some(path => resolve(path) === join(clientRoot, 'Controls.module.css')), 'shared CSS must be watched by the native bundler')
+})
+
+test('real generated CSS loader updates an existing style in place and preserves its position and name', async () => {
+  const result = await loadCss('InlineTaggedText.module.css')
+  const before = styleElement('other/before', 'before'), existing = styleElement('@linguist/dsh-plugin/InlineTaggedText.module.css', 'old CSS'), after = styleElement('other/after', 'after')
+  const fixture = styleDocument([before, existing, after])
+  const names = executeCss(result, fixture.document)
+  assert.equal(existing.textContent, result.css)
+  assert(existing.textContent.includes(`.${names.underline}{`), 'hot application adds the actual emitted underline class to the old style node')
+  assert.deepEqual(fixture.elements, [before, existing, after], 'updating text must not append, remove or reorder styles')
+  assert.equal(existing.dataset.linguistCss, '@linguist/dsh-plugin/InlineTaggedText.module.css')
+  assert.equal(existing.writes, 1)
+  assert.deepEqual(fixture.counts, { created: 0, appended: 0 })
+  assert.equal(before.textContent, 'before'); assert.equal(after.textContent, 'after')
+})
+
+test('real generated CSS loader creates and appends a named style when first loaded', async () => {
+  const result = await loadCss('InlineTaggedText.module.css'), before = styleElement('other/before', 'before')
+  const fixture = styleDocument([before])
+  const names = executeCss(result, fixture.document)
+  assert.deepEqual(fixture.counts, { created: 1, appended: 1 })
+  assert.equal(fixture.elements.length, 2)
+  assert.strictEqual(fixture.elements[0], before)
+  assert.equal(fixture.elements[1].dataset.linguistCss, '@linguist/dsh-plugin/InlineTaggedText.module.css')
+  assert.equal(fixture.elements[1].textContent, result.css)
+  assert.equal(names.underline, result.names.underline)
+  assert.doesNotThrow(() => executeCss(result, undefined), 'the generated module remains safe without a browser document')
+})
+
+test('reexecuting the real generated CSS loader is idempotent after initial creation or an existing-style update', async () => {
+  const result = await loadCss('InlineTaggedText.module.css')
+  for (const existing of [undefined, styleElement('@linguist/dsh-plugin/InlineTaggedText.module.css', 'old CSS')]) {
+    const fixture = styleDocument(existing ? [existing] : [])
+    executeCss(result, fixture.document)
+    const element = fixture.elements[0], writes = element.writes, counts = { ...fixture.counts }
+    executeCss(result, fixture.document); executeCss(result, fixture.document)
+    assert.equal(element.textContent, result.css)
+    assert.equal(writes, 1)
+    assert.equal(element.writes, writes, 'identical CSS must not rewrite textContent')
+    assert.deepEqual(fixture.counts, counts)
+    assert.equal(fixture.elements.length, 1)
+    assert.strictEqual(fixture.elements[0], element)
+  }
 })
 
 test('every real CSS Module composition resolves to emitted class names without unresolved dependencies', async () => {

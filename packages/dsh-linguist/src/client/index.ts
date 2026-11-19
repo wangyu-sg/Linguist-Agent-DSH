@@ -68,7 +68,7 @@ function CatPage(props: PropsRuntime<'sidebar.right.pane.tab'> & { onCancelRun: 
   if (error) return createElement('p', { role: 'alert', className: styles.error }, error)
   if (loading) return createElement('p', { role: 'status', className: styles.notice }, t('正在验证 CAT 会话绑定…'))
   if (binding?.projectId !== projectId || binding.workMode !== 'cat') return createElement('p', { role: 'alert', className: styles.error }, t('当前 DSH Session 未绑定此 CAT 项目。'))
-  return createElement(CatWorkbench, { key: projectId, projectId, sessionId, onCancelRun: () => props.onCancelRun(sessionId), onOpenSession: props.onOpenSession, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
+  return createElement(CatWorkbench, { key: `${sessionId}/${projectId}/${binding.taskGroupId ?? ''}`, projectId, taskGroupId: binding.taskGroupId, sessionId, onCancelRun: () => props.onCancelRun(sessionId), onOpenSession: props.onOpenSession, onSendAgentTask: (text: string, context: LinguistTurnContextV1) => props.onSendAgentTask(sessionId, text, context), onOpenBatchPreview: (assetId: string) => props.onOpenBatchPreview(sessionId, projectId, assetId), capabilities: props.capabilities })
 }
 
 function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
@@ -87,7 +87,7 @@ function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
     let live = true
     getBinding(sessionId).then((binding) => {
       if (binding?.projectId !== projectId || binding.workMode !== 'cat') throw new Error(t('当前 DSH Session 未绑定此 CAT 项目。'))
-      return required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId })
+      return required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId, taskGroupId: binding.taskGroupId })
     }).then((summary) => {
       if (!live) return
       const found = summary.assets.find((item) => item.assetId === assetId)
@@ -102,10 +102,10 @@ function BatchPreviewPage(props: PropsRuntime<'sidebar.right.pane.tab'>) {
   return createElement(BatchPreview, { projectId, asset, onClose: () => info.tab.actions.close() })
 }
 
-function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser, openCopy, openRoleSession, onNewTask }: { sessionId: string; preset: string | null | undefined; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openBrowser: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
+function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openCopy, openRoleSession, onNewTask }: { sessionId: string; preset: string | null | undefined; openCat: (sessionId: string, projectId: string) => void; openWorkingCopy: (sessionId: string) => void; openCopy: (sessionId: string) => void; openRoleSession: (binding: LinguistBinding, role: Role) => Promise<void>; onNewTask: (binding: LinguistBinding, kind: 'general' | 'continue') => Promise<void> }) {
   const t = useT()
   const { binding, error } = useBinding(sessionId, preset)
-  const [projectName, setProjectName] = useState<{ projectId: string; name: string }>()
+  const [projectName, setProjectName] = useState<{ projectId: string; name: string; taskGroupName?: string }>()
   const [projectError, setProjectError] = useState('')
   const [actionError, setActionError] = useState('')
   const [roleBusy, setRoleBusy] = useState(false)
@@ -120,13 +120,13 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
     const refreshName = () => {
       const current = ++request
       required<LinguistProjectSummary>('linguistProjectsGetSummary', { projectId: binding.projectId })
-        .then((summary) => { if (live && current === request) { setProjectName({ projectId: binding.projectId!, name: summary.project.name }); setProjectError('') } })
+        .then((summary) => { if (live && current === request) { setProjectName({ projectId: binding.projectId!, name: summary.project.name, taskGroupName: summary.taskGroups?.find(group => group.id === binding.taskGroupId)?.name }); setProjectError('') } })
         .catch((cause: unknown) => { if (live && current === request) setProjectError(String(cause)) })
     }
     refreshName()
     const unsubscribe = subscribeProject(binding.projectId, 0, (event) => { if (event.kind === 'project-updated') refreshName() }, refreshName)
     return () => { live = false; unsubscribe() }
-  }, [binding?.projectId])
+  }, [binding?.projectId, binding?.taskGroupId])
   if (error) return createElement(Tooltip, { label: error, portal: true, openOnClick: true, children: createElement<React.HTMLAttributes<HTMLSpanElement>>('span', { className: `${styles.error} ${styles.headerMessage}`, tabIndex: 0, role: 'alert', 'aria-label': `${t('Linguist 绑定读取失败')}：${error}` }, t('Linguist 绑定读取失败')) })
   if (!binding) {
     if (!detached) return null
@@ -161,15 +161,13 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openBrowser
     finally { setDetachBusy(false) }
   }
   const modeLabel = t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])
-  const projectLabel = binding.projectId && projectName?.projectId === binding.projectId ? projectName.name : binding.projectId?.slice(0, 12)
+  const projectLabel = binding.projectId && projectName?.projectId === binding.projectId ? [projectName.name, projectName.taskGroupName].filter(Boolean).join(' / ') : binding.projectId?.slice(0, 12)
   const identity = `${roleLabel} · ${modeLabel}${projectLabel ? ` · ${projectLabel}` : ''}`
   const openAction = binding.projectId && binding.workMode === 'cat'
     ? { label: t('打开 CAT'), description: t('打开 Linguist CAT 工作台'), run: () => openCat(sessionId, binding.projectId!) }
     : binding.workMode === 'working-copy'
       ? { label: t('打开工作副本'), description: t('打开工作副本'), run: () => openWorkingCopy(sessionId) }
-      : binding.workMode === 'browser'
-        ? { label: t('打开浏览器'), description: t('打开浏览器'), run: () => openBrowser(sessionId) }
-        : null
+      : null
   const runOpen = () => {
     if (openAction === null) return
     try { openAction.run(); setActionError('') } catch (cause) { setActionError(String(cause)) }
@@ -265,10 +263,6 @@ export function apply(ctx: Context): void {
     ...(sessionId ? { onOpenFile: (path: string) => openWorkingFile(sessionId, path), onOpenFiles: () => openFiles(sessionId) } : {}),
   })
   const openCopy = (sessionId: string) => ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], COPY_KIND)
-  const openBrowser = (sessionId: string) => {
-    if (ctx.sidebarRightTabs.get('browserskill-observation') === undefined) throw new Error(t('BrowserSkill 观察面板未安装或未加载'))
-    ctx.sidebarRight.openTabIn(sessionId as Parameters<typeof ctx.sidebarRight.openTabIn>[0], 'browserskill-observation')
-  }
   const pendingAgentTasks = new Map<string, { text: string; scope: string; requestId: SessionRequestId }>()
   const sendAgentTask = async (sessionId: string, prompt: string, context: LinguistTurnContextV1) => {
     const id = sessionId as Parameters<typeof ctx.sessions.scope>[0]
@@ -317,26 +311,25 @@ export function apply(ctx: Context): void {
     if (navigation.aborted) return
     if (binding.workMode === 'cat' && binding.projectId) openCat(binding.sessionId, binding.projectId)
     if (binding.workMode === 'working-copy') openWorkingCopy(binding.sessionId)
-    if (binding.workMode === 'browser') openBrowser(binding.sessionId)
   }
-  const enter = async (input: { projectId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }, navigation = ctx.layout.beginNavigation()) => {
+  const enter = async (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }, navigation = ctx.layout.beginNavigation()) => {
     const id = await ctx.sessions.create({ workspaceId: input.workspaceId })
     const selected = await ctx.remote.agentPresets.select(id, 'linguist')
     if (!selected.ok) throw new Error(selected.error.message)
-    const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
+    const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, taskGroupId: input.taskGroupId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
     if (!navigation.aborted) await openBoundSession(binding, true)
   }
   const newProjectTask = async (binding: LinguistBinding, kind: 'general' | 'continue') => {
     const navigation = ctx.layout.beginNavigation()
     const current = await getBinding(binding.sessionId)
     if (navigation.aborted) return
-    if (!current?.projectId || current.projectId !== binding.projectId || current.workspaceId !== binding.workspaceId || current.role !== binding.role || current.workMode !== binding.workMode || (kind === 'general' && current.workMode !== 'cat')) throw new Error(t('当前会话绑定已变化，请刷新后重试。'))
+    if (!current?.projectId || current.projectId !== binding.projectId || current.workspaceId !== binding.workspaceId || current.role !== binding.role || current.workMode !== binding.workMode || current.taskGroupId !== binding.taskGroupId || (kind === 'general' && current.workMode !== 'cat')) throw new Error(t('当前会话绑定已变化，请刷新后重试。'))
     const opened = await required<LinguistProjectOpenResult>('linguistProjectsOpen', { projectId: current.projectId })
     if (navigation.aborted) return
     if (opened.project.id !== current.projectId || opened.health.projectId !== current.projectId) throw new Error(t('项目身份校验失败'))
     if (opened.project.archivedAt !== undefined) throw new Error(t('已归档，只读'))
     if (!opened.health.healthy) throw new Error(t('需要修复'))
-    await enter({ projectId: current.projectId, workspaceId: current.workspaceId as WorkspaceId, role: kind === 'general' ? 'general' : current.role, workMode: current.workMode }, navigation)
+    await enter({ projectId: current.projectId, taskGroupId: current.taskGroupId, workspaceId: current.workspaceId as WorkspaceId, role: kind === 'general' ? 'general' : current.role, workMode: current.workMode }, navigation)
   }
   const visitedSessions: Parameters<typeof ctx.sessions.scope>[0][] = []
   ctx.effect(() => {
@@ -351,7 +344,7 @@ export function apply(ctx: Context): void {
     return ctx.sidebarRight.mounted.subscribe(remember)
   }, 'linguist: project Session visits')
   const pendingProjectSessions = new Map<string, Promise<LinguistBinding>>()
-  const openProject = async (projectId: string, dock?: 'qa' | 'proposals') => {
+  const openProject = async (projectId: string, dock?: 'qa' | 'proposals', taskGroupId?: string, assetId?: string) => {
     const navigation = ctx.layout.beginNavigation()
     const opened = await required<LinguistProjectOpenResult & { project: { workspaceId?: string } }>('linguistProjectsOpen', { projectId })
     if (navigation.aborted) return
@@ -359,7 +352,8 @@ export function apply(ctx: Context): void {
     if (!opened.health.healthy) throw new Error(t(opened.project.archivedAt !== undefined && opened.health.checks.some(check => check.upgradeRequired) && opened.health.checks.every(check => check.ok || check.upgradeRequired) ? '旧版本归档项目：请使用只读查看，部分数据可能无法查看' : '需要修复'))
     const workspace = ctx.workspaces.list.getSnapshot().items.find(item => item.workspaceId === opened.project.workspaceId)
     if (!workspace) throw new Error(t('请选择工作区，或先为项目建立关联。'))
-    let pending = pendingProjectSessions.get(projectId)
+    const key = projectId + '/' + (taskGroupId ?? '')
+    let pending = pendingProjectSessions.get(key)
     if (!pending) {
       pending = (async () => {
         await ctx.sessions.refresh()
@@ -373,18 +367,18 @@ export function apply(ctx: Context): void {
           const row = snapshot.byId[id]!
           if (row.cwd !== workspace.path || row.parentId !== undefined || row.origin === 'subagent') continue
           const binding = await getBinding(id)
-          if (binding?.projectId === projectId && binding.workspaceId === workspace.workspaceId && binding.workMode === 'cat') return binding
+          if (binding?.projectId === projectId && binding.taskGroupId === taskGroupId && binding.workspaceId === workspace.workspaceId && binding.workMode === 'cat') return binding
         }
         const id = await ctx.sessions.create({ workspaceId: workspace.workspaceId })
         const selected = await ctx.remote.agentPresets.select(id, 'linguist')
         if (!selected.ok) throw new Error(selected.error.message)
-        return bindSession({ sessionId: String(id), projectId, role: 'general', workMode: 'cat' }, String(workspace.workspaceId))
-      })().finally(() => pendingProjectSessions.delete(projectId))
-      pendingProjectSessions.set(projectId, pending)
+        return bindSession({ sessionId: String(id), projectId, taskGroupId, role: 'general', workMode: 'cat' }, String(workspace.workspaceId))
+      })().finally(() => pendingProjectSessions.delete(key))
+      pendingProjectSessions.set(key, pending)
     }
     const binding = await pending
     if (!navigation.aborted) {
-      if (dock) requestCatNavigation({ sessionId: binding.sessionId, projectId, dock })
+      if (dock || assetId) requestCatNavigation({ sessionId: binding.sessionId, projectId, dock, assetId })
       await openBoundSession(binding, true)
     }
   }
@@ -424,7 +418,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: WORKING_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkingCopyPage, { sessionId: String(props.sessionId), onOpenFile: (path: string) => openWorkingFile(String(props.sessionId), path) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy, true) }))))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), preset: props.useProjection('agentPreset'), openCat, openWorkingCopy, openBrowser, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), preset: props.useProjection('agentPreset'), openCat, openWorkingCopy, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, taskGroupId: binding.taskGroupId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId), connect: connectReference, inputActions: props.inputActions }))))
   ctx.slots.inject('tool.call.toolview', function* () {
     for (const toolName of catToolNames) yield ctx.slots.register({ name: 'tool.call.toolview', key: toolName }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(CatToolResult, { props, onNavigate: navigateToToolResult })))

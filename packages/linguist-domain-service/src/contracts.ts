@@ -1,5 +1,9 @@
 export type * from './client-contracts'
 export { LINGUIST_IPC_ERROR_CODES } from './client-contracts'
-export const LINGUIST_FILE_MAX_BYTES = 512 * 1024 * 1024
+export const LINGUIST_FILE_MAX_BYTES = 1024 * 1024 * 1024
 export type { ProjectDiscoveryScope } from './project-discovery-scope'
 export type { LinguistRestorePreview } from './project-service-types'
+
+export type { ProjectResource, ProjectLibraryItem } from './project-library'
+
+export type { TaskGroup, TaskGroupChange } from '@linguist/cat-store'

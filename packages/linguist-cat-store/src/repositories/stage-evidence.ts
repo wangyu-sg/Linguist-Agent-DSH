@@ -11,6 +11,7 @@ import type {
   WorkflowStage,
 } from '@linguist/cat-core'
 import { createStageEvidenceBaseline, deriveStableIdV2, fnv1a64 } from '@linguist/cat-core'
+import { TaskGroupsRepository } from './task-groups'
 import type { CatDatabase } from '../database'
 import { StoreNotFoundError } from '../errors'
 import type { ProjectRule } from '../project-database'
@@ -506,8 +507,12 @@ export class StageEvidenceRepository {
   }
 
   private evidenceChanged(state: StageEvidenceState): boolean {
+    const groups = new TaskGroupsRepository(this.db, this.now)
+    if (this.db.schemaVersion >= 21 && state.plan.assetIds.some(id => groups.groupOf(id) !== (state.plan.taskGroupId ?? 'ungrouped'))) return true
+    if (state.plan.taskGroupId && state.plan.materialVersion !== groups.materialVersion(state.plan.taskGroupId)) return true
+    const hidden = groups.hidden(state.plan.taskGroupId)
     const plannedRefs = new Set(state.plan.requirements.map(item => evidenceRefKey(item.evidence.ref)))
-    const newlyLinked = this.contextDocs.list({ limit: this.contextDocs.count() }).some(doc => !plannedRefs.has(`context-doc\u0000${doc.id}`)
+    const newlyLinked = this.contextDocs.list({ limit: this.contextDocs.count() }).some(doc => !hidden.has('document:' + (doc.parentContextDocId ?? doc.id)) && !plannedRefs.has(`context-doc\u0000${doc.id}`)
       && this.contextDocs.listEvidenceLinks(doc.id).some(link => link.relation.kind === 'segment'
         ? state.plan.segmentIds.includes(link.relation.segmentId) : state.plan.assetIds.includes(link.relation.assetId)))
     if (newlyLinked) return true

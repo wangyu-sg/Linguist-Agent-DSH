@@ -1,3 +1,4 @@
+import { TaskGroupsRepository } from './task-groups'
 import { deriveStableIdV2, matchTmCandidates, tmSourceHash, type Segment, type TmMatchCandidate, type WorkflowStageEvent } from '@linguist/cat-core'
 import type { CatDatabase } from '../database'
 import { StoreNotFoundError } from '../errors'
@@ -32,6 +33,7 @@ export interface ApprovedExemplar {
 export interface ApprovedExemplarInput extends Omit<ApprovedExemplar, 'id' | 'approvedAt'> {}
 
 export interface ApprovedExemplarSearch {
+  taskGroupId?: string
   speaker?: string
   textType?: string
   module?: string
@@ -60,6 +62,7 @@ export interface ReferenceImportResult {
 }
 
 export interface TmUnitSearch {
+  taskGroupId?: string
   /** Case-insensitive literal substring matched against source OR target. */
   query?: string
   sourceLocale?: string
@@ -86,6 +89,7 @@ interface TmUnitRow {
   source_inline_xml: string | null
   target_inline_xml: string | null
   source_label?: string | null
+  source_enabled?: number | null
   source_priority?: number | null
 }
 
@@ -139,7 +143,25 @@ function tmUnitFromRow(row: TmUnitRow): TmUnit {
   }
 }
 
-function tmMatchCandidateFromRow(row: TmUnitRow): TmStoredMatchCandidate {
+function tmMatchCandidateFromRow(row: TmUnitRow, group?: string): TmStoredMatchCandidate {
+  let localMetadata: Record<string, string | string[]> | undefined
+  if (row.local_metadata_json) {
+    localMetadata = JSON.parse(row.local_metadata_json) as Record<string, string | string[]>
+    for (const [recordsKey, countKey] of [['la_confirmations', 'la_confirmation_count'], ['la_reuse_records', 'la_reuse_count']] as const) {
+      const records = localMetadata[recordsKey]
+      if (!Array.isArray(records)) continue
+      const visible = records.filter(record => {
+        const { taskGroupId } = JSON.parse(record) as { taskGroupId?: string }
+        const origin = row.source_id?.startsWith('confirmed:') ? row.source_id.split(':')[2] : undefined
+        return !taskGroupId || taskGroupId === group || (recordsKey === 'la_confirmations' && taskGroupId === origin)
+      })
+      localMetadata[recordsKey] = visible
+      localMetadata[countKey] = String(visible.length)
+      if (recordsKey === 'la_confirmations') localMetadata.la_task_ids = [...new Set(visible.map(record => String(JSON.parse(record).taskId)))]
+      if (recordsKey === 'la_reuse_records' && visible.length !== records.length) delete localMetadata.la_last_used_at
+    }
+    if (!Number(localMetadata.la_confirmation_count) && !Number(localMetadata.la_reuse_count)) localMetadata = undefined
+  }
   return {
     unitId: row.id,
     source: row.source,
@@ -153,7 +175,7 @@ function tmMatchCandidateFromRow(row: TmUnitRow): TmStoredMatchCandidate {
     ...(row.metadata_json === null
       ? {}
       : { metadata: JSON.parse(row.metadata_json) as Record<string, string | string[]> }),
-    ...(row.local_metadata_json == null ? {} : { localMetadata: JSON.parse(row.local_metadata_json) as Record<string, string | string[]> }),
+    ...(localMetadata ? { localMetadata } : {}),
     ...(row.source_inline_xml === null
       ? {}
       : { sourceInline: row.source_inline_xml }),
@@ -200,6 +222,24 @@ function buildWhere(projectId: string, filter: TmUnitSearch): { where: string; p
 }
 
 export class TmUnitsRepository {
+  private excludedSources(group?: string): string[] {
+    return [...new TaskGroupsRepository(this.db, this.now).hidden(group)].flatMap(key =>
+      key.startsWith('reference:') ? [deriveStableIdV2('tms', [this.projectId, key.slice(10)])] :
+      key.startsWith('tm-source:') ? [key.slice(10)] :
+      key.startsWith('exemplar:') ? [key.slice(9)] : [])
+  }
+
+  private where(filter: TmUnitSearch) {
+    const base = buildWhere(this.projectId, filter)
+    const excluded = this.excludedSources(filter.taskGroupId)
+    if (excluded.length) {
+      base.where += " AND COALESCE(source_id, '') NOT IN (SELECT value FROM json_each(?)) AND id NOT IN (SELECT value FROM json_each(?))"
+      const ids = JSON.stringify(excluded)
+      base.params.push(ids, ids)
+    }
+    return base
+  }
+
   private readonly candidates = new Map<string, TmStoredMatchCandidate[]>()
   private dataVersion?: number
 
@@ -276,15 +316,18 @@ export class TmUnitsRepository {
   /** A stage decision is recorded atomically with its TU; it is not customer approval. */
   addConfirmed(segment: Segment, event: WorkflowStageEvent, taskId: string): void {
     this.db.transaction(`record confirmed TM ${segment.id}`, () => {
-      const row = this.db.db.prepare(`SELECT * FROM tm_units WHERE project_id = ? AND source_locale = ?
-        AND target_locale = ? AND source = ? AND target = ? ORDER BY created_at, id LIMIT 1`)
-        .get(this.projectId, segment.sourceLocale, segment.targetLocale, segment.source, segment.target) as TmUnitRow | undefined
+      const groups = new TaskGroupsRepository(this.db, this.now)
+      const taskGroupId = groups.groupOf(segment.assetId)!
+      groups.requireActive(taskGroupId)
+      const { where, params } = this.where({ sourceLocale: segment.sourceLocale, targetLocale: segment.targetLocale, taskGroupId })
+      const row = this.db.db.prepare(`SELECT * FROM tm_units ${where} AND source = ? AND target = ? ORDER BY created_at, id LIMIT 1`)
+        .get(...params, segment.source, segment.target) as TmUnitRow | undefined
       const { event_id: eventId } = this.db.db.prepare('SELECT event_id FROM segment_stage_events WHERE segment_id = ? ORDER BY event_id DESC LIMIT 1')
         .get(segment.id) as { event_id: number }
       const metadata = row?.local_metadata_json ? JSON.parse(row.local_metadata_json) as Record<string, string | string[]> : {}
       const confirmations = Array.isArray(metadata.la_confirmations) ? metadata.la_confirmations : []
       if (confirmations.some(value => (JSON.parse(value) as { eventId: number }).eventId === eventId)) return
-      confirmations.push(JSON.stringify({ eventId, projectId: this.projectId, assetId: segment.assetId,
+      confirmations.push(JSON.stringify({ eventId, projectId: this.projectId, taskGroupId, assetId: segment.assetId,
         segmentId: segment.id, revision: event.segmentRevision, taskId, actor: event.actor ?? 'unknown',
         stage: event.stage, confirmedAt: event.createdAt }))
       metadata.la_confirmations = confirmations
@@ -295,12 +338,17 @@ export class TmUnitsRepository {
         this.db.db.prepare('UPDATE tm_units SET local_metadata_json = ?, locally_confirmed = 1 WHERE id = ?').run(JSON.stringify(metadata), row.id)
         this.clearCandidates()
       } else {
-        const sourceId = `confirmed:${this.projectId}`
+        // Reuse this group's own confirmation source. Promoting it starts a fresh group pool on the next new translation.
+        const active = this.db.db.prepare(`SELECT s.id FROM tm_sources s JOIN task_resource_refs r ON r.resource_key='tm-source:' || s.id
+          WHERE s.id LIKE ? AND r.scope=? AND NOT EXISTS (SELECT 1 FROM task_resource_refs other WHERE other.resource_key=r.resource_key AND other.scope<>r.scope)
+          ORDER BY s.created_at, s.id LIMIT 1`).get(`confirmed:${this.projectId}:${taskGroupId}:%`, taskGroupId) as { id: string } | undefined
+        const sourceId = active?.id ?? `confirmed:${this.projectId}:${taskGroupId}:${eventId}`
+        if (!active) groups.ref('tm-source:' + sourceId, taskGroupId, 'tm-source:' + sourceId)
         this.db.db.prepare(`INSERT OR IGNORE INTO tm_sources (id, project_id, kind, display_name, enabled, priority, created_at)
           VALUES (?, ?, 'legacy', 'Stage-confirmed TM', 1, 0, ?)`).run(sourceId, this.projectId, event.createdAt)
         const input = { source: segment.source, target: segment.target, sourceLocale: segment.sourceLocale,
           targetLocale: segment.targetLocale, sourceId,
-          occurrenceKey: JSON.stringify([segment.sourceLocale, segment.targetLocale, segment.source, segment.target]) }
+          occurrenceKey: JSON.stringify([taskGroupId, segment.sourceLocale, segment.targetLocale, segment.source, segment.target]) }
         this.importMany([input])
         this.db.db.prepare('UPDATE tm_units SET locally_confirmed = 1, local_metadata_json = ? WHERE id = ?').run(JSON.stringify(metadata), stableId(this.projectId, input))
       }
@@ -312,13 +360,16 @@ export class TmUnitsRepository {
       const row = this.db.db.prepare('SELECT * FROM tm_units WHERE id = ? AND project_id = ?').get(unitId, this.projectId) as TmUnitRow | undefined
       if (!row) throw new StoreNotFoundError('TM unit', unitId)
       if (row.source_locale !== segment.sourceLocale || row.target_locale !== segment.targetLocale) throw new Error('TM reuse language pair does not match the segment')
-      const candidate = tmMatchCandidateFromRow(row)
+      const taskGroupId = new TaskGroupsRepository(this.db, this.now).groupOf(segment.assetId)
+      const hidden = this.excludedSources(taskGroupId)
+      if (hidden.includes(row.id) || hidden.includes(row.source_id ?? '')) throw new Error('TM unit is outside the segment task group')
+      const candidate = tmMatchCandidateFromRow(row, taskGroupId)
       if (target !== row.target && target !== matchTmCandidates(segment.source, [candidate], { minimumScore: 0 })[0]?.adaptation?.candidate) {
         throw new Error('TM reuse target does not match the original or adapted candidate')
       }
       const metadata = row.local_metadata_json ? JSON.parse(row.local_metadata_json) as Record<string, string | string[]> : {}
       const records = Array.isArray(metadata.la_reuse_records) ? metadata.la_reuse_records : []
-      const value = JSON.stringify(record)
+      const value = JSON.stringify({ ...record, taskGroupId })
       if (records.includes(value)) return
       records.push(value)
       metadata.la_reuse_records = records
@@ -332,7 +383,10 @@ export class TmUnitsRepository {
   addApprovedExemplar(input: ApprovedExemplarInput): ApprovedExemplar {
     if (input.target.trim() === '') throw new Error('Approved exemplar target must not be empty')
     return this.db.transaction(`upsert approved exemplar ${input.segmentId}`, () => {
+      const groups = new TaskGroupsRepository(this.db, this.now)
+      const taskGroupId = groups.groupOf(input.assetId)
       const existing = this.listApprovedExemplars({
+        taskGroupId,
         speaker: input.speaker,
         textType: input.textType,
         limit: Number.MAX_SAFE_INTEGER,
@@ -376,6 +430,7 @@ export class TmUnitsRepository {
       }
       this.importMany([importInput])
       const id = stableId(this.projectId, importInput)
+      if (taskGroupId && !existing) groups.ref('exemplar:' + id, taskGroupId, 'exemplar:' + id)
       return parseApprovedExemplar(this.db.db
         .prepare('SELECT * FROM tm_units WHERE id = ? AND project_id = ?')
         .get(id, this.projectId) as TmUnitRow)!
@@ -389,8 +444,9 @@ export class TmUnitsRepository {
         WHERE project_id = ? AND source_id = ?
         ORDER BY created_at DESC, id DESC`)
       .all(this.projectId, `approved:${this.projectId}`) as TmUnitRow[]
+    const hidden = new TaskGroupsRepository(this.db, this.now).hidden(filter.taskGroupId)
     const speaker = filter.speaker?.toLocaleLowerCase()
-    return rows
+    return rows.filter(row => !hidden.has('exemplar:' + row.id))
       .map(parseApprovedExemplar)
       .filter((item): item is ApprovedExemplar => item !== undefined)
       .filter((item) => speaker === undefined || item.speaker.toLocaleLowerCase() === speaker)
@@ -407,7 +463,7 @@ export class TmUnitsRepository {
   }
 
   list(filter: TmUnitSearch = {}): TmUnit[] {
-    const { where, params } = buildWhere(this.projectId, filter)
+    const { where, params } = this.where(filter)
     const rows = this.db.db
       .prepare(`SELECT * FROM tm_units ${where} ORDER BY created_at, id LIMIT ? OFFSET ?`)
       .all(...params, filter.limit ?? 500, filter.offset ?? 0) as TmUnitRow[]
@@ -416,7 +472,7 @@ export class TmUnitsRepository {
 
   /** Literal concordance with the actual source and its enabled state, not a scored match. */
   concordance(filter: TmUnitSearch = {}) {
-    const { where, params } = buildWhere(this.projectId, filter)
+    const { where, params } = this.where(filter)
     const rows = this.db.db.prepare(`
       SELECT u.*, s.display_name AS source_label, s.enabled AS source_enabled, s.kind AS source_kind
       FROM (SELECT * FROM tm_units ${where}) AS u
@@ -424,7 +480,7 @@ export class TmUnitsRepository {
       ORDER BY u.created_at, u.id LIMIT ? OFFSET ?
     `).all(...params, filter.limit ?? 50, filter.offset ?? 0) as Array<TmUnitRow & { source_enabled: number | null; source_kind: string | null }>
     return rows.map(row => {
-      const { unitId, ...candidate } = tmMatchCandidateFromRow(row)
+      const { unitId, ...candidate } = tmMatchCandidateFromRow(row, filter.taskGroupId)
       return {
         ...tmUnitFromRow(row),
         ...candidate,
@@ -436,7 +492,7 @@ export class TmUnitsRepository {
   }
 
   count(filter: Omit<TmUnitSearch, 'limit' | 'offset'> = {}): number {
-    const { where, params } = buildWhere(this.projectId, filter)
+    const { where, params } = this.where(filter)
     const row = this.db.db
       .prepare(`SELECT COUNT(*) AS n FROM tm_units ${where}`)
       .get(...params) as { n: number }
@@ -459,6 +515,7 @@ export class TmUnitsRepository {
     sourceLocale: string,
     targetLocale: string,
     exactSource?: string,
+    taskGroupId?: string,
   ): TmStoredMatchCandidate[] {
     const { data_version: dataVersion } = this.db.db.prepare('PRAGMA data_version').get() as { data_version: number }
     if (this.dataVersion !== dataVersion) {
@@ -468,9 +525,10 @@ export class TmUnitsRepository {
     const exactHash = exactSource === undefined
       ? undefined
       : tmSourceHash(exactSource, sourceLocale, targetLocale)
-    const key = JSON.stringify([sourceLocale, targetLocale, exactHash ?? null])
+    const excluded = new Set(this.excludedSources(taskGroupId))
+    const key = JSON.stringify([sourceLocale, targetLocale, exactHash, taskGroupId, [...excluded].sort()])
     // An outer transaction may roll back: its reads must not publish or reuse cached rows.
-    const cacheable = !this.db.db.isTransaction
+    const cacheable = this.db.readOnly || !this.db.db.isTransaction
     const cached = cacheable ? this.candidates.get(key) : undefined
     if (cached !== undefined) return cached
     const rows = (this.db.schemaVersion < 19 ? this.db.db.prepare(`
@@ -481,12 +539,12 @@ export class TmUnitsRepository {
       ORDER BY u.created_at, u.id
     `).all(this.projectId, sourceLocale, targetLocale) : this.db.db.prepare(`
       SELECT u.*, CASE WHEN s.enabled = 0 THEN 'Stage-confirmed TM (source paused)' ELSE s.display_name END AS source_label,
-        s.priority AS source_priority
+        s.priority AS source_priority, s.enabled AS source_enabled
       FROM tm_units AS u
       LEFT JOIN tm_sources AS s ON s.id = u.source_id AND s.project_id = u.project_id
       WHERE u.project_id = ? AND u.source_locale = ? AND u.target_locale = ?
         ${exactHash === undefined ? '' : 'AND u.source_hash = ?'}
-        AND (s.id IS NULL OR s.enabled = 1 ${this.db.schemaVersion < 20 ? '' : "OR (u.locally_confirmed = 1 AND s.id <> 'confirmed:' || u.project_id)"})
+        AND (s.id IS NULL OR s.enabled = 1 ${this.db.schemaVersion < 20 ? '' : "OR (u.locally_confirmed = 1 AND s.id NOT LIKE 'confirmed:%')"})
       ORDER BY COALESCE(s.priority, 0) DESC, u.created_at, u.id
     `).all(
       this.projectId,
@@ -494,7 +552,12 @@ export class TmUnitsRepository {
       targetLocale,
       ...(exactHash === undefined ? [] : [exactHash]),
     )) as TmUnitRow[]
-    const candidates = rows.filter(row => this.db.schemaVersion >= 19 || exactHash === undefined || tmSourceHash(row.source, sourceLocale, targetLocale) === exactHash).map(tmMatchCandidateFromRow)
+    const candidates = rows.flatMap(row => {
+      if (excluded.has(row.source_id ?? '') || excluded.has(row.id)) return []
+      if (this.db.schemaVersion < 19 && exactHash !== undefined && tmSourceHash(row.source, sourceLocale, targetLocale) !== exactHash) return []
+      const item = tmMatchCandidateFromRow(row, taskGroupId)
+      return row.source_enabled === 0 && !Number(item.localMetadata?.la_confirmation_count) ? [] : [item]
+    })
     if (cacheable) this.candidates.set(key, candidates)
     return candidates
   }

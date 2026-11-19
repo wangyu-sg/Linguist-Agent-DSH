@@ -22,7 +22,9 @@ export function createDeliveryTools(runtime: CatToolRuntime) {
     }),
     async execute(toolCallId, params) {
       const { db } = resolveBoundProject('cat_export_batch', toolCallId)
-      if (db.assets.get(params.batchId) === undefined) throw new LinguistCatBatchNotFoundError(params.batchId)
+      const batch = db.assets.get(params.batchId)
+      if (!batch) throw new LinguistCatBatchNotFoundError(params.batchId)
+      if (deps.delegatedScopeSegmentIds && db.segments.count({ assetId: batch.id, segmentIds: deps.delegatedScopeSegmentIds }) !== batch.segmentCount) throw new LinguistCatInvalidArgumentError('batchId', 'export includes segments outside the delegated task')
       if (deps.exportAsset === undefined) {
         throw new LinguistCatInvalidArgumentError('destinationPath', 'local export is unavailable')
       }

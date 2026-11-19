@@ -28,7 +28,7 @@ test('交付往返：单语 JSON 写入译文，双语 JSON/CSV 保留源文，�
         const bytes = new TextEncoder().encode(sample.original)
         const imported = await sample.adapter.import({ bytes, filename: sample.filename, sourceLocale: 'en', targetLocale: 'zh-CN' })
         const { asset, segments } = db.assets.insertImported(imported)
-        db.saveAssetSourceForImport(asset, bytes)
+        db.saveAssetSource(asset.id, bytes)
         const input = { project, projectDir: store.index.projectDir(project.id), db, assetId: asset.id, adapter: sample.adapter }
         const unmodified = await stageAssetExport(input)
         assert.deepEqual(readFileSync(unmodified.stagingPath), Buffer.from(bytes))
@@ -66,7 +66,7 @@ test('memoQ 交付：草稿保留原生状态，仅本轮确认按项目策略�
     const bytes = new Uint8Array(readFileSync(new URL('../../../tests/linguist-fixtures/sample.mqxliff', import.meta.url)))
     const imported = await adapter.import({ bytes, filename: 'sample.mqxliff', sourceLocale: project.sourceLocale, targetLocale: project.targetLocale })
     const { asset, segments } = db.assets.insertImported(imported)
-    db.saveAssetSourceForImport(asset, bytes)
+    db.saveAssetSource(asset.id, bytes)
     const input = { project, projectDir: store.index.projectDir(project.id), db, assetId: asset.id, adapter }
     const original = await stageAssetExport(input)
     assert.deepEqual(readFileSync(original.stagingPath), Buffer.from(bytes))
@@ -155,7 +155,7 @@ test('openProject: creates a verifiable pre-migration backup before schema updat
 
   const migrated = store.openProject(project.id)
   try {
-    assert.equal(migrated.schemaVersion, 20)
+    assert.equal(migrated.schemaVersion, 21)
   } finally {
     migrated.close()
   }
@@ -166,7 +166,7 @@ test('openProject: creates a verifiable pre-migration backup before schema updat
   const manifest = readBackupManifest(backupDir)
   assert.ok(manifest)
   assert.equal(manifest.schemaVersion, 18)
-  assert.deepEqual(manifest.migration, { fromSchema: 18, toSchema: 20 })
+  assert.deepEqual(manifest.migration, { fromSchema: 18, toSchema: 21 })
 
   const backupDb = store.openBackupDatabase(project.id, backup.name)
   try {
@@ -217,6 +217,11 @@ test('read-only project access leaves an interrupted restore untouched until a w
   for (const name of ['cat.db', 'project.json', 'source', 'blobs']) cpSync(join(dir, name), join(snapshot, name), { recursive: true })
   writeFileSync(join(snapshot, 'source', 'synthetic.txt'), 'before restore')
   writeFileSync(join(dir, 'source', 'synthetic.txt'), 'during restore')
+  const snapshotFile = 'platform-ast-0000000000000001.json'
+  writeFileSync(join(snapshot, snapshotFile), '{"origin":"before"}')
+  writeFileSync(join(dir, snapshotFile), '{"origin":"partial-restore"}')
+  writeFileSync(join(snapshot, 'project-library.json'), '{"resources":[]}')
+  writeFileSync(join(dir, 'project-library.json'), '{}')
   const journal = join(dir, 'backups', RESTORE_TRANSACTION_FILE)
   writeFileSync(journal, JSON.stringify({ version: 1, projectId: project.id, backupName: `backup-${stamp}`, preRestoreName: `pre-restore-${stamp}`, stamp }))
   try {
@@ -228,6 +233,8 @@ test('read-only project access leaves an interrupted restore untouched until a w
     assert.equal(existsSync(journal), true)
     store.openProject(project.id).close()
     assert.equal(readFileSync(join(dir, 'source', 'synthetic.txt'), 'utf8'), 'before restore')
+    assert.equal(readFileSync(join(dir, snapshotFile), 'utf8'), '{"origin":"before"}')
+    assert.equal(readFileSync(join(dir, 'project-library.json'), 'utf8'), '{"resources":[]}')
     assert.equal(existsSync(journal), false)
     store.archiveProject(project.id)
     store.openProject(project.id, { readOnly: true }).close()

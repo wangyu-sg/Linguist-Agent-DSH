@@ -27,7 +27,7 @@ test('browser multipart preserves UTF-8 filenames for import results and errors'
 })
 
 test('streaming upload accepts the exact inclusive limit and rejects one more byte without retaining staging', async () => {
-  assert.equal(LINGUIST_FILE_MAX_BYTES, 536_870_912)
+  assert.equal(LINGUIST_FILE_MAX_BYTES, 1_073_741_824)
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-upload-boundary-')))
   try {
     const files = new ManagedFiles(root, 32)

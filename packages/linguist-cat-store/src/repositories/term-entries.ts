@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { TaskGroupsRepository } from './task-groups'
 import {
   deriveStableIdV2,
   evaluateSegmentTermPolicy,
@@ -41,6 +43,7 @@ export interface TermEntryUpsertInput extends TermEntryImportInput {
 }
 
 export interface TermEntrySearch {
+  taskGroupId?: string
   /** Case-insensitive literal substring matched against term OR translation. */
   query?: string
   status?: TermEntryStatus
@@ -49,6 +52,7 @@ export interface TermEntrySearch {
 }
 
 export interface TermMatchOptions {
+  taskGroupId?: string
   text: string
   statuses?: readonly TermEntryStatus[]
   limit?: number
@@ -127,17 +131,6 @@ function termEntryFromRow(row: TermEntryRow): TermEntry {
     ...(row.category !== null ? { category: row.category } : {}),
     ...(row.image_ref !== null ? { imageRef: row.image_ref } : {}),
   }
-}
-
-// note/module/category/imageRef 是标注而非同一性的一部分：刻意不参与
-// stableId 与 sameContent——UI 编辑标注后重导入同一份 CSV 仍计
-// unchanged，不会因标注漂移撞 id（标注只经显式 id 的 upsert 更新）。
-function sameContent(row: TermEntryRow, projectId: string, input: TermEntryImportInput): boolean {
-  return row.project_id === projectId
-    && row.term === input.term
-    && row.translation === input.translation
-    && row.status === input.status
-    && row.case_sensitive === Number(input.caseSensitive)
 }
 
 function buildWhere(projectId: string, filter: TermEntrySearch): { where: string; params: unknown[] } {
@@ -264,6 +257,7 @@ function occurrences(text: string, term: string, wholeToken = false): Array<{ st
 }
 
 interface CompiledTermbase {
+  hidden: Set<string>
   rows: TermEntryRow[]
   buckets: Map<string, TermEntryRow[]>
 }
@@ -279,6 +273,18 @@ interface PositionedMatch {
 
 export class TermEntriesRepository {
   private compiled?: CompiledTermbase
+  private compiledScope?: string
+  private compiledVersion?: number
+
+  private visibility(group?: string) {
+    const hidden = new Set([...new TaskGroupsRepository(this.db, this.now).hidden(group)].filter(key => key.startsWith('reference:') || key.startsWith('term:')))
+    const keys = JSON.stringify([...hidden].sort())
+    const sql = hidden.size ? ` AND (('term:' || term_entries.id NOT IN (SELECT value FROM json_each(?))
+        AND (NOT EXISTS (SELECT 1 FROM term_entry_sources s WHERE s.term_id=term_entries.id) OR EXISTS (SELECT 1 FROM task_resource_refs r WHERE r.resource_key='term:' || term_entries.id)))
+        OR EXISTS (SELECT 1 FROM term_entry_sources s WHERE s.term_id=term_entries.id AND 'reference:' || s.reference_id NOT IN (SELECT value FROM json_each(?))))` : ''
+    return { sql, params: hidden.size ? [keys, keys] : [], hidden, keys }
+  }
+
 
   constructor(
     private readonly db: CatDatabase,
@@ -291,7 +297,8 @@ export class TermEntriesRepository {
     return this.db.transaction('import term entries', () => {
       const find = this.db.db.prepare('SELECT * FROM term_entries WHERE id = ?')
       const existingContent = new Map(
-        (this.db.db.prepare('SELECT id, term, translation, status, case_sensitive FROM term_entries WHERE project_id = ?')
+        (this.db.db.prepare(`SELECT id, term, translation, status, case_sensitive FROM term_entries WHERE project_id = ?
+          ${referenceId ? 'AND EXISTS (SELECT 1 FROM term_entry_sources s WHERE s.term_id=term_entries.id)' : ''}`)
           .all(this.projectId) as Array<Pick<TermEntryRow, 'id' | 'term' | 'translation' | 'status' | 'case_sensitive'>>)
           .map((row) => [contentKey({
             term: row.term,
@@ -318,7 +325,9 @@ export class TermEntriesRepository {
           unchanged++
           continue
         }
-        const id = stableId(this.projectId, input)
+        let id = stableId(this.projectId, input)
+        // Keep a scoped manual annotation independent of the same pair arriving from a file.
+        if (referenceId && find.get(id)) id = deriveStableIdV2('ter', [this.projectId, 'import', id])
         const existing = find.get(id) as TermEntryRow | undefined
         if (existing !== undefined) {
           if (existing.project_id !== this.projectId) {
@@ -345,12 +354,41 @@ export class TermEntriesRepository {
         existingContent.set(key, id)
         imported++
       }
-      if (imported > 0) {
-        this.compiled = undefined
-        this.events?.appendProjectEvent({ kind: 'project-updated' })
-      }
+      this.compiled = undefined
+      if (imported > 0) this.events?.appendProjectEvent({ kind: 'project-updated' })
       return { imported, unchanged }
     })
+  }
+
+  countBySource(): Record<string, number> {
+    const rows = this.db.db.prepare(`SELECT reference_id, COUNT(*) AS count FROM term_entry_sources
+      JOIN term_entries ON term_entries.id = term_id WHERE project_id = ? GROUP BY reference_id`)
+      .all(this.projectId) as Array<{ reference_id: string; count: number }>
+    return Object.fromEntries(rows.map(row => [row.reference_id, row.count]))
+  }
+
+  /** Retire a registered file version after its replacement imported successfully. */
+  retireSource(referenceId: string): void {
+    this.db.transaction('retire term source', () => {
+      const rows = this.db.db.prepare(`SELECT DISTINCT term_id FROM term_entry_sources
+        JOIN term_entries ON term_entries.id = term_id WHERE reference_id = ? AND project_id = ?`)
+        .all(referenceId, this.projectId) as Array<{ term_id: string }>
+      this.db.db.prepare('DELETE FROM term_entry_sources WHERE reference_id = ?').run(referenceId)
+      const remove = this.db.db.prepare(`DELETE FROM term_entries WHERE id = ? AND project_id = ?
+        AND NOT EXISTS (SELECT 1 FROM term_entry_sources WHERE term_id = term_entries.id)
+        AND NOT EXISTS (SELECT 1 FROM task_resource_refs WHERE resource_key='term:' || term_entries.id)`)
+      for (const row of rows) remove.run(row.term_id, this.projectId)
+      this.compiled = undefined
+      this.events?.appendProjectEvent({ kind: 'project-updated' })
+    })
+  }
+
+  manualEntries(): TermEntry[] {
+    const scoped = this.db.schemaVersion >= 21 ? "OR EXISTS (SELECT 1 FROM task_resource_refs WHERE resource_key='term:' || term_entries.id)" : ''
+    const rows = this.db.db.prepare(`SELECT * FROM term_entries WHERE project_id=? AND (NOT EXISTS (SELECT 1 FROM term_entry_sources s WHERE s.term_id=term_entries.id)
+      ${scoped}) ORDER BY term,id`)
+      .all(this.projectId) as TermEntryRow[]
+    return rows.map(termEntryFromRow)
   }
 
   get(id: string): TermEntry | undefined {
@@ -360,7 +398,7 @@ export class TermEntriesRepository {
     return row === undefined ? undefined : this.fromRow(row)
   }
 
-  private fromRow(row: TermEntryRow): TermEntry {
+  private fromRow(row: TermEntryRow, hidden?: Set<string>): TermEntry {
     // Read-only pre-upgrade backups have no per-term source links.
     if (this.db.schemaVersion < 20) return termEntryFromRow(row)
     const sources = this.db.db.prepare(`SELECT r.id, r.original_filename AS filename, r.source_sha256 AS sha256,
@@ -368,10 +406,29 @@ export class TermEntriesRepository {
       FROM term_entry_sources s JOIN reference_imports r ON r.id = s.reference_id
       WHERE s.term_id = ? AND r.project_id = ? ORDER BY r.created_at, r.id, s.source_note`)
       .all(row.id, this.projectId) as Array<{ id: string; filename: string; sha256: string; term: string; translation: string; note: string }>
-    return { ...termEntryFromRow(row), ...(sources.length ? { sources: sources.map(({ note, ...source }) => ({ ...source, ...(note ? { note } : {}) })) } : {}) }
+    const visible = sources.filter(source => !hidden?.has('reference:' + source.id))
+    const entry = termEntryFromRow(row)
+    if (visible.length && visible.length !== sources.length && sources.some(source => source.note === (row.note ?? ''))) entry.note = visible[0]!.note || undefined
+    return { ...entry, ...(visible.length ? { sources: visible.map(({ note, ...source }) => ({ ...source, ...(note ? { note } : {}) })) } : {}) }
   }
 
-  upsert(input: TermEntryUpsertInput): TermEntry {
+  private assertWritable(id: string, group: string): void {
+    const groups = new TaskGroupsRepository(this.db, this.now)
+    if (group) groups.requireActive(group)
+    const refs = groups.refs()
+    const entryKey = 'term:' + id
+    const refsToEntry = refs.filter(ref => ref.resource_key === entryKey)
+    const sources = this.db.db.prepare('SELECT DISTINCT reference_id FROM term_entry_sources WHERE term_id=?').all(id) as { reference_id: string }[]
+    const owners = refsToEntry.map(ref => ref.scope)
+    for (const source of sources) {
+      const links = refs.filter(ref => ref.backing_key === 'reference:' + source.reference_id && ref.scope !== '@retired')
+      owners.push(...(links.length ? links.map(ref => ref.scope) : ['']))
+    }
+    if (!owners.length) owners.push('')
+    if (owners.some(scope => scope !== group)) throw new Error('术语由其他范围持有，请在原归属维护或创建本组条目')
+  }
+
+  upsert(input: TermEntryUpsertInput, taskGroupId = ''): TermEntry {
     const cleaned = cleanInput(input)
     return this.db.transaction(`upsert term entry ${cleaned.id ?? cleaned.term}`, () => {
       if (cleaned.id !== undefined) {
@@ -379,6 +436,7 @@ export class TermEntriesRepository {
           .prepare('SELECT id FROM term_entries WHERE id = ? AND project_id = ?')
           .get(cleaned.id, this.projectId)
         if (existing === undefined) throw new StoreNotFoundError('term entry', cleaned.id)
+        this.assertWritable(cleaned.id, taskGroupId)
         this.db.db
           .prepare(
             `UPDATE term_entries
@@ -403,28 +461,19 @@ export class TermEntriesRepository {
         return { ...cleaned, id: cleaned.id }
       }
 
-      const same = this.db.db.prepare(
-        `SELECT * FROM term_entries
-         WHERE project_id = ? AND term = ? AND translation = ? AND status = ? AND case_sensitive = ?
-         LIMIT 1`,
-      ).get(
-        this.projectId,
-        cleaned.term,
-        cleaned.translation,
-        cleaned.status,
-        Number(cleaned.caseSensitive),
-      ) as TermEntryRow | undefined
-      if (same !== undefined) return termEntryFromRow(same)
-      const id = stableId(this.projectId, cleaned)
-      const existing = this.db.db.prepare('SELECT * FROM term_entries WHERE id = ?').get(id) as
-        | TermEntryRow
-        | undefined
-      if (existing !== undefined) {
-        if (!sameContent(existing, this.projectId, cleaned)) {
-          throw new Error(`Term content id collision: ${id}`)
-        }
-        return termEntryFromRow(existing)
-      }
+      const groups = new TaskGroupsRepository(this.db, this.now)
+      if (taskGroupId) groups.requireActive(taskGroupId)
+      const key = 'term:'
+      // A repeated add reuses the entry in this scope. The same spelling in another scope stays independently editable.
+      const same = this.db.db.prepare(`SELECT t.* FROM term_entries t WHERE project_id=? AND term=? AND translation=? AND status=? AND case_sensitive=?
+        AND (EXISTS (SELECT 1 FROM task_resource_refs r WHERE r.resource_key='term:' || t.id AND r.scope=?)
+          OR (?='' AND NOT EXISTS (SELECT 1 FROM task_resource_refs r WHERE r.resource_key='term:' || t.id)
+            AND NOT EXISTS (SELECT 1 FROM term_entry_sources WHERE term_id=t.id))) ORDER BY created_at,id LIMIT 1`)
+        .get(this.projectId, cleaned.term, cleaned.translation, cleaned.status, Number(cleaned.caseSensitive), taskGroupId, taskGroupId) as TermEntryRow | undefined
+      if (same) return termEntryFromRow(same)
+      let id = stableId(this.projectId, cleaned)
+      if (this.db.db.prepare('SELECT 1 FROM term_entries WHERE id=?').get(id)) id = deriveStableIdV2('ter', [this.projectId, randomUUID()])
+      groups.ref(key + id, taskGroupId, key + id)
       this.db.db
         .prepare(
           `INSERT INTO term_entries
@@ -451,11 +500,13 @@ export class TermEntriesRepository {
   }
 
   list(filter: TermEntrySearch = {}): TermEntry[] {
-    const { where, params } = buildWhere(this.projectId, filter)
+    const visible = this.visibility(filter.taskGroupId)
+    const base = buildWhere(this.projectId, filter)
+    const where = base.where + visible.sql, params = [...base.params, ...visible.params]
     const rows = this.db.db
       .prepare(`SELECT * FROM term_entries ${where} ORDER BY created_at, id LIMIT ? OFFSET ?`)
       .all(...params, filter.limit ?? 500, filter.offset ?? 0) as TermEntryRow[]
-    return rows.map(row => this.fromRow(row))
+    return rows.map(row => this.fromRow(row, visible.hidden))
   }
 
   /** 现有只读工具使用的检索别名。 */
@@ -464,29 +515,36 @@ export class TermEntriesRepository {
   }
 
   count(filter: Omit<TermEntrySearch, 'limit' | 'offset'> = {}): number {
-    const { where, params } = buildWhere(this.projectId, filter)
+    const visible = this.visibility(filter.taskGroupId)
+    const base = buildWhere(this.projectId, filter)
+    const where = base.where + visible.sql, params = [...base.params, ...visible.params]
     const row = this.db.db
       .prepare(`SELECT COUNT(*) AS n FROM term_entries ${where}`)
       .get(...params) as { n: number }
     return Number(row.n)
   }
 
-  delete(id: string): void {
+  delete(id: string, taskGroupId = ''): void {
     this.db.transaction(`delete term entry ${id}`, () => {
+      this.assertWritable(id, taskGroupId)
       const result = this.db.db
         .prepare('DELETE FROM term_entries WHERE id = ? AND project_id = ?')
         .run(id, this.projectId)
       if (Number(result.changes) === 0) throw new StoreNotFoundError('term entry', id)
+      this.db.db.prepare('DELETE FROM task_resource_refs WHERE resource_key=?').run('term:' + id)
       this.compiled = undefined
       this.events?.appendProjectEvent({ kind: 'project-updated' })
     })
   }
 
-  private compile(): CompiledTermbase {
-    if (this.compiled !== undefined) return this.compiled
+  private compile(group?: string): CompiledTermbase {
+    const visible = this.visibility(group)
+    const { data_version: version } = this.db.db.prepare('PRAGMA data_version').get() as { data_version: number }
+    const cacheable = this.db.readOnly || !this.db.db.isTransaction
+    if (cacheable && this.compiledVersion === version && this.compiled !== undefined && this.compiledScope === visible.keys) return this.compiled
     const rows = this.db.db
-      .prepare('SELECT * FROM term_entries WHERE project_id = ?')
-      .all(this.projectId) as TermEntryRow[]
+      .prepare('SELECT * FROM term_entries WHERE project_id = ?' + visible.sql)
+      .all(this.projectId, ...visible.params) as TermEntryRow[]
     const buckets = new Map<string, TermEntryRow[]>()
     for (const row of rows) {
       const key = bucketKey(row.term)
@@ -495,7 +553,10 @@ export class TermEntriesRepository {
       bucket.push(row)
       buckets.set(key, bucket)
     }
-    this.compiled = { rows, buckets }
+    if (!cacheable) return { rows, buckets, hidden: visible.hidden }
+    this.compiledVersion = version
+    this.compiledScope = visible.keys
+    this.compiled = { rows, buckets, hidden: visible.hidden }
     return this.compiled
   }
 
@@ -508,11 +569,12 @@ export class TermEntriesRepository {
   }
 
   listConflicts(
-    options: Pick<TermMatchOptions, 'statuses' | 'module' | 'category'> = {},
+    options: Pick<TermMatchOptions, 'statuses' | 'module' | 'category' | 'taskGroupId'> = {},
   ): TermEntryConflict[] {
     const statuses = options.statuses === undefined ? undefined : new Set(options.statuses)
+    const compiled = this.compile(options.taskGroupId)
     const groups = Map.groupBy(
-      this.compile().rows.filter((row) =>
+      compiled.rows.filter((row) =>
         (statuses === undefined || statuses.has(row.status)) && this.applicable(row, options)),
       (row) => normalizeText(row.term),
     )
@@ -520,14 +582,14 @@ export class TermEntriesRepository {
       .filter(([term, rows]) => term !== '' && new Set(rows.map((row) => normalizeText(row.translation))).size > 1)
       .map(([normalizedTerm, rows]) => ({
         normalizedTerm,
-        entries: rows.map(termEntryFromRow).sort((left, right) => compareText(left.id, right.id)),
+        entries: rows.map(row => this.fromRow(row, compiled.hidden)).sort((left, right) => compareText(left.id, right.id)),
       }))
       .sort((left, right) => compareText(left.normalizedTerm, right.normalizedTerm))
   }
 
   findMatches(options: TermMatchOptions): TermEntryMatch[] {
     return this.findMatchesMany({
-      texts: [options.text],
+      texts: [options.text], taskGroupId: options.taskGroupId,
       ...(options.statuses !== undefined ? { statuses: options.statuses } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.module !== undefined ? { module: options.module } : {}),
@@ -536,7 +598,7 @@ export class TermEntriesRepository {
   }
 
   findMatchesMany(options: TermMatchManyOptions): ReadonlyMap<string, TermEntryMatch[]> {
-    const compiled = this.compile()
+    const compiled = this.compile(options.taskGroupId)
     return new Map(options.texts.map((text) => [
       text,
       this.matchRows(compiled, text, options),
@@ -613,7 +675,7 @@ export class TermEntriesRepository {
       conflictTranslations.set(key, translations)
     }
     return selected.slice(0, options.limit ?? 20).map((match) => ({
-      ...this.fromRow(match.row),
+      ...this.fromRow(match.row, compiled.hidden),
       matchType: match.matchType,
       conflict: (conflictTranslations.get(normalizeText(match.row.term))?.size ?? 0) > 1,
       start: match.start,
@@ -625,6 +687,7 @@ export class TermEntriesRepository {
   evaluateSegment(
     segment: Segment,
     target = segment.target,
+    taskGroupId = new TaskGroupsRepository(this.db, this.now).groupOf(segment.assetId),
   ): SegmentTermPolicyEvaluation<TermEntryMatch> {
     const module = segment.context?.meta?.module
     const category = segment.context?.meta?.category
@@ -638,7 +701,7 @@ export class TermEntriesRepository {
       ...(category === undefined ? {} : { category }),
       segmentMetadata: segment.context?.meta ?? {},
       candidates: this.findMatches({
-        text: segment.source,
+        text: segment.source, taskGroupId,
         limit: Number.MAX_SAFE_INTEGER,
         ...(module === undefined ? {} : { module }),
         ...(category === undefined ? {} : { category }),

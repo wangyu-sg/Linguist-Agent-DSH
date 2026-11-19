@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createAsset, createProject, createSeededEntropy, type Segment } from '@linguist/cat-core'
+import { createAsset, createProject, createSeededEntropy, runDeterministicHardRules, type Segment } from '@linguist/cat-core'
 import {
   bindImportedSegments,
   FormatExportError,
@@ -112,6 +112,50 @@ describe('PhraseMxliffAdapter direct-child targets and round-trip', () => {
   })
 })
 
+describe('Phrase native character formatting', () => {
+  for (const flags of ['b', 'i', 'u', 'bi', 'bu', 'iu', 'biu']) test(`${flags} can be authored and round-tripped without changing runtime tags or source`, async () => {
+    const { adapter, originalBytes, asset, segments } = await importedFixture()
+    const source = segments[0]!.source
+    const target = `{${flags}>New <ph id="1">{0}</ph> 😀\ntext<${flags}}`
+    const changed = segments.map((segment, index) => index === 0 ? { ...segment, target } : segment)
+    expect(runDeterministicHardRules({ segment: segments[0]!, proposedTarget: target }).ok).toBe(true)
+    expect(inspectPhraseRecovery(changed).status).toBe('not-required')
+    const output = await adapter.export({ originalBytes, asset, segments: changed })
+    const xml = new TextDecoder().decode(output)
+    expect(xml).toContain(`{${flags}&gt;New <ph id="1">{0}</ph> 😀\ntext&lt;${flags}}`)
+    const restored = await adapter.import({ bytes: output, filename: 'sample.mxliff', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    expect(restored.segments[0]!.source).toBe(source)
+    expect(restored.segments[0]!.target).toBe(target)
+    expect(restored.segments.map(segment => [segment.key, segment.ordinal, segment.locked])).toEqual(changed.map(segment => [segment.key, segment.ordinal, segment.locked]))
+    expect(inspectPhraseRecovery(restored.segments).status).toBe('not-required')
+    expect(runDeterministicHardRules({ segment: segments[0]!, proposedTarget: `{${flags}>New<${flags}}` }).ok).toBe(false)
+  })
+  test('unbalanced or mismatched native codes cannot be newly exported', async () => {
+    const { adapter, originalBytes, asset, segments } = await importedFixture()
+    for (const target of ['{b>text', 'text<i}', '{bu>text<u}', '{b>x{i>y<b}<i}']) {
+      const changed = segments.map((segment, index) => index === 1 ? { ...segment, target } : segment)
+      expect(inspectPhraseRecovery(changed).status).toBe('unsupported-representation')
+      await expect(adapter.export({ originalBytes, asset, segments: changed })).rejects.toBeInstanceOf(FormatExportError)
+    }
+  })
+  test('existing balanced nested underline remains importable and byte-preserving even though rich editing is flat-only', async () => {
+    const nested = '{u>A{u>B<u}C<u}', encoded = nested.replace(/>/g, '&gt;').replace(/</g, '&lt;')
+    const { adapter, originalBytes, asset, segments } = await importedFixture(bytes(PHRASE_FIXTURE.replace('<source>Missing target</source>', `<source>${encoded}</source><target>${encoded}</target>`)))
+    expect(inspectPhraseRecovery(segments).status).toBe('not-required')
+    expect(segments[1]!.source).toBe(nested)
+    expect(segments[1]!.target).toBe(nested)
+    const exported = await adapter.export({ originalBytes, asset, segments })
+    expect(exported).toEqual(originalBytes)
+    const changed = segments.map((segment, index) => index === 1 ? { ...segment, target: '{u>A{u>Changed<u}C<u}' } : segment)
+    const edited = await adapter.export({ originalBytes, asset, segments: changed })
+    const restored = await adapter.import({ bytes: edited, filename: 'nested-edited.mxliff', sourceLocale: 'en-US', targetLocale: 'zh-CN' })
+    expect(restored.segments[1]!.target).toBe(changed[1]!.target)
+  })
+  test('native-looking content inside opaque inline code is not authored formatting', () => {
+    expect(inspectPhraseRecovery([{ key: 'opaque', ordinal: 0, source: '<ph id="one">{b></ph>', target: '<ph id="one">{b></ph>' }]).status).toBe('not-required')
+  })
+})
+
 describe('PhraseMxliffAdapter master Tag Mapping', () => {
   test('区分原生标签、变化包装、待恢复占位符和 Target 独有标记', () => {
     const segment = (source: string, target: string) => ({ key: 'one', ordinal: 0, source, target })
@@ -119,7 +163,7 @@ describe('PhraseMxliffAdapter master Tag Mapping', () => {
     expect(inspectPhraseRecovery([segment('{u>A<u}', '{u>B<u}')]).status).toBe('not-required')
     expect(inspectPhraseRecovery([segment('{u>A', 'B')]).status).toBe('unsupported-representation')
     expect(inspectPhraseRecovery([segment('<u}A{u>', 'B')]).status).toBe('unsupported-representation')
-    expect(inspectPhraseRecovery([segment('A', '{u>B<u}')]).status).toBe('unsupported-representation')
+    expect(inspectPhraseRecovery([segment('A', '{u>B<u}')]).status).toBe('not-required')
     expect(inspectPhraseRecovery([segment('A', 'B {0}')]).status).toBe('unsupported-representation')
     expect(inspectPhraseRecovery([segment('A {0}', 'B {1}')]).status).toBe('unsupported-representation')
     expect(inspectPhraseRecovery([segment('A {0}', 'B {0}')]).status).toBe('needs-master')

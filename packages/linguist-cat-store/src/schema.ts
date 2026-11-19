@@ -16,6 +16,7 @@
  */
 
 import { createProposalIssuance, tmSourceHash } from '@linguist/cat-core'
+import { REFERENCE_REVISION_SCHEMA } from './reference-revisions'
 import type { SqliteDatabase } from './runtime'
 import {
   proposalFromRow,
@@ -38,7 +39,7 @@ export interface SchemaMigration {
 }
 
 /** Current schema version this build understands. */
-export const SCHEMA_VERSION = 20
+export const SCHEMA_VERSION = 21
 
 const MIGRATION_1_SQL = `
 CREATE TABLE assets (
@@ -931,4 +932,38 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   { version: 20, description: 'term entries linked to their actual imported reference rows', sql: MIGRATION_20_SQL },
+  { version: 21, description: 'project task groups, batch membership and scoped resource references', sql: `
+    CREATE TABLE task_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    INSERT INTO task_groups VALUES ('ungrouped', '未分组', 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+    ALTER TABLE assets ADD COLUMN task_group_id TEXT REFERENCES task_groups(id);
+    UPDATE assets SET task_group_id = 'ungrouped';
+    CREATE INDEX idx_assets_group_source ON assets(task_group_id, source_sha256);
+    CREATE TABLE task_resource_refs (
+      resource_key TEXT NOT NULL, scope TEXT NOT NULL, backing_key TEXT NOT NULL, replaces_key TEXT,
+      PRIMARY KEY (resource_key, scope)
+    );
+    CREATE INDEX idx_task_resource_backing ON task_resource_refs(backing_key);
+    CREATE TABLE external_batches (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES task_groups(id),
+      kind TEXT NOT NULL, locator TEXT NOT NULL, name TEXT NOT NULL, asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+      UNIQUE(group_id, kind, locator));
+    ${REFERENCE_REVISION_SCHEMA}
+    CREATE TRIGGER group_assets_insert BEFORE INSERT ON assets
+      WHEN NOT EXISTS (SELECT 1 FROM task_groups WHERE id=NEW.task_group_id AND archived=0)
+      BEGIN SELECT RAISE(ABORT, '任务组不存在或已归档'); END;
+    ${['UPDATE','DELETE'].map(operation => `CREATE TRIGGER group_assets_${operation} BEFORE ${operation} ON assets
+      WHEN EXISTS (SELECT 1 FROM task_groups WHERE id=OLD.task_group_id AND archived=1)
+      BEGIN SELECT RAISE(ABORT, '已归档任务组只读'); END;`).join('\n')}
+    ${['segments','proposals','qa_findings','segment_stage_events','exports'].flatMap(table =>
+      ['INSERT','UPDATE','DELETE'].map(operation => {
+        const row = operation === 'DELETE' ? 'OLD' : 'NEW'
+        const asset = table === 'segments' || table === 'exports' ? `${row}.asset_id` : `(SELECT asset_id FROM segments WHERE id=${row}.segment_id)`
+        // Project stage changes recompute current_stage_state from existing events, including archived batches.
+        const event = table === 'segments' && operation === 'UPDATE'
+          ? 'UPDATE OF id,asset_id,ordinal,key,source,target,source_locale,target_locale,status,locked,revision,source_hash,context_json,imported_native_status'
+          : operation
+        return `CREATE TRIGGER group_${table}_${operation} BEFORE ${event} ON ${table}
+          WHEN EXISTS (SELECT 1 FROM assets a JOIN task_groups g ON g.id=a.task_group_id WHERE a.id=${asset} AND g.archived=1)
+          BEGIN SELECT RAISE(ABORT, '已归档任务组只读'); END;`
+      })).join('\n')}
+  ` },
 ]

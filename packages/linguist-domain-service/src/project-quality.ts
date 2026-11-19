@@ -53,14 +53,14 @@ export class ProjectQuality {
     this.context.getProject(projectId)
     const db = this.context.openProject(projectId)
     const filter = {
-      assetId: query.assetId,
+      assetId: query.assetId, taskGroupId: db.schemaVersion < 21 && query.taskGroupId === 'ungrouped' ? undefined : query.taskGroupId,
       status: query.status,
       currentStageState: query.currentStageState,
       search: query.search,
     }
     return this.context.call(
       () => ({
-        assets: db.assets.listByProject(),
+        assets: db.assets.listByProject().filter(asset => !query.taskGroupId || asset.taskGroupId === query.taskGroupId),
         segments: db.segments.query({
           ...filter,
           limit: query.limit,
@@ -89,7 +89,8 @@ export class ProjectQuality {
         .listBySegment(segmentId, 'pending')
         .at(-1)
       const neighbors = db.segments.neighbors(segmentId, 1)
-      const tmCandidates = db.tmUnits.listCandidates(segment.sourceLocale, segment.targetLocale)
+      const taskGroupId = db.taskGroups.groupOf(segment.assetId)
+      const tmCandidates = db.tmUnits.listCandidates(segment.sourceLocale, segment.targetLocale, undefined, taskGroupId)
       const tmDiagnostics = matchTmCandidates(
         segment.source,
         tmCandidates,
@@ -139,11 +140,11 @@ export class ProjectQuality {
           .map((item) => item.match),
         approvedExemplars: segment.context?.meta?.speaker?.trim()
           ? db.tmUnits.listApprovedExemplars({
-              speaker: segment.context.meta.speaker.trim(),
+              speaker: segment.context.meta.speaker.trim(), taskGroupId,
               limit: 5,
             })
           : db.tmUnits
-              .listApprovedExemplars({ limit: Number.MAX_SAFE_INTEGER })
+              .listApprovedExemplars({ limit: Number.MAX_SAFE_INTEGER, taskGroupId })
               .filter((exemplar) => exemplar.segmentId === segmentId)
               .slice(0, 5),
         stageEvents: db.segments.listStageEvents(segmentId),
@@ -243,6 +244,7 @@ export class ProjectQuality {
   listQaFindings(
     projectId: string,
     filter: {
+      taskGroupId?: string
       assetId?: string
       segmentId?: string
       code?: string

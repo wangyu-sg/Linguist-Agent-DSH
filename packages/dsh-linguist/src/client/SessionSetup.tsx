@@ -3,7 +3,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import { Button, Menu, IconAgentPresetOutlineRegular, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LinguistProjectInfo } from '@linguist/domain-service/contracts'
+import type { LinguistProjectInfo, LinguistRetrievalProgress } from '@linguist/domain-service/contracts'
 import { BINDING_CHANGED_EVENT, bindSession, required, type LinguistBinding } from './api'
 import { useBinding } from './use-binding'
 import { useT } from './ui-locale'
@@ -25,12 +25,46 @@ export function SessionSetup(props: PropsRuntime<'conversation.input.dock'> & {
   return preset === 'linguist' ? <LinguistSessionSetup {...props} /> : null
 }
 
+function RetrievalProgress({ projectId, taskGroupId }: { projectId: string; taskGroupId: string }) {
+  const t = useT()
+  const [jobs, setJobs] = React.useState<LinguistRetrievalProgress[]>([])
+  const [error, setError] = React.useState('')
+  React.useEffect(() => {
+    let live = true
+    let timer: ReturnType<typeof setTimeout>
+    async function refresh() {
+      try {
+        const active = await required<LinguistRetrievalProgress[]>('linguistRetrievalProgress', { projectId, taskGroupId })
+        if (live) { setJobs(active); setError('') }
+      } catch (cause) {
+        if (live) { setJobs([]); setError(String(cause)) }
+      } finally {
+        if (live) timer = setTimeout(refresh, 4000)
+      }
+    }
+    void refresh()
+    return () => { live = false; clearTimeout(timer) }
+  }, [projectId, taskGroupId])
+  if (error) return <span className={styles.contextError} role="status">{t('暂时无法读取检索进度')} · {error}</span>
+  return <>{jobs.map(({ kind, progress }, index) => {
+    const scope = t(kind === 'materials' ? '本组背景资料' : '本组相关句段')
+    const stage = t(progress.phase === 'loading' ? '正在读取检索缓存' : progress.phase === 'matching' ? '正在匹配' : '正在准备')
+    const counted = progress.phase === 'preparing' && progress.total > 0
+    return <label className={styles.retrievalProgress} key={kind + index}>
+      <span>{scope} · {stage}</span>
+      <progress aria-label={scope + ' · ' + stage} max={counted ? progress.total : undefined} value={counted ? progress.ready : undefined} />
+      {counted && <span>{progress.ready.toLocaleString()} / {progress.total.toLocaleString()} ({Math.floor(progress.ready * 100 / progress.total)}%)</span>}
+    </label>
+  })}</>
+}
+
 function LinguistSessionSetup({ sessionId, useSession, onEnter, onOpenProject }: PropsRuntime<'conversation.input.dock'> & {
   onEnter: (binding: LinguistBinding) => Promise<void>
   onOpenProject: (projectId: string) => void
 }) {
   const t = useT()
   const blank = useSession((state: SessionSnapshot) => state.blank && !state.promptAttempted && !state.running)
+  const running = useSession((state: SessionSnapshot) => state.running)
   const { binding, error: bindingError, loading } = useBinding(sessionId)
   const [projects, setProjects] = React.useState<Project[]>([])
   const [menu, setMenu] = React.useState<'role' | 'project' | 'workMode'>()
@@ -48,6 +82,7 @@ function LinguistSessionSetup({ sessionId, useSession, onEnter, onOpenProject }:
     setMenu(undefined); setBusy(true); setError('')
     try {
       const next = { ...binding, ...changes }
+      if (next.projectId !== binding.projectId) delete next.taskGroupId
       if (blank) {
         await bindSession(next, binding.workspaceId)
         window.dispatchEvent(new CustomEvent(BINDING_CHANGED_EVENT, { detail: sessionId }))
@@ -65,6 +100,7 @@ function LinguistSessionSetup({ sessionId, useSession, onEnter, onOpenProject }:
     {availableProjects.length > 0 && <Menu open={menu === 'project'} onClose={() => setMenu(undefined)} portal align="start" selectedId={binding.projectId} anchor={anchor('project', availableProjects.find(project => project.id === binding.projectId)?.name ?? t('选择项目'), !blank)} items={availableProjects.map(project => ({ id: project.id, label: project.name }))} onSelect={projectId => void change({ projectId, workMode: 'cat' })} />}
     {binding.projectId && binding.workMode === 'cat' && <Button variant="outline" size="sm" onClick={() => onOpenProject(binding.projectId!)}>{t('打开 CAT')}</Button>}
     {!blank && <span className={styles.setupHint}>{t('换岗位会开启新会话')}</span>}
+    {running && binding.projectId && <RetrievalProgress key={sessionId + ':' + binding.projectId + ':' + (binding.taskGroupId ?? '')} projectId={binding.projectId} taskGroupId={binding.taskGroupId ?? ''} />}
     {error && <span className={styles.contextError} role="alert">{error}</span>}
   </div>
 }

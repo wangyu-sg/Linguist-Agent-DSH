@@ -1,41 +1,13 @@
 {
   "upstreamRepository": "https://github.com/Tencent/BrowserSkill",
-  "upstreamCommit": "fbea9e8a191e05971015df13c79b23fc1ceaba14",
-  "upstreamPlugin": {
-    "name": "@wxg-prc-cpg/browser-skill-dsh-plugin",
-    "version": "0.4.2",
-    "npmIntegrity": "sha512-pdhE6JpIxvuK/Ok5BA8LAG3DFw0Oeuw+i358Ar8eO9O3bvu7PdPN+zUgpvWSvYBauEATRS1VjIVGZv+PNWyWFw==",
-    "license": "MIT"
-  },
-  "adaptedPluginVersion": "0.4.2-la-dsh.2",
-  "metadataBase": {
-    "version": "0.4.2-la-dsh.0",
-    "tarballSha256": "f0d3e277d653dd895d7420b1de5400d190f3cde059f0cf6488f2cecf65285275"
-  },
+  "releaseTag": "cli-v0.5.0",
   "dshVersion": "0.2.2-rc.3",
-  "pnpmVersion": "10.17.0",
-  "upstreamPluginTreeSha256": "8067bd5ea01d158e4ee4f06a4b7b4131c59c6c3e3dc22e2f0b02a16aa5740464",
-  "upstreamUiTreeSha256": "34c462dfe4db17b30447974e249b3504e3825f5aa908b67c04375475fbdecbd8",
-  "upstreamLockSha256": "b50b727e15a4e52224e26b9a1b6cdcb329d5dcf2d9c3e6059c1f0a4613e9d29e",
-  "upstreamRootPackageSha256": "7d8d24c3f663066b1b8564c51243d20fb8dccaeaba5b44b8fb4ba74a87c715cb",
-  "upstreamWorkspaceSha256": "4a961a61ba41b508649ffeaf552bcfaeacd0b6418c5b539756419308ce141a0e",
-  "patchSha256": "8d3480b64089c897a739dab1bda8f3055f4eea374209796eb1846bdb916a2ed0",
-  "adaptedTarballSha256": "fc23d1c2a49214e440a669b6c04f8ef093c71faf9d58a9095e295934e156abe3",
-  "cliRelease": {
-    "tag": "cli-v0.4.2",
-    "commit": "fbea9e8a191e05971015df13c79b23fc1ceaba14",
-    "archive": "bsk-v0.4.2-aarch64-apple-darwin.tar.gz",
-    "archiveSha256": "f8838950f8106ecc69f7e44267a8b6fa075b1ed6649aa23ac97d85fc1d660598",
-    "binarySha256": "1d9f4123c233209dfc9d446faff9d55491f8f7a19dac58b5b84e9d34f792a61a",
-    "versionManifestSha256": "ecb2d03010548300eab84cad60793a7524e0b4b5c6c2cc725005dd42021217bd",
-    "version": "0.4.2"
+  "protocolVersion": "1.9",
+  "cli": {
+    "version": "0.5.0"
   },
-  "extensionRelease": {
-    "tag": "ext-v0.4.2",
-    "commit": "fbea9e8a191e05971015df13c79b23fc1ceaba14",
-    "archive": "browser-skill-extension-v0.4.2-chrome.zip",
-    "archiveSha256": "5360ef01ec8fcd3550215e12c417d8b98814bff0e54d478e6b867d693c1d4d76",
-    "manifestVersion": "0.4.2"
-  },
-  "adaptedLockSha256": "79b5b6d8dc3b80bcead7f25ac1db44d098b58d4fe069b0ed3227dfcbc9493ab8"
+  "extension": {
+    "manifestVersion": "0.5.0",
+    "storeUrl": "https://chromewebstore.google.com/detail/hhcmgoofomhgciiibhipgmgkgnoenaoi"
+  }
 }

@@ -204,6 +204,7 @@ export interface RunUndoResult {
 }
 
 export interface UndoRunOptions {
+  taskGroupId?: string
   actorId: string
   excludedSegmentIds?: readonly string[]
 }
@@ -773,7 +774,22 @@ export class RunHarnessRepository {
     }
   }
 
-  getLatestRunChangeSummary(): RunChangeSummaryV1 | undefined {
+  getLatestRunChangeSummary(taskGroupId?: string): RunChangeSummaryV1 | undefined {
+    if (this.db.schemaVersion < 21 && taskGroupId !== undefined) {
+      return taskGroupId === 'ungrouped' ? this.getLatestRunChangeSummary() : undefined
+    }
+    const scope = taskGroupId === undefined ? '' : `AND EXISTS (
+      SELECT 1 FROM run_changes c WHERE c.run_id=event.run_id
+      UNION ALL SELECT 1 FROM translation_jobs j, json_each(j.segment_ids_json) ids WHERE j.run_id=event.run_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM (
+        SELECT COALESCE(c.segment_id, CASE WHEN c.entity_type='segment' THEN c.entity_id END) AS id
+          FROM run_changes c WHERE c.run_id=event.run_id
+        UNION ALL SELECT ids.value FROM translation_jobs j, json_each(j.segment_ids_json) ids WHERE j.run_id=event.run_id
+      ) affected
+      LEFT JOIN segments s ON s.id=affected.id LEFT JOIN assets a ON a.id=s.asset_id
+      WHERE a.task_group_id IS NOT ?
+    )`
     const row = this.db.db.prepare(`
       SELECT event.run_id
       FROM project_events AS event
@@ -788,9 +804,10 @@ export class RunHarnessRepository {
             WHERE run_id = event.run_id
           )
         )
+      ${scope}
       ORDER BY event.sequence DESC
       LIMIT 1
-    `).get(this.projectId, this.projectId) as { run_id: string } | undefined
+    `).get(this.projectId, this.projectId, ...(taskGroupId === undefined ? [] : [taskGroupId])) as { run_id: string } | undefined
     return row === undefined ? undefined : this.getRunChangeSummary(row.run_id)
   }
 
@@ -798,6 +815,7 @@ export class RunHarnessRepository {
     requireNonBlank(runId, 'runId')
     requireNonBlank(options.actorId, 'actorId')
     return this.db.transaction(`undo CAT changes for run ${runId}`, () => {
+      if (options.taskGroupId && this.getLatestRunChangeSummary(options.taskGroupId)?.runId !== runId) throw new TypeError('任务组最近的运行已变化，请刷新后撤销')
       const rows = this.db.db.prepare(`
         SELECT change_id, entity_type, entity_id, change_kind, segment_id,
                expected_revision, before_json, after_json, undone_at

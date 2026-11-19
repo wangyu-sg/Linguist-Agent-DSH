@@ -3,10 +3,11 @@ import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { bindImportedSegments } from '@linguist/cat-formats'
-import { deriveAssetId, runDeterministicHardRules, type Segment, type LinguistTagProfile } from '@linguist/cat-core'
+import { asAssetId, deriveAssetId, runDeterministicHardRules, type Segment, type LinguistTagProfile } from '@linguist/cat-core'
 import { LINGUIST_FILE_MAX_BYTES } from './contracts'
 import { LinguistImportTooLargeError } from './errors'
 import { createDefaultCatFormatRegistry } from './format-registry'
+import type { LinguistProjectService } from './project-service'
 import { readPickedFileWithinLimit } from './project-file-intake'
 
 const WorkingDecisionSchema = z.object({
@@ -34,6 +35,8 @@ const PreviousWorkingCopySchema = z.object({
   formatId: z.string(),
   projectId: z.string().optional(),
   assetId: z.string().optional(),
+  taskGroupId: z.string().optional(),
+  batchId: z.string().optional(),
   segments: z.array(z.object({
     id: z.string(), source: z.string(), target: z.string(), revision: z.number().int(),
     sourceLocale: z.string(), targetLocale: z.string(), locked: z.boolean(), key: z.string().optional(),
@@ -49,6 +52,8 @@ export interface LinguistWorkingCopy {
   sourceLocale: string
   targetLocale: string
   formatId: string
+  taskGroupId?: string
+  batchId?: string
   projectId?: string
   assetId?: string
   segments: Segment[]
@@ -110,6 +115,16 @@ export async function prepareWorkingCopy(input: {
   parsedOriginals.set(key, structuredClone(result))
   if (parsedOriginals.size > 2) parsedOriginals.delete(parsedOriginals.keys().next().value!)
   return result
+}
+
+/** Bind detached file rows to their actual batch without creating a CAT asset. */
+export function bindWorkingBatch(service: LinguistProjectService, projectId: string, group: string, baseline: LinguistWorkingCopy): LinguistWorkingCopy {
+  const db = service.openProject(projectId)
+  const asset = db.assets.findBySource(baseline.sourceSha256, group)
+  const existing = db.taskGroups.findRegisteredBatch(group, 'working-copy', baseline.sourceSha256)
+  if (!asset && !existing) service.assertProjectWritable(projectId)
+  const batchId = asset?.id ?? existing?.assetId ?? existing?.id ?? db.taskGroups.registerBatch(group, 'working-copy', baseline.sourceSha256, basename(baseline.sourcePath))
+  return { ...baseline, batchId, projectId, taskGroupId: group, segments: bindImportedSegments(baseline.segments, asAssetId(batchId)) }
 }
 
 /** 候选只合并到派生工作稿；完整覆盖必须来自明确裁定，不取差异表补集。 */
@@ -188,7 +203,8 @@ export function resumeWorkingCopy(baseline: LinguistWorkingCopy, value: unknown,
   if (previous.sourceSha256 !== baseline.sourceSha256 || previous.sourcePath !== baseline.sourcePath
     || previous.sourceLocale !== baseline.sourceLocale || previous.targetLocale !== baseline.targetLocale
     || previous.formatId !== baseline.formatId || previous.projectId !== baseline.projectId
-    || previous.assetId !== baseline.assetId) throw new Error('上阶段工作稿不属于当前原文件与语言对')
+    || previous.assetId !== baseline.assetId || (previous.batchId ?? previous.assetId) !== (baseline.batchId ?? baseline.assetId)
+    || (previous.taskGroupId ?? 'ungrouped') !== (baseline.taskGroupId ?? 'ungrouped')) throw new Error('上阶段工作稿不属于当前原文件与语言对')
   const byId = new Map(previous.segments.map(segment => [segment.id, segment]))
   if (byId.size !== previous.segments.length || byId.size !== baseline.segments.length) throw new Error('上阶段工作稿句段身份缺失或重复')
   const segments = baseline.segments.map(original => {

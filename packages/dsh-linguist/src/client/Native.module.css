@@ -35,5 +35,7 @@
 .presetButton > svg { flex: none; }
 .presetItem { display: flex; flex-direction: column; gap: 2px; max-width: 280px; font-size: 13px; line-height: 20px; }
 .presetItem small { color: var(--dsw-alias-label-caption); white-space: normal; font-size: 12px; line-height: 16px; }
+.retrievalProgress { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+.retrievalProgress progress { flex: 1 1 64px; min-width: 48px; max-width: 160px; height: 6px; accent-color: var(--dsw-alias-state-business-primary); }
 .setupHint { color: var(--dsw-alias-label-tertiary); font-size: 12px; margin-left: auto; }
 .setupError { composes: sessionSetup; color: var(--dsw-alias-state-error-primary); }

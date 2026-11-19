@@ -24,10 +24,17 @@ test('project summary reads an old project without migrating it or replacing a l
     const project = await service.createProject({ name: 'Synthetic old project', sourceLocale: 'en', targetLocale: 'zh-CN' })
     const paths = service.getProjectPaths(project.id)
     const db = new (loadDatabaseSync())(paths.catDbPath)
-    db.exec(`DROP TABLE term_entry_sources;
+    for (const row of db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'group_*'").all() as { name: string }[]) db.exec('DROP TRIGGER ' + row.name)
+    db.exec(`DROP TABLE reference_revisions;
+      DROP INDEX idx_assets_group_source;
+      ALTER TABLE assets DROP COLUMN task_group_id;
+      DROP TABLE external_batches;
+      DROP TABLE task_resource_refs;
+      DROP TABLE task_groups;
+      DROP TABLE term_entry_sources;
       ALTER TABLE tm_units DROP COLUMN local_metadata_json;
       ALTER TABLE tm_units DROP COLUMN locally_confirmed;
-      DELETE FROM schema_migrations WHERE version = 20;
+      DELETE FROM schema_migrations WHERE version >= 20;
       PRAGMA user_version = 19;
       PRAGMA wal_checkpoint(TRUNCATE);`)
     db.close()
@@ -43,7 +50,7 @@ test('project summary reads an old project without migrating it or replacing a l
     try { assert.equal((old.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 19) }
     finally { old.close() }
     const live = service.openProject(project.id)
-    assert.equal(live.schemaVersion, 20)
+    assert.equal(live.schemaVersion, 21)
     assert.equal(service.listBackups(project.id).length, 1)
     service.getProjectSummary(project.id)
     assert.equal(service.openProject(project.id), live)
@@ -77,7 +84,7 @@ test('a schema 7 project is identified as needing an upgrade without upgrading i
     assert.equal(service.checkProjectHealth(project.id).checks.find(check => check.id === 'schema_version')?.upgradeRequired, true)
     assert.deepEqual(readFileSync(paths.catDbPath), beforeDb)
     assert.equal(service.listBackups(project.id).length, 0)
-    assert.equal(service.openProject(project.id).schemaVersion, 20)
+    assert.equal(service.openProject(project.id).schemaVersion, 21)
     assert.equal(service.listBackups(project.id).length, 1)
     assert.equal(service.getProjectSummary(project.id).totalSegments, 0)
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
@@ -96,7 +103,7 @@ test('human stage confirmation writes the same TM with a real local-user record'
     const tmx = Buffer.from('<tmx version="1.4"><header srclang="en"/><body><tu tuid="synthetic"><prop type="la_confirmations">external one</prop><prop type="la_confirmations">external two</prop><prop type="la_reuse_count">external count</prop><tuv xml:lang="en"><seg>Open</seg></tuv><tuv xml:lang="zh-CN"><seg>打开</seg></tuv></tu></body></tmx>')
     await service.importReference(project.id, 'tm', { filename: 'synthetic.tmx', bytes: tmx })
     service.confirmCurrentStage(project.id, segment.id, segment.revision, 'synthetic-task')
-    const match = db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+    const match = db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!
     assert.equal(match.target, '打开')
     assert.deepEqual(match.metadata?.la_confirmations, ['external one', 'external two'])
     assert.equal(match.metadata?.la_reuse_count, 'external count')
@@ -104,7 +111,7 @@ test('human stage confirmation writes the same TM with a real local-user record'
     assert.deepEqual([JSON.parse((match.localMetadata!.la_confirmations as string[])[0]!).actor, JSON.parse((match.localMetadata!.la_confirmations as string[])[0]!).taskId], ['local-user', 'synthetic-task'])
     assert.ok(service.getSegmentContext(project.id, segment.id).tm[0]!.warnings.some(value => value.includes('同一句段')))
     assert.throws(() => service.confirmCurrentStage(project.id, segment.id, segment.revision))
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata!.la_confirmation_count, '1')
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata!.la_confirmation_count, '1')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -119,12 +126,12 @@ test('human use of a selected TM is counted only with a successful matching save
     await service.importResourcesFromPaths(project.id, root, { paths: [path], recursive: false, kind: 'batch', dryRun: false })
     const db = service.openProject(project.id), segment = db.segments.query()[0]!
     db.tmUnits.importMany([{ source: 'Open', target: '打开', sourceLocale: 'en', targetLocale: 'zh-CN', sourceId: 'synthetic', occurrenceKey: 'one' }])
-    const unit = db.tmUnits.listCandidates('en', 'zh-CN')[0]!
+    const unit = db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!
     const saved = service.editSegment(project.id, segment.id, '打开', segment.revision, { tmUnitId: unit.unitId, propagateRepeated: true })
     assert.equal(saved.repetition?.updatedSegmentIds.length, 2)
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '3')
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, '3')
     assert.throws(() => service.editSegment(project.id, segment.id, '打开', segment.revision, { tmUnitId: unit.unitId }))
-    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN')[0]!.localMetadata?.la_reuse_count, '3')
+    assert.equal(db.tmUnits.listCandidates('en', 'zh-CN', undefined, 'ungrouped')[0]!.localMetadata?.la_reuse_count, '3')
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
