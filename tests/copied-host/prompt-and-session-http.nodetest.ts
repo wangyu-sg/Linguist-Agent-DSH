@@ -54,17 +54,26 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const executorPlugin = ctx.plugin(NativeToolExecutor)
   await executorPlugin.await()
   let preset = 'standard'
-  let asked = 0
+  const questionsAsked: string[] = []
+  let catChoice: string | undefined
+  let adjustOrder: string | undefined
   let agent = { id: SessionId('native-one'), model: { current: () => undefined }, session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
     agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
     schedule: { catalog: async () => [] },
     sessionPersistence: { stat: async () => ({ header: agent.session.header }) },
-    userQuestions: { ask: async ({ questions }: { questions: Array<{ id: string; options: Array<{ label: string }> }> }) => {
-      asked++
-      assert.equal(questions[0]?.id, 'linguist-work-mode')
-      assert.deepEqual(questions[0]?.options.map(option => option.label).sort(), ['CAT', '工作副本', '浏览器'].sort())
-      return { answers: [{ id: 'linguist-work-mode', selected: ['CAT'] }] }
+    sessionQuery: { observeSession: async (id: string) => ({ header: { id }, events: [], inheritedEventCount: 0, [Symbol.dispose]() {} }) },
+    userQuestions: { ask: async ({ questions }: { questions: Array<{ id: string; question: string; detail?: string; options: Array<{ label: string }> }> }) => {
+      const question = questions[0]!
+      questionsAsked.push(question.id)
+      if (question.id === 'linguist-batch-cat') {
+        assert.equal(question.question, '这批要进 CAT 工作台逐段处理、留修订记录吗？')
+        assert.deepEqual(question.options.map(option => option.label), ['进 CAT 工作台', '本批不进 CAT'])
+        return { answers: [{ id: question.id, selected: catChoice ? [catChoice] : [] }] }
+      }
+      assert.equal(question.id, 'linguist-batch-order')
+      assert.match(question.detail!, /先审.*本地副本，再按本批批准的范围回填平台/)
+      return { answers: [{ id: question.id, selected: adjustOrder ? [] : ['按这个顺序开工'], ...(adjustOrder ? { custom: adjustOrder } : {}) }] }
     } },
     skills: { registerProvider: () => () => {} }, webServer: { register: () => () => {} },
     workspaceRegistry: { list: () => workspaces, get: (id: string) => workspaces.find(row => row.id === id) },
@@ -101,12 +110,80 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     assert.doesNotMatch(JSON.stringify(hint?.content), /客户内容|reference\.txt/)
     assert.equal(taken.messages.at(-1), pickup)
     assert.equal(search.mock.callCount(), 0)
-    const start = await ctx.tools.get('linguist_prepare_project')!.execute(
-      { existingCat: true, workMode: 'working-copy' }, { agent, callId: 'work-mode', signal: new AbortController().signal } as never,
-    ) as { workMode: string }
-    assert.equal(asked, 1, 'DSH asks the user directly even if the call guesses a mode')
-    assert.equal(start.workMode, 'cat')
+    const call = (name: string, args: unknown) => ctx.tools.get(name)!.execute(args,
+      { agent, callId: 'batch-test', signal: new AbortController().signal } as never)
+    const prepare = (args: unknown) => call('linguist_prepare_project', args) as Promise<{
+      status?: string; batchId: string; workMode: string; reportOnly?: boolean
+      batchStart: { batchId: string; useCat: boolean; order?: string }; prepared: { assetId: string }[]
+    }>
+    const nativeCall = async (name: string, args: unknown) => {
+      const execution = await ctx.tools.execute({ agent: agent as never, signal: new AbortController().signal,
+        calls: [{ type: 'tool-call', id: ToolCallId('native-batch-entry'), name, arguments: JSON.stringify(args) }] })
+      return execution.results[0]!.result
+    }
+    const blocked = async (name: string, args: unknown, message: RegExp) => {
+      const result = await nativeCall(name, args)
+      assert.equal(result.isError, true)
+      assert.match(JSON.stringify(result.content), message)
+    }
+    const grouped = await prepare({ groupChange: { action: 'create', name: 'November' } }) as unknown as { taskGroupId: string }
+    const browserBatch = (id: string) => ({ kind: 'browser', locator: JSON.stringify(['https://synthetic.invalid', id]), name: id })
+    const collect = { online: true, reportOnly: true, taskGroupId: grouped.taskGroupId, batch: browserBatch('32.2') }
+    const text = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '先采本批 WeLoc 资料，用浏览器。' }] })
+    const opening = await ctx.waterfall('agent/pre-step', { agent, turn: 4, step: 0, messages: [text], signal: new AbortController().signal } as never,
+      async () => ({ kind: 'enter' as const, messages: [text] }))
+    assert.equal(opening.messages.at(-1), text)
+    const waiting = await prepare(collect)
+    assert.equal(waiting.status, 'awaiting-batch-cat')
+    assert.equal(new BindingStore(root).session(agent.id)?.batchStart, undefined)
+    catChoice = '进 CAT 工作台'
+    const start = await prepare(collect)
+    assert.equal(start.batchId, waiting.batchId)
+    assert.equal(start.reportOnly, true)
+    assert.deepEqual(start.batchStart, { batchId: start.batchId, useCat: true })
+    assert.deepEqual(questionsAsked, ['linguist-batch-cat', 'linguist-batch-cat'], 'chat prose and session default never count as a click')
+    assert.deepEqual(start.prepared, [])
     assert.deepEqual(start, JSON.parse(JSON.stringify(start)))
+    writeFileSync(join(root, 'downloaded.csv'), 'key,source,target\na,开始,Begin\n')
+    const local = await call('linguist_working_copy', { operation: 'prepare', sourcePath: 'downloaded.csv', sourceLocale: 'zh-CN', targetLocale: 'en-US' }) as { path: string }
+    assert.ok(local.path, 'the CAT decision allows local file preparation')
+    const joined = await prepare({ batchId: start.batchId, online: true, reportOnly: false, sources: [{ path: 'downloaded.csv' }] })
+    assert.equal(joined.batchId, start.batchId)
+    assert.ok(joined.prepared[0]?.assetId)
+    assert.equal(questionsAsked.length, 2, 'adding a downloaded file to CAT retains the web batch choice')
+    const joinedRow = (await call('cat_get_segments', { batchId: joined.prepared[0]!.assetId, limit: 1 })) as { content: unknown }
+    assert.match(JSON.stringify(joinedRow), /Begin/)
+    const inherited = agent
+    await ctx.serial('agent/disposed', { agent } as never)
+    agent = { ...agent, id: SessionId('native-resumed'), session: Session.create(SessionId('native-resumed'), undefined,
+      { version: 4, id: SessionId('native-resumed'), createdAt: Date.now(), isSeeded: false, cwd: root }) }
+    assert.notEqual(agent.id, inherited.id)
+    await ctx.serial('agent/created', { agent, source: 'create' } as never)
+    const entries = (await call('linguist_prepare_project', { listBatches: true })) as { items: { id: string; name: string }[] }
+    assert.ok(entries.items.some(item => item.id === start.batchId && item.name === '32.2'), 'the linked platform batch stays discoverable')
+    assert.deepEqual((await prepare({ online: true, batch: browserBatch('32.2') })).batchStart, start.batchStart)
+    assert.deepEqual((await prepare({ batchId: start.batchId })).batchStart, start.batchStart)
+    assert.deepEqual((await prepare({ batchId: joined.prepared[0]!.assetId })).batchStart, start.batchStart)
+    assert.equal(questionsAsked.length, 2, 'new Session reuses the same platform and CAT batch decision')
+    catChoice = '本批不进 CAT'
+    adjustOrder = '先查平台现译，再审本地副本，按批准内容回填。'
+    const other = await prepare({ online: true, batch: browserBatch('32.3'), sources: [{ path: 'downloaded.csv' }] })
+    assert.notEqual(other.batchId, start.batchId)
+    assert.deepEqual(other.batchStart, { batchId: other.batchId, useCat: false, order: adjustOrder })
+    assert.deepEqual(other.prepared, [])
+    assert.deepEqual(questionsAsked.slice(2), ['linguist-batch-cat', 'linguist-batch-order'])
+    assert.deepEqual((await prepare({ batchId: other.batchId })).batchStart, other.batchStart)
+    assert.equal(questionsAsked.length, 4)
+    catChoice = '进 CAT 工作台'
+    writeFileSync(join(root, 'local-first.csv'), 'key,source,target\nlocal,Next,下一步\n')
+    const fromLocal = await prepare({ sources: [{ path: 'local-first.csv' }] })
+    assert.ok(fromLocal.prepared[0]?.assetId)
+    assert.equal(questionsAsked.length, 5)
+    await blocked('linguist_prepare_project', { batchId: fromLocal.batchId, batch: browserBatch('32.2'), online: true }, /已属于.*另一批次/)
+    const onlineBatch = browserBatch('local-first')
+    assert.deepEqual((await prepare({ batchId: fromLocal.batchId, batch: onlineBatch, online: true })).batchStart, fromLocal.batchStart)
+    assert.deepEqual((await prepare({ batch: onlineBatch, online: true })).batchStart, fromLocal.batchStart)
+    assert.equal(questionsAsked.length, 5, 'adding the platform identity retains the local decision')
     preset = 'standard'
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.equal(new BindingStore(root).session(agent.id), undefined)
@@ -290,7 +367,7 @@ for (const scenario of ['general', 'bound-scope', 'parent-scope', 'no-parent-sco
   const bindings = new BindingStore(root)
   bindings.bindProject(project.id, workspaceId)
   bindings.bindSession(sessionId, { workspaceId, projectId: project.id, role: scenario === 'general' ? 'general' : 'reviewer', workMode: 'cat',
-    workModeDecision: { source: 'user' },
+    batchStart: { batchId: imported.assetId, useCat: true },
     ...(scenario === 'bound-scope' ? { delegatedScope: { assetIds: [imported.assetId], segmentIds: [segmentIds[0]!] } } : {}),
   })
   const ctx = new Context()

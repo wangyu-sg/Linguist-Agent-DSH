@@ -162,7 +162,7 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openCopy, o
     } catch (cause) { setActionError(String(cause)) }
     finally { setDetachBusy(false) }
   }
-  const modeLabel = t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])
+  const modeLabel = t(binding.batchStart ? (binding.batchStart.useCat ? '本批进 CAT' : '本批不进 CAT') : '批次开工待确认')
   const projectLabel = binding.projectId && projectName?.projectId === binding.projectId ? [projectName.name, projectName.taskGroupName].filter(Boolean).join(' / ') : binding.projectId?.slice(0, 12)
   const identity = `${roleLabel} · ${modeLabel}${projectLabel ? ` · ${projectLabel}` : ''}`
   const openAction = binding.projectId && binding.workMode === 'cat'
@@ -314,12 +314,12 @@ export function apply(ctx: Context): void {
     if (binding.workMode === 'cat' && binding.projectId) openCat(binding.sessionId, binding.projectId)
     if (binding.workMode === 'working-copy') openWorkingCopy(binding.sessionId)
   }
-  const enter = async (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode; workModeDecision?: LinguistBinding['workModeDecision'] }, navigation = ctx.layout.beginNavigation()) => {
+  const enter = async (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }, navigation = ctx.layout.beginNavigation()) => {
     const id = await ctx.sessions.create({ workspaceId: input.workspaceId })
     const selected = await ctx.remote.agentPresets.select(id, 'linguist')
     if (!selected.ok) throw new Error(selected.error.message)
-    const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, taskGroupId: input.taskGroupId, role: input.role, workMode: input.workMode, ...(input.workModeDecision ? { workModeDecision: input.workModeDecision } : {}) }, String(input.workspaceId))
-    if (!navigation.aborted) await openBoundSession(binding, true)
+    const binding = await bindSession({ sessionId: String(id), projectId: input.projectId, taskGroupId: input.taskGroupId, role: input.role, workMode: input.workMode }, String(input.workspaceId))
+    if (!navigation.aborted) await openBoundSession(binding)
   }
   const newProjectTask = async (binding: LinguistBinding, kind: 'general' | 'continue') => {
     const navigation = ctx.layout.beginNavigation()
@@ -331,7 +331,7 @@ export function apply(ctx: Context): void {
     if (opened.project.id !== current.projectId || opened.health.projectId !== current.projectId) throw new Error(t('项目身份校验失败'))
     if (opened.project.archivedAt !== undefined) throw new Error(t('已归档，只读'))
     if (!opened.health.healthy) throw new Error(t('需要修复'))
-    await enter({ projectId: current.projectId, taskGroupId: current.taskGroupId, workspaceId: current.workspaceId as WorkspaceId, role: kind === 'general' ? 'general' : current.role, workMode: current.workMode, workModeDecision: current.workModeDecision?.source === 'user' || kind === 'continue' ? current.workModeDecision : undefined }, navigation)
+    await enter({ projectId: current.projectId, taskGroupId: current.taskGroupId, workspaceId: current.workspaceId as WorkspaceId, role: kind === 'general' ? 'general' : current.role, workMode: current.workMode }, navigation)
   }
   const visitedSessions: Parameters<typeof ctx.sessions.scope>[0][] = []
   ctx.effect(() => {
@@ -420,7 +420,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: WORKING_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(WorkingCopyPage, { sessionId: String(props.sessionId), onOpenFile: (path: string) => openWorkingFile(String(props.sessionId), path) }))))
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: COPY_PROVIDER_ID, kind: COPY_KIND, priority: 'extension', keepMounted: true, title: () => t('复制 Linguist 会话') }), 'linguist: session-copy page')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: COPY_PROVIDER_ID }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionCopyPage, { sessionId: String(props.sessionId), onCopied: (copy: SessionCopyResult) => openBoundSession(copy, true) }))))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), preset: props.useProjection('agentPreset'), openCat, openWorkingCopy, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, taskGroupId: binding.taskGroupId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode, workModeDecision: binding.workModeDecision }) }))))
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'linguist-binding', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(SessionBadge, { sessionId: String(props.sessionId), preset: props.useProjection('agentPreset'), openCat, openWorkingCopy, openCopy, onNewTask: newProjectTask, openRoleSession: (binding: LinguistBinding, role: Role) => enter({ projectId: binding.projectId, taskGroupId: binding.taskGroupId, workspaceId: binding.workspaceId as WorkspaceId, role, workMode: binding.workMode }) }))))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'linguist-context', order: 5 }, (props) => createElement(LocaleProvider, { locale: ctx.locale }, createElement(ComposerContextChips, { sessionId: String(props.sessionId), connect: connectReference, inputActions: props.inputActions }))))
   ctx.effect(() => ctx.uiConversation.events.register(libraryPreparationTurn), 'linguist: library preparation turn data')
   ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({

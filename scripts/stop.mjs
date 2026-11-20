@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, readlinkSync, renameSync, writeFileSync } from
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const baseline = JSON.parse(readFileSync(new URL('../integrations/browser-skill/BASELINE.json', import.meta.url), 'utf8'))
+const baseline = JSON.parse(readFileSync(new URL('./dsh-baseline.json', import.meta.url), 'utf8'))
 const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH')
 const current = JSON.parse(readFileSync(join(dataRoot, 'current.json'), 'utf8'))
 const appPath = '/Applications/DeepSeek Harness.app'

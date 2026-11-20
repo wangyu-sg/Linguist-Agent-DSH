@@ -21,7 +21,7 @@ const parameters = Type.Object({
 export function createWorkingCopyTool(resolveContext: (toolCallId: string, rootCallId: string) => WorkingCopyContext, verifySession: (input: WorkingCopyActionInput, signal: AbortSignal) => Promise<void>): ToolDefinition {
   return {
     name: 'linguist_working_copy',
-    description: 'Prepare a bilingual working copy, with or without a bound CAT project. Call references once for the current draft: supply previousResultPath and any task-specific TM/TB referenceFiles. The first reading group includes current source/target, matched references and cached semantic associations; read continuationPaths without separate per-50 queries. Similarity is a lead, not an error. Read related images when needed. Assemble explicitly reviewed decisions into a private draft; deliver verifies the original-format file, current draft, scope and completion. A project is associated automatically when needed. For unsupported formats use existing workspace tools.',
+    description: 'Prepare a bilingual working copy, with or without a bound CAT project. Call references once for the current draft: supply previousResultPath and any task-specific TM/TB referenceFiles. The first reading group includes current source/target, matched references and cached semantic associations; read continuationPaths without separate per-50 queries. Similarity is a lead, not an error. Read related images when needed. Assemble explicitly reviewed decisions into a private draft; deliver verifies the original-format file, current draft, scope and completion. For unsupported formats use existing workspace tools.',
     parameters: JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>,
     output: {
       schema: { type: 'object', properties: {

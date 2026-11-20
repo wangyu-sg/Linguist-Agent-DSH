@@ -64,7 +64,7 @@ export function SettingsPage({ onOpenPlugins, onOpenProject, capabilities }: {
       {project && <><Button variant="outline" size="sm" onClick={() => void run(() => onOpenProject(project.project.id), '')}>打开此项目的 CAT 与 TM／TB</Button>
         <ProjectSettingsPanel key={project.project.id} project={project.project} hasBatches={project.assetCount > 0} mutation={revision} onChanged={() => setRevision(value => value + 1)} onOpenHistory={dock => { void run(() => onOpenProject(project.project.id, dock), '') }} capabilities={capabilities} /></>}
     </section>
-    <section className={styles.section}><h3>通知与连接</h3><p>飞书／Lark 目标沿用 Linguist 原生插件配置，任务是否通知仍在任务中选择。BrowserSkill 使用 DSH 内置 MCP 配置；MemSearch 使用其原生配置。</p><Button variant="outline" size="sm" onClick={onOpenPlugins}>打开插件配置</Button></section>
+    <section className={styles.section}><h3>通知与连接</h3><p>飞书／Lark 目标沿用 Linguist 原生插件配置，任务是否通知仍在任务中选择。在线作业使用 ego lite。请在 DSH 中按官方 ego-browser 技能连接，实际页面可读取后再开始。MemSearch 使用其原生配置。</p><Button variant="outline" size="sm" onClick={onOpenPlugins}>打开插件配置</Button></section>
     <div role={error || viewError ? 'alert' : 'status'}>{error || viewError || (busy ? '处理中…' : message)}</div>
     <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(refresh, '状态已刷新。')}>刷新状态</Button>
   </section>

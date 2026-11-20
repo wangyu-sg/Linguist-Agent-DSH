@@ -21,7 +21,7 @@ import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat
 import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
 import { LinguistProjectService, type ContextImageMetadata } from '@linguist/domain-service'
 import type { LinguistTurnContextV1 } from './host/automation-context'
-import { BindingStore, type LinguistRole, type LinguistWorkMode, type SessionBinding } from './host/bindings'
+import { BindingStore, type LinguistRole, type SessionBinding } from './host/bindings'
 import { createCatDeps } from './host/cat-deps'
 import { DEFAULT_DATA_ROOT, initializeStorage } from './host/config'
 import { LinguistDelegationControl } from './host/delegation-control'
@@ -35,7 +35,6 @@ import { registerHttpRoutes } from './host/http'
 import { INTEGRITY_OPERATIONS, IntegrityHost } from './host/integrity'
 import { MutationBus } from './host/mutations'
 import { resolveExecutionProfile } from './host/execution-profile'
-import { routeTask, workModeInstruction } from './host/task-routing'
 import { ModelCallProvenance } from './host/model-provenance'
 import { dispatchOperation } from './host/operations'
 import { loadLinguistRoleResources } from './host/role-resources'
@@ -155,30 +154,24 @@ export function apply(ctx: Context, config: Config): void {
     let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
     const userText = () => agent.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'user')
       ?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
-    let pendingMode: Promise<LinguistWorkMode | undefined> | undefined
-    const askWorkMode = (recommended: LinguistWorkMode | undefined, signal: AbortSignal) => {
-      const choices = { cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' } as const
-      const modes = Object.keys(choices) as LinguistWorkMode[]
-      if (recommended) modes.splice(0, 0, ...modes.splice(modes.indexOf(recommended), 1))
-      return pendingMode ??= ctx.userQuestions.ask({ agent, signal, questions: [{
-        id: 'linguist-work-mode', header: '工作方式', question: '这次要用哪种方式开工？',
-        options: modes.map(mode => ({ label: choices[mode], ...(recommended === mode ? { description: '根据本次稿件或平台建议' } : {}) })),
-      }] }).then(result => {
-        const answer = result.answers.find(item => item.id === 'linguist-work-mode')
-        const chosen = modes.find(mode => choices[mode] === answer?.selected[0]) ?? workModeInstruction(answer?.custom)
-        return chosen === 'auto' ? recommended : chosen
-      }).finally(() => { pendingMode = undefined })
+    const askBatchCat = async (name: string, signal: AbortSignal) => {
+      const yes = '进 CAT 工作台'
+      const no = '本批不进 CAT'
+      const { answers } = await ctx.userQuestions.ask({ agent, signal, questions: [{
+        id: 'linguist-batch-cat', header: '批次开工', question: '这批要进 CAT 工作台逐段处理、留修订记录吗？',
+        detail: name, options: [{ label: yes }, { label: no }],
+      }] })
+      const selected = answers.find(item => item.id === 'linguist-batch-cat')?.selected[0]
+      return selected === yes ? true : selected === no ? false : undefined
     }
-    const selectWorkMode = async (recommended: LinguistWorkMode, signal: AbortSignal) => {
-      const current = currentBinding()
-      const instruction = workModeInstruction(userText())
-      if (current.workModeDecision && (!instruction || instruction === 'auto' || current.delegatedScope)) return current.workMode
-      const mode = instruction === 'auto' ? recommended : instruction ?? await askWorkMode(recommended, signal)
-      const source = instruction === 'auto' ? 'automatic' : 'user'
-      if (mode && (mode !== current.workMode || source !== current.workModeDecision?.source)) {
-        bindings.bindSession(agent.id, { ...currentBinding(), workMode: mode, workModeDecision: { source } })
-      }
-      return mode
+    const askBatchOrder = async (name: string, recommendation: string, signal: AbortSignal) => {
+      const accept = '按这个顺序开工'
+      const { answers } = await ctx.userQuestions.ask({ agent, signal, questions: [{
+        id: 'linguist-batch-order', header: '处理顺序', question: '按建议顺序开工，还是调整顺序？',
+        detail: `${name}\n\n${recommendation}\n\n如需调整，请在「其他」填写顺序。`, options: [{ label: accept }],
+      }] })
+      const answer = answers.find(item => item.id === 'linguist-batch-order')
+      return answer?.custom?.trim() || (answer?.selected[0] === accept ? recommendation : undefined)
     }
     const modelProvenance = new ModelCallProvenance()
     const fixedPrompt = buildFixedLinguistPrompt(roleText, professional, binding.role)
@@ -239,7 +232,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         const lastContext = agent.session.deriveMessages().findLast(message => message.source.kind === 'linguist-task-context')?.source
         const lastHash = lastContext?.kind === 'linguist-task-context' ? lastContext.hash : undefined
-        const input = JSON.stringify([turn, current.projectId, current.taskGroupId, current.workMode, current.workModeDecision,
+        const input = JSON.stringify([turn, current.projectId, current.taskGroupId, current.workMode, current.batchStart,
           current.reportOnly, current.delegatedScope, selection, current.projectId && mutations.revision(current.projectId)])
         if (input !== lastContextInput || lastHash !== expectedContextHash) {
           const dynamic = buildLinguistTaskContext(service, current, workspace.path, {
@@ -267,13 +260,13 @@ export function apply(ctx: Context, config: Config): void {
         const segmentIds = selection && [...new Set([...selection.selectedSegmentIds, ...(selection.activeSegmentId ? [selection.activeSegmentId] : [])])]
         const currentUserText = userText()
         return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds,
-          question: useTurnQuestion ? currentUserText : undefined, userText: currentUserText, chooseWorkMode: askWorkMode }
+          question: useTurnQuestion ? currentUserText : undefined, selectedBatchId: selectedAssetId, askBatchCat, askBatchOrder }
       }, (projectId, nextBinding) => {
         const previousProject = bindings.session(agent.id)?.projectId
         bindings.bindProject(projectId, workspace.id)
         bindings.bindSession(agent.id, nextBinding)
         if (previousProject !== projectId) bindAgent(agent)
-      }, projectId => mutations.publish(projectId, { kind: 'project-updated' }))))
+      }, bindings, projectId => mutations.publish(projectId, { kind: 'project-updated' }))))
       if (turnContextProvenance) {
         disposers.push(agent.ctx.on('session/event', (session, event) => {
           if (session === agent.session) turnContextProvenance.observe(event)
@@ -301,19 +294,14 @@ export function apply(ctx: Context, config: Config): void {
           } : {}),
           get provenance() { return { sessionId: agent.id, toolCallId, runId: `dsh:${agent.id}:${rootCallId}`, ...modelProvenance.forCall(toolCallId), runtime: 'dsh-native' as const, ...(turnContextProvenance?.forCall(toolCallId) ?? {}) } },
         }
-      }, async (input, signal) => {
+      }, async (input) => {
         await resolveSessionWorkspace(agent.id)
-        if (input.operation !== 'references') {
-          const mode = await selectWorkMode('working-copy', signal)
-          if (!mode || mode === 'browser') throw new Error('请先选定 CAT 或工作副本；选择浏览器时按线上任务继续')
-        }
         const current = currentBinding()
         if (input.operation === 'assemble' || input.operation === 'deliver') assertNoOtherWriter(agent.id, { ...current, professionalSource: input.sourcePath })
         if (input.operation === 'references' || current.projectId || current.delegatedScope) return
         const project = await service.createProject({ name: basename(workspace.path), sourceLocale: input.sourceLocale, targetLocale: input.targetLocale })
         bindings.bindProject(project.id, workspace.id)
-        bindings.bindSession(agent.id, { ...current, projectId: project.id, ...routeTask(current, { local: 'working-copy' }) })
-        // The new project is available to this tool immediately. Rebind the overlay at the next native step.
+        bindings.bindSession(agent.id, { ...current, projectId: project.id, workMode: 'working-copy' })
       })))
       const readSnapshots = binding.projectId ? new SessionReadSnapshots(ctx.sessionQuery, agent.id, binding.projectId, binding.reviewSnapshot) : undefined
       disposers.push(agent.ctx.tools.register(createReviewMaterialsTool(service, async () => {
@@ -326,7 +314,7 @@ export function apply(ctx: Context, config: Config): void {
       if (binding.role === 'general') {
         const delegation = createLinguistDelegationTool({
           service, get binding() { return currentBinding() }, agent, subagents: ctx.subagents, control: delegationControl, llm: ctx.llm,
-          resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id), selectWorkMode,
+          resolveSessionWorkspace: () => resolveSessionWorkspace(agent.id),
           reserveIntent: (childSessionId, intent) => {
             assertNoOtherWriter(childSessionId, intent)
             if (delegationIntents.has(childSessionId)) throw new Error('Linguist child identity is already reserved')
@@ -436,13 +424,13 @@ export function apply(ctx: Context, config: Config): void {
         for (const source of createLinguistCatTools(deps)) {
           disposers.push(agent.ctx.tools.register(adaptCatTool(source, ctx.attachments,
             (callId, content) => evidence.presented(sessionId, callId, content),
-            async (callId, rootCallId, args, signal) => {
+            async (callId, rootCallId, args) => {
               turnContextProvenance?.associateNestedCall(callId, rootCallId)
               modelProvenance.associateNestedCall(callId, rootCallId)
               if (/^cat_(?:apply_translations|confirm_segments|accept_proposals|propose_translations|create_consistency_proposals|export_batch)$/.test(source.name)) {
                 const current = currentBinding()
                 if (current.reportOnly) throw new Error('当前任务只报告问题，不能写入译文、确认阶段或生成译稿交付')
-                if (await selectWorkMode('cat', signal) !== 'cat') throw new Error('请按用户已选的工作方式继续，当前动作需要选择 CAT')
+                if (current.workMode !== 'cat') throw new Error('当前操作需要 CAT 会话')
                 const ids = new Set((Array.isArray(args.edits) ? args.edits : []).map(edit => (edit as { segmentId?: string }).segmentId).filter((id): id is string => typeof id === 'string'))
                 for (const field of ['segmentIds', 'reviewedSegmentIds']) if (Array.isArray(args[field])) for (const id of args[field] as string[]) ids.add(id)
                 assertNoOtherWriter(sessionId, ids.size ? { ...current, delegatedScope: { assetIds: [], segmentIds: [...ids] } } : current)

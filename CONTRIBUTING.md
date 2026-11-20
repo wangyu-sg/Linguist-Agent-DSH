@@ -22,9 +22,9 @@ pnpm pack:plugin
 
 CAT、线上材料和工作副本共用的语义检索复用已安装的 MemSearch Python 环境及本地 `gpahal/bge-m3-onnx-int8`，通过离线子进程执行包内 `semantic-review.py`。正常回归使用合成进程／模型替身，不要求下载权重；使用安装了 `memsearch[onnx]` 且已有模型缓存的 Python 运行 `tests/semantic-review.integration.py`，可验证真实召回、缓存复用、模型变更失效和长原文覆盖。该集成检查不读取客户资料或调用付费模型。推理缓存独立于 CAT 正式库，不触发 CAT schema 变更；检索阈值只控制候选召回，不是语言质量或 TM 分数。全局开关保存于 LA 管理的 `review-preferences.json`，不改 DSH reserved profile；设置页复用官方 `settings.section` 插槽和现有项目设置面板。按组清理会取消该组的材料任务，删除该组的派生结果并保留共享向量。按项目清理会删除该项目的语义缓存文件和日志。
 
-打包输出 `artifacts/linguist-dsh-plugin-1.7.2.tgz`，会核对岗位、专业标准与案例、七个业务技能、两份 Excel 交付模板、Worker、本地语义检索脚本和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
+打包输出 `artifacts/linguist-dsh-plugin-1.8.0.tgz`，会核对岗位、专业标准与案例、七个业务技能、两份 Excel 交付模板、Worker、本地语义检索脚本和 PDF/Office 资源，并运行实际 tarball 的资源检查。插件展示资源通过 `scripts/check-plugin-display.mjs <tarball>` 核对中英文 `meta.title`／`meta.description`、原生资源导出和实际 PNG 数据。Linguist 详情通过 `scripts/check-plugin-detail.mjs <tarball>` 使用已声明的官方 `@deepseek-ai/dsh-plugin-detail` SDK 实际读取，核对中文、英文和语言回退；物理 `locale/*.json` 中的 `meta.detail` 指向包内 Markdown，并保留根 README 回退。维护技能 la-doc-sync 不进入产品包。插件版本以 `packages/dsh-linguist/package.json` 为准，运行时与文件名读取同一版本。
 
-LA 独立打包。BrowserSkill 使用官方正式发行的 CLI／MCP 和商店扩展，保留官方更新能力；LA 安装不覆盖 BrowserSkill。安装、原生 MCP 配置和合成检查见 [BrowserSkill 集成说明](integrations/browser-skill/README.md)。
+LA 独立打包，`scripts/dsh-baseline.json` 固定开发和打包用的 DSH 版本。官方 ego lite 和 ego-browser 技能由宿主环境安装。浏览器接入可用 `node tests/online-platforms/desktop-fixture.mjs` 启动本地合成页，再从 DSH Linguist 经 Shell 和 ego 读取。
 
 ## 内部热更新
 
@@ -49,7 +49,7 @@ Linguist 与 DSH 创造模式均挂载官方 `plugin_manager`，沿用宿主权�
 | packages/dsh-linguist/src/client | DSH Slots 中的项目和 CAT 界面 |
 | packages/linguist-cat-*、linguist-domain-service | 领域逻辑、格式、数据、QA 和工作副本 |
 | packages/linguist-legacy-migration | 旧项目数据导入，继续保留 |
-| integrations/browser-skill | 官方 CLI／MCP 接入说明与合成检查 |
+| tests/online-platforms | ego Desktop 合成页面 |
 
 文件上限只维护 `LINGUIST_FILE_MAX_BYTES`。单文件、HTTP 预算、逻辑批次、解压安全与预览采样分开；分请求不得改变 Phrase 配对。
 
@@ -98,7 +98,7 @@ Excel 限额按各工作表使用区域的行数×列数合计，稀疏表也占
 
 ## 本机安装与升级
 
-通过官方 DSH 原生插件管理安装实际 tgz；CLI 不修改保留的 desktop profile。首次插件配置自动初始化存储，已有设置保持不变。按 [README](README.md#安装) 启用官方自动化组件，BrowserSkill 依 [集成说明](integrations/browser-skill/README.md) 配置。
+通过官方 DSH 原生插件管理安装实际 tgz；CLI 不修改保留的 desktop profile。首次插件配置自动初始化存储，已有设置保持不变。按 [README](README.md#安装) 启用官方自动化组件，按 README 配置 ego，并从实际 Desktop 会话验证连接。
 
 更新先完成相关回归、构建和打包资源检查，再从原生界面安装，核对加载与项目数据。用用户常用的非客户样本手测，复现具体问题后做最小修复；源码测试不宣称真实桌面体验已完成。
 

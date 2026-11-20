@@ -6,13 +6,19 @@ import type { CatReadVersion } from '@linguist/cat-tools'
 export type LinguistRole = 'general' | 'translator' | 'reviewer' | 'proofreader'
 export type LinguistWorkMode = 'cat' | 'working-copy' | 'browser'
 
+export interface BatchStart {
+  batchId: string
+  useCat: boolean
+  order?: string
+}
+
 export interface SessionBinding {
   workspaceId: string
   projectId?: string
   taskGroupId?: string
   role: LinguistRole
   workMode: LinguistWorkMode
-  workModeDecision?: { source: 'user' | 'automatic' }
+  batchStart?: BatchStart
   reportOnly?: boolean
   useRoleDefaults?: boolean
   executionProfile?: ExecutionProfile
@@ -25,6 +31,7 @@ interface BindingState {
   version: 1
   projects: Record<string, string>
   sessions: Record<string, SessionBinding>
+  batchStarts?: Record<string, BatchStart>
 }
 
 /** Small product-owned association table; CAT project metadata stays Host-neutral. */
@@ -39,17 +46,20 @@ export class BindingStore {
       const parsed: unknown = JSON.parse(readFileSync(this.path, 'utf8'))
       if (!isBindingState(parsed)) throw new Error('Invalid Linguist binding state')
       this.state = parsed
-      if (Object.values(parsed.sessions).some(entry => Object.hasOwn(entry, 'workModeConfirmed'))) {
-        const sessions = Object.fromEntries(Object.entries(parsed.sessions).map(([id, entry]) => {
-          const { workModeConfirmed, ...binding } = entry as SessionBinding & { workModeConfirmed?: boolean }
-          return [id, { ...binding, ...(workModeConfirmed && !binding.workModeDecision ? { workModeDecision: { source: 'user' as const } } : {}) }]
-        }))
-        this.save({ ...parsed, sessions })
-      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       this.state = { version: 1, projects: {}, sessions: {} }
     }
+  }
+
+  batchStart(projectId: string, batchId: string): BatchStart | undefined {
+    return this.state.batchStarts?.[JSON.stringify([projectId, batchId])]
+  }
+
+  saveBatchStart(projectId: string, start: BatchStart, assetId?: string): void {
+    const batchStarts = { ...this.state.batchStarts, [JSON.stringify([projectId, start.batchId])]: start }
+    if (assetId) batchStarts[JSON.stringify([projectId, assetId])] = start
+    this.save({ ...this.state, batchStarts })
   }
 
   projectWorkspace(projectId: string): string | undefined {

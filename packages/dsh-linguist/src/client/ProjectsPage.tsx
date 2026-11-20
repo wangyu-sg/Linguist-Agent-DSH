@@ -29,7 +29,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   capabilities: React.ReactNode
   onPickDirectory: (workspaceId: string) => Promise<string | null>
   sessions: ISessions
-  onEnter: (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode; workModeDecision?: LinguistBinding['workModeDecision'] }) => Promise<void>
+  onEnter: (input: { projectId?: string; taskGroupId?: string; workspaceId: WorkspaceId; role: Role; workMode: WorkMode }) => Promise<void>
   onOpenProject: (projectId: string, dock?: 'qa' | 'proposals', taskGroupId?: string, assetId?: string) => Promise<void>
   onOpenSession: (binding: LinguistBinding) => Promise<void>
 }): React.ReactElement {
@@ -44,7 +44,6 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   const [loading, setLoading] = React.useState(true)
   const [backupPath, setBackupPath] = React.useState('')
   const [role, setRole] = React.useState<Role>('general')
-  const [workMode, setWorkMode] = React.useState<WorkMode | 'auto'>('auto')
   const [includeArchived, setIncludeArchived] = React.useState(false)
   const [message, setMessage] = React.useState('')
   const [messageIsError, setMessageIsError] = React.useState(false)
@@ -104,8 +103,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     if (!targetWorkspace) { showMessage(t("请选择工作区，或先为项目建立关联。")); return }
     setBusy(true)
     showMessage('')
-    try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project?.archivedAt ? 'cat' : workMode === 'auto' ? project ? 'cat' : 'working-copy' : workMode,
-      ...(workMode === 'auto' ? {} : { workModeDecision: { source: 'user' } }) }); showMessage(t("会话已打开")) }
+    try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project ? 'cat' : 'working-copy' }); showMessage(t("会话已打开")) }
     catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
@@ -171,10 +169,10 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   if (groupsProject) return <TaskGroupsPage project={groupsProject} initialGroup={libraryGroup} onBack={() => { setLibraryGroup(undefined); setGroupsProjectId(undefined) }}
     onOpenBatch={(group, assetId) => onOpenProject(groupsProject.id, undefined, group.id, assetId)}
     onLibrary={group => { setLibraryGroup(group); setLibraryProjectId(groupsProject.id) }}
-    onSession={group => onEnter({ projectId: groupsProject.id, workspaceId: groupsProject.workspaceId as WorkspaceId, role, workMode: workMode === 'auto' ? 'cat' : workMode, ...(workMode === 'auto' ? {} : { workModeDecision: { source: 'user' } }), taskGroupId: group.id })} />
+    onSession={group => onEnter({ projectId: groupsProject.id, workspaceId: groupsProject.workspaceId as WorkspaceId, role, workMode: 'cat', taskGroupId: group.id })} />
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
-      <div className={styles.title}><h1>{t('本地化工作台')}</h1><p>{t("项目、岗位与工作方式")}</p></div>
+      <div className={styles.title}><h1>{t('本地化工作台')}</h1><p>{t("项目与岗位")}</p></div>
       <div className={styles.toolbar}>
         <Button variant="outline" size="sm" onClick={() => { showMessage(''); setDialog('formats') }}>{t('格式资格')}</Button>
         <Button variant="outline" size="sm" onClick={() => { showMessage(''); setDialog('import') }}>{t('导入项目')}</Button>
@@ -184,10 +182,9 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     <div className={styles.content}>
       <section className={styles.section} aria-label={t("项目")}>
         <div className={styles.projectToolbar}><h2>{t("项目")}{!loading && <span className={styles.projectCount}>{visibleProjects.length}</span>}</h2>{workspacePicker}<Button variant="outline" size="sm" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{t("刷新")}</Button><Checkbox checked={includeArchived} onChange={setIncludeArchived} label={t("显示归档")} /></div>
-        <section className={styles.sessionOptions} aria-label={t("岗位与工作方式")}>
+        <section className={styles.sessionOptions} aria-label={t("岗位")}>
           <label>{t('岗位')}<Tooltip portal label={t('岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。')}><select aria-label={t('岗位')} value={role} onChange={(event) => setRole(event.target.value as Role)}>{([['general',t('通用')],['translator',t('译者')],['reviewer',t('审校')],['proofreader',t('校对')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></Tooltip></label>
-          <label>{t('工作方式')}<select aria-label={t('工作方式')} value={workMode} onChange={(event) => setWorkMode(event.target.value as WorkMode | 'auto')}>{([['auto',t('开工时选择')],['cat','CAT'],['working-copy',t('工作副本')],['browser',t('浏览器')]] as const).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-          {workMode !== 'cat' && <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t('新建无项目会话')}</Button>}
+          <Button variant="outline" size="sm" disabled={busy || !workspaceId} onClick={() => void enter()}>{t('新建无项目会话')}</Button>
         </section>
         {workspaceSnapshot.items.length === 0 && <p role="status">{t("尚无工作区。请先在 DSH 原生侧栏创建工作区。")}</p>}
         {loading ? <p role="status">{t("正在读取项目…")}</p> : visibleProjects.length === 0 ? <div className={styles.empty}><strong>{t("开始一个本地化项目")}</strong><p>{t("当前没有项目。新建项目或导入已有项目后开始工作。")}</p></div> : <ul className={styles.list}>{visibleProjects.map((project) => {

@@ -296,7 +296,7 @@ export async function prepareReviewMaterials(service: LinguistProjectService, in
   const snapshotId = versions ? `read:${hash}` : undefined
   if (snapshotId) onSnapshot?.(snapshotId, versions!)
   return { ...workingReviewInput(review, relative(root, directory)), readingPath: relative(root, join(directory, 'index.md')), groups: review.groups, coverage,
-    ...(snapshotId ? { snapshotId } : {}), taskGroupId, batchId,
+    ...(snapshotId ? { snapshotId } : {}), ...(taskGroupId === undefined ? {} : { taskGroupId }), ...(batchId ? { batchId } : {}),
     semantic: semantic.status === 'ready' ? { status: semantic.status, groups: semantic.groups.length, embedded: semantic.embedded, cached: semantic.cached } : semantic,
     note: '材料不是审校完成凭据；独立 Reviewer 仍须完整审读。正常组无需回执，不自动写回译文。' }
 }

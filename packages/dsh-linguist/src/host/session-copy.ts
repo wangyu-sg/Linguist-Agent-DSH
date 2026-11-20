@@ -155,7 +155,7 @@ export async function copyLinguistSessionToProject(host: SessionCopyHost, source
     throw error
   }
   const sessionId = String(copied.sessionId)
-  const binding = { workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode, workModeDecision: source.workModeDecision, reportOnly: source.reportOnly, useRoleDefaults: source.useRoleDefaults }
+  const binding = { workspaceId: targetWorkspaceId, projectId: targetProjectId, role: source.role, workMode: source.workMode, reportOnly: source.reportOnly, useRoleDefaults: source.useRoleDefaults }
   try {
     await host.sessionController.rename({ sessionId: copied.sessionId, title: `${project.name} (copy)` })
     const third = await sessionCopyEligibility(host, sourceSessionId, targetProjectId)

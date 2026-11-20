@@ -11,8 +11,6 @@ const dataRoot = join(homedir(), 'Library/Application Support/Linguist-Agent-DSH
 const home = join(homedir(), '.dsh')
 const desktopUserDataDir = join(homedir(), 'Library/Application Support/@deepseek-ai/dsh-desktop')
 const appPath = '/Applications/DeepSeek Harness.app'
-const bskPath = join(dataRoot, 'runtime/browser-skill/bin/bsk')
-const bskHome = join(dataRoot, 'browser-skill/home')
 const receipts = join(dataRoot, 'receipts')
 const pack = JSON.parse(readFileSync(join(root, 'artifacts/pack.json'), 'utf8'))
 const desktopManifest = join(home, 'profiles/desktop/package.json')
@@ -25,7 +23,7 @@ const run = (command, args) => {
   return { ...result, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
 }
 
-const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
+const baseline = JSON.parse(readFileSync(join(root, 'scripts/dsh-baseline.json'), 'utf8'))
 assert(pack.dshVersion === baseline.dshVersion, 'pack must match the supported Desktop baseline')
 assert(existsSync(appPath), '请先安装并打开官方 DeepSeek Harness。')
 assert(sha256(pack.linguist.path) === pack.linguist.sha256, 'linguist pack changed')
@@ -34,7 +32,7 @@ const installationId = initializeStorage({ dataRoot, installationId: existsSync(
 const staged = {
   linguist: join(dataRoot, 'runtime/packages', `linguist-dsh-plugin-${pack.linguist.sha256.slice(0, 12)}.tgz`),
 }
-for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'runtime/browser-skill/bin'), bskHome, join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
+for (const path of [dataRoot, home, desktopUserDataDir, receipts, join(dataRoot, 'runtime/packages'), join(dataRoot, 'staging')]) mkdirSync(path, { recursive: true, mode: 0o700 })
 if (existsSync(staged.linguist)) assert(sha256(staged.linguist) === pack.linguist.sha256, `${basename(staged.linguist)} exists with another hash`)
 else copyFileSync(pack.linguist.path, staged.linguist)
 const plist = join(appPath, 'Contents/Info.plist')
@@ -58,9 +56,8 @@ writeFileSync(attestationPath, `${JSON.stringify({
   spctl: { path: spctlLog, sha256: sha256(spctlLog), exitCode: 0, target: appPath },
 }, null, 2)}\n`, { mode: 0o600 })
 const current = {
-  installationId, dshVersion: pack.dshVersion, profile: 'desktop', home, desktopUserDataDir, dataRoot, appPath, bskPath, bskHome,
+  installationId, dshVersion: pack.dshVersion, profile: 'desktop', home, desktopUserDataDir, dataRoot, appPath,
   desktopArtifact: { appPath, bundleId: 'com.deepseek.dsh', version: baseline.dshVersion, teamId: 'NAN929V4UM', attestationPath },
-  browserSkill: { channel: 'official-release', extensionStoreUrl: baseline.extension.storeUrl },
   plugins: {
     linguist: { sha256: pack.linguist.sha256, version: pack.linguist.version, tarball: staged.linguist },
   },

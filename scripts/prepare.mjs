@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
+const baseline = JSON.parse(readFileSync(join(root, 'scripts/dsh-baseline.json'), 'utf8'))
 const files = {
   bun: join(root, '.toolchain/bun-1.3.14/bun-darwin-aarch64/bun'),
   pnpm: join(root, '.toolchain/pnpm-11.7.0/node_modules/pnpm/bin/pnpm.mjs'),

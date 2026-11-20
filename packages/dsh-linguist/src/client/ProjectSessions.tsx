@@ -60,7 +60,7 @@ export function ProjectSessions({ sessions, projects, workspaceId, onOpen }: { s
               const session = snapshot.byId[binding.sessionId]
               const updatedAt = session ? new Date(session.updatedAt) : undefined
               return <div className={styles.sessionRow} key={binding.sessionId}>
-                <span><span className={styles.sessionTitle} title={session?.displayTitle ?? binding.sessionId}>{session?.displayTitle ?? binding.sessionId}</span><small>{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])} · {t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])}{updatedAt && <> · <time dateTime={updatedAt.toISOString()} title={updatedAt.toLocaleString()}>{updatedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></>}</small></span>
+                <span><span className={styles.sessionTitle} title={session?.displayTitle ?? binding.sessionId}>{session?.displayTitle ?? binding.sessionId}</span><small>{t({ general: '通用', translator: '译者', reviewer: '审校', proofreader: '校对' }[binding.role])} · {t(binding.batchStart ? (binding.batchStart.useCat ? '本批进 CAT' : '本批不进 CAT') : '批次开工待确认')}{updatedAt && <> · <time dateTime={updatedAt.toISOString()} title={updatedAt.toLocaleString()}>{updatedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></>}</small></span>
                 <Button variant="outline" size="sm" disabled={!project || opening === binding.sessionId} onClick={() => void open(binding)}>{project?.archivedAt ? t('只读打开') : t('打开会话')}</Button>
               </div>
             })}

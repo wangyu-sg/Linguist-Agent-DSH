@@ -16,17 +16,18 @@ test('on-demand project questions, chosen CAT preparation and independent childr
   const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
   service.init()
   let binding: SessionBinding = { workspaceId: 'synthetic', role: 'general', workMode: 'working-copy' }
-  let userText: string | undefined
+  let answer: boolean | undefined
   let segmentIds: string[] = []
   try {
     writeFileSync(join(root, 'rules.txt'), 'Use sentence case.\n')
     const tool = createProjectPreparationTool(service,
-      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds, userText }),
-      (_id, next) => { binding = next })
+      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds,
+        askBatchCat: async () => answer, askBatchOrder: async (_name, recommendation) => recommendation }),
+      (_id, next) => { binding = next }, new BindingStore(join(root, 'data')))
     const exec = {} as Parameters<typeof tool.execute>[1]
     const prepared = await tool.execute({ query: 'What are the project rules?', resources: [{ path: 'rules.txt', kind: 'rules' }] }, exec) as { materials: string }
     assert.match(prepared.materials, /sentence case/)
-    assert.equal(binding.workModeDecision?.source, undefined, 'read-only assets do not decide the work mode')
+    assert.equal(binding.batchStart?.useCat, undefined, 'read-only assets do not decide the work mode')
     const projectId = binding.projectId!
     const search = t.mock.method(service.reviewCache, 'search', async () => [[0]])
     writeFileSync(join(root, 'examples.txt'), 'Permit a paper crane on the desk.')
@@ -64,34 +65,24 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     await service.reviewCache.setEnabled(false)
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
     writeFileSync(join(root, 'task.xliff'), '<xliff version="1.2"><file><body><trans-unit id="one"><source>Use potion</source><target>使用药水</target></trans-unit></body></file></xliff>')
-    const proposed = await tool.execute({ sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }] }, exec) as { status: string; recommendedWorkMode: string }
-    assert.equal(proposed.status, 'choose-work-mode')
-    assert.equal(proposed.recommendedWorkMode, 'cat')
+    const sources = [{ path: 'task.xliff' }]
+    const pending = await tool.execute({ sources, sourceLocale: 'en', targetLocale: 'zh-CN' }, exec) as { status: string; batchId: string }
+    assert.equal(pending.status, 'awaiting-batch-cat')
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
-    writeFileSync(join(root, 'plain.txt'), 'A plain document for a detached work copy.')
-    userText = '你来决定工作方式'
-    const fileMode = await tool.execute({ sources: [{ path: 'plain.txt' }] }, exec) as { workMode: string }
-    assert.equal(fileMode.workMode, 'working-copy')
-    assert.equal(binding.workModeDecision?.source, 'automatic')
-    const liveMode = await tool.execute({ online: true, newTask: true }, exec) as { workMode: string }
-    assert.equal(liveMode.workMode, 'browser')
-    assert.equal(service.openProject(projectId).assets.countByProject(), 0)
-
+    answer = true
     writeFileSync(join(root, 'terms.csv'), 'source,target\nPotion,药剂\n')
-    userText = '用 CAT'
-    const withTerms = await tool.execute({ workMode: 'cat', sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }], resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec) as { preparationOffer: LibraryPreparationOffer }
+    const withTerms = await tool.execute({ batchId: pending.batchId, sources, resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec) as { preparationOffer: LibraryPreparationOffer }
     assert.deepEqual(withTerms.preparationOffer.groups, [], 'term matching is ready without a semantic preparation job')
     const meta = tool.output.presentationMeta?.({}, JSON.parse(JSON.stringify(withTerms)))
     assert.deepEqual(libraryPreparationTurn.match({ type: 'tool/result', data: { turn: 1, message: { isError: false }, meta } } as never),
       { id: '1', role: 'start' }, 'registration feedback survives into the real reply slot without an embedding job')
     assert.equal(binding.projectId, projectId)
-    assert.equal(binding.workModeDecision?.source, 'user')
-    userText = undefined
+    assert.equal(binding.batchStart?.useCat, true)
     await tool.execute({ sources: [{ path: 'task.xliff' }] }, exec)
     const db = service.openProject(projectId)
     assert.equal(db.assets.countByProject(), 1, 'confirmed CAT is reused without a second choice or duplicate manuscript')
     const child = freezeLinguistDelegation(service, binding, { role: 'reviewer' })
-    assert.equal(child.workModeDecision?.source, 'user')
+    assert.equal(child.batchStart?.useCat, true)
     assert.equal(child.projectId, projectId)
     segmentIds = db.segments.queryIds()
     const before = binding
@@ -124,8 +115,9 @@ test('workspace maintenance verifies moved files in project and group layouts wi
       const from = 'original.txt', to = join(layout.directory, from)
       writeFileSync(join(workspaceRoot, from), layout.text)
       let binding: SessionBinding = { workspaceId: layout.name, role: 'general', workMode: 'working-copy' }
-      const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot, sessionId: layout.name, binding }),
-        (_id, next) => { binding = next })
+      const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot, sessionId: layout.name, binding,
+        askBatchCat: async () => undefined, askBatchOrder: async () => undefined }),
+        (_id, next) => { binding = next }, new BindingStore(join(root, 'data')))
       const exec = {} as Parameters<typeof tool.execute>[1]
       const inspect = (taskGroupId: string) => tool.execute({ listResourceFiles: true, taskGroupId }, exec) as Promise<ReturnType<typeof service.inspectProjectResourceFiles>>
       const projectCount = service.listProjects().length
@@ -170,44 +162,18 @@ test('workspace maintenance verifies moved files in project and group layouts wi
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })
 
-test('a model recommendation cannot stand in for a decision from the person starting the job', async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-route-human-')))
-  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
-  service.init()
-  let binding: SessionBinding = { workspaceId: 'synthetic', role: 'general', workMode: 'working-copy' }
-  let userText = '请完整审校这份稿件。'
-  let questions = 0
+test('a session default cannot authorize work and a saved batch choice survives a reopened store', () => {
+  const root = mkdtempSync(join(tmpdir(), 'la-batch-start-store-'))
   try {
-    writeFileSync(join(root, 'task.xliff'), '<xliff version="1.2"><file><body><trans-unit id="one"><source>Use potion</source><target>使用药水</target></trans-unit></body></file></xliff>')
-    const tool = createProjectPreparationTool(service,
-      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, userText, chooseWorkMode: async () => { questions++; return 'cat' as const } }),
-      (_id, next) => { binding = next })
-    const exec = {} as Parameters<typeof tool.execute>[1]
-    const input = { sourceLocale: 'en', targetLocale: 'zh-CN', sources: [{ path: 'task.xliff' }] }
-    const first = await tool.execute({ ...input, workMode: 'working-copy' }, exec) as { workMode: string }
-    assert.equal(questions, 1)
-    assert.equal(first.workMode, 'cat')
-    assert.equal(binding.workModeDecision?.source, 'user')
-    await tool.execute(input, exec)
-    assert.equal(questions, 1)
-    binding = { ...binding, workModeDecision: undefined }
-    userText = '请用工作副本审校这份稿件。'
-    const chosen = await tool.execute({ ...input, workMode: 'working-copy' }, exec) as { workMode: string }
-    assert.equal(chosen.workMode, 'working-copy')
-    assert.equal(questions, 1)
-  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
-})
-
-test('a previously chosen work mode is migrated once and an undecided binding stays undecided', () => {
-  const root = mkdtempSync(join(tmpdir(), 'la-route-migration-'))
-  try {
-    const base = { workspaceId: 'workspace', role: 'general', workMode: 'cat' }
-    writeFileSync(join(root, 'linguist-bindings.json'), JSON.stringify({ version: 1, projects: {}, sessions: {
-      old: { ...base, workModeConfirmed: true }, undecided: { ...base, workModeConfirmed: false },
-    } }))
-    const migrated = new BindingStore(root)
-    assert.deepEqual(migrated.session('old')?.workModeDecision, { source: 'user' })
-    assert.equal(migrated.session('undecided')?.workModeDecision, undefined)
-    assert.deepEqual(new BindingStore(root).session('old'), { ...base, workModeDecision: { source: 'user' } })
+    const store = new BindingStore(root)
+    store.bindSession('old', { workspaceId: 'workspace', role: 'general', workMode: 'cat' })
+    assert.equal(store.batchStart('project', '32.2'), undefined)
+    const start = { batchId: '32.2', useCat: true }
+    store.saveBatchStart('project', start, 'cat-asset')
+    const reopened = new BindingStore(root)
+    assert.deepEqual(reopened.batchStart('project', '32.2'), start)
+    assert.deepEqual(reopened.batchStart('project', 'cat-asset'), start)
+    assert.equal(reopened.batchStart('project', '32.3'), undefined)
+    assert.equal(reopened.batchStart('another-project', '32.2'), undefined)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

@@ -26,13 +26,8 @@ copyright attribution is retained in [NOTICE.md](NOTICE.md):
 - Source: https://github.com/proma-ai/Proma
 - License: GNU Affero General Public License, version 3.
 
-## BrowserSkill
+## ego lite
 
-The companion adaptation uses the official BrowserSkill plugin, CLI and
-extension. Its fixed source version, changes and upgrade steps are recorded
-in [the BrowserSkill integration](integrations/browser-skill/README.md).
-
-Source: https://github.com/Tencent/BrowserSkill — MIT License,
-Copyright (c) 2026 Tencent.
+Online work uses the separately installed ego lite and its official ego-browser skill through the DSH shell.
 
 Other components are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

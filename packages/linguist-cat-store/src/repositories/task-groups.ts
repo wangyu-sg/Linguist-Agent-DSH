@@ -98,9 +98,22 @@ export class TaskGroupsRepository {
     })
   }
 
-  externalBatches() {
+  externalBatches(includeLinked = false) {
     if (this.db.schemaVersion < 21) return []
-    return this.db.db.prepare('SELECT id,group_id AS taskGroupId,kind,locator,name FROM external_batches WHERE asset_id IS NULL ORDER BY name,id').all() as Array<{ id: string; taskGroupId: string; kind: string; locator: string; name: string }>
+    return this.db.db.prepare('SELECT id,group_id AS taskGroupId,kind,locator,name FROM external_batches WHERE (? OR asset_id IS NULL) ORDER BY name,id').all(Number(includeLinked)) as Array<{ id: string; taskGroupId: string; kind: string; locator: string; name: string }>
+  }
+
+  browserBatchesFor(group: string, batchId: string): Array<{ id: string; locator: string }> {
+    if (this.db.schemaVersion < 21) return []
+    return this.db.db.prepare(`SELECT id, locator FROM external_batches WHERE group_id=? AND kind='browser'
+      AND (id=? OR asset_id=COALESCE((SELECT asset_id FROM external_batches WHERE id=?), ?))`)
+      .all(group, batchId, batchId, batchId) as Array<{ id: string; locator: string }>
+  }
+
+  registeredBatch(id: string) {
+    if (this.db.schemaVersion < 21) return undefined
+    return this.db.db.prepare('SELECT id, kind, locator, name, asset_id AS assetId FROM external_batches WHERE id=?')
+      .get(id) as { id: string; kind: 'browser' | 'working-copy'; locator: string; name: string; assetId: string | null } | undefined
   }
 
   findRegisteredBatch(group: string, kind: 'browser' | 'working-copy', locator: string) {

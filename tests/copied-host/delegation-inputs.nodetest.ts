@@ -18,7 +18,7 @@ test('missing required input blocks native child start and frozen scope survives
       filename: 'synthetic.csv', bytes: new TextEncoder().encode('key,source,target\na,开始,Begin\n'),
     })
     const segment = service.openProject(project.id).segments.query({ assetId: imported.assetId, limit: 1 })[0]!
-    const binding = { workspaceId: 'synthetic-workspace', projectId: project.id, role: 'general' as const, workMode: 'cat' as const }
+    const binding = { workspaceId: 'synthetic-workspace', projectId: project.id, role: 'general' as const, workMode: 'cat' as const, batchStart: { batchId: imported.assetId, useCat: true } }
     const frozen = freezeLinguistDelegation(service, binding, { role: 'reviewer', scope: { segmentIds: [segment.id] } })
     const bindings = new BindingStore(root)
     bindings.bindSession('synthetic-child', frozen)
@@ -34,7 +34,6 @@ test('missing required input blocks native child start and frozen scope survives
     const agent = { id: 'synthetic-parent' }
     const { tool } = createLinguistDelegationTool({
       service, binding, agent: agent as never,
-      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: () => { throw new Error('No intent is reserved on blocked input') },
       control: {} as never,

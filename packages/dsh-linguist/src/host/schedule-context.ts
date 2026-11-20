@@ -359,7 +359,7 @@ export class ScheduleContextManager {
   }
 
   private executionBinding(saved: StoredScheduleContext) {
-    return { workspaceId: saved.workspaceId, projectId: saved.context.projectId, role: saved.context.role, workMode: 'cat' as const, workModeDecision: { source: 'automatic' as const }, delegatedScope: {
+    return { workspaceId: saved.workspaceId, projectId: saved.context.projectId, role: saved.context.role, workMode: 'cat' as const, delegatedScope: {
       assetIds: [...new Set(this.service.openProject(saved.context.projectId).segments.getByIds(saved.segmentIds).map(segment => segment.assetId))],
       segmentIds: saved.segmentIds,
     } }

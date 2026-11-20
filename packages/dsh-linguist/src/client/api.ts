@@ -20,14 +20,14 @@ export interface LinguistBinding {
   taskGroupId?: string
   role: 'general' | 'translator' | 'reviewer' | 'proofreader'
   workMode: 'cat' | 'working-copy' | 'browser'
-  workModeDecision?: { source: 'user' | 'automatic' }
+  batchStart?: { batchId: string; useCat: boolean; order?: string }
 }
 
 export async function bindSession(input: Omit<LinguistBinding, 'workspaceId'>, expectedWorkspaceId: string): Promise<LinguistBinding> {
   const response = await fetch(`${base}/session-bind`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   if (!response.ok) throw new Error(`Linguist session binding failed: HTTP ${response.status}`)
   const value: LinguistBinding = await response.json()
-  if (value.sessionId !== input.sessionId || value.workspaceId !== expectedWorkspaceId || value.projectId !== input.projectId || value.taskGroupId !== input.taskGroupId || value.role !== input.role || value.workMode !== input.workMode || value.workModeDecision?.source !== input.workModeDecision?.source) {
+  if (value.sessionId !== input.sessionId || value.workspaceId !== expectedWorkspaceId || value.projectId !== input.projectId || value.taskGroupId !== input.taskGroupId || value.role !== input.role || value.workMode !== input.workMode) {
     throw new Error('Linguist session binding response does not match the requested session')
   }
   return value

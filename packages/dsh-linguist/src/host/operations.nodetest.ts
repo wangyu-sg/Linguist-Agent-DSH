@@ -356,7 +356,8 @@ test('project library GUI and Agent share originals, safe replacement, removal, 
       return result.items
     }
     const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot: root, sessionId: 'synthetic',
-      binding: { workspaceId: wid, projectId: project.id, role: 'general', workMode: 'browser' } }), () => {})
+      binding: { workspaceId: wid, projectId: project.id, role: 'general', workMode: 'browser' },
+      askBatchCat: async () => undefined, askBatchOrder: async () => undefined }), () => {}, deps.bindings)
     writeFileSync(join(root, 'rules.txt'), 'Use short sentences.')
     await tool.execute({ resources: [{ path: 'rules.txt', kind: 'rules' }] }, {} as Parameters<typeof tool.execute>[1])
     assert.equal((await list())[0]!.filename, 'rules.txt', 'Agent registrations appear in GUI')

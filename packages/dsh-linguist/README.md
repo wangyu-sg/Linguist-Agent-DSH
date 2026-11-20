@@ -17,8 +17,8 @@ Organize game localization projects in DeepSeek Harness and carry out translatio
 ## Getting started
 
 1. Open **Linguist** in the sidebar. Use **Add workspace → LA workspace · localization project** to create a workspace and project, or create or open a project in an existing DSH workspace.
-2. Describe the task and supply its assets. For formal work, LA checks the file and suggests a working mode. If no choice has been made, it asks once; you can ask LA to decide. It reuses your choice and keeps the existing mode for continuing work. Choosing CAT prepares managed copies and references, then checks segment mapping, tags and locks. Check spreadsheet mappings and supply matching Phrase masters with split files. Manual import remains available.
-3. On the Linguist home page, choose a workspace, role and work mode, then click **New LA session** on the project card. The new session is linked to that project and workspace. **Project sessions** follows the workspace filter; use **Open session** to continue an existing task. Describe the scope, style requirements and deliverable in the session.
+2. Describe the task and identify its files or platform job. DSH asks whether to use the CAT workbench and keep segment revisions for each new batch. A new session on the same batch reuses that choice. If you work outside CAT, confirm or adjust the suggested sequence. Browser and local file work are available alongside CAT.
+3. On the Linguist home page, choose a workspace and role, then click **New LA session** on the project card. The new session is linked to that project and workspace. **Project sessions** follows the workspace filter; use **Open session** to continue an existing task. Describe the scope, style requirements and deliverable in the session.
 4. In CAT, check the source, current target, necessary context and QA before saving, confirming or exporting. Generating a proposal, applying changes, completing review, exporting a file and submitting to a customer platform are separate operations.
 
 ## Data and saving
@@ -33,7 +33,7 @@ Read snapshots and fragment progress are saved with their original session and s
 
 - The current host baseline is **DSH 0.2.2-rc.5**. Development and checks use macOS Apple Silicon. Confirm this build’s native installation and loading in DSH; other systems and host versions have not been verified.
 - The per-file receiving limit is **1 GiB**. This limit does not guarantee parsing performance for every format or large file; follow the actual import requirements and checks.
-- Browser tasks require a working connection between the matching **official BrowserSkill CLI/MCP, daemon and matching Chrome extension**. CAT and working copies do not require a browser connection.
+- Browser tasks require a working connection to ego lite through the official **ego-browser** skill and DSH shell. CAT and working copies do not require a browser connection.
 - Shared semantic groups for CAT, online review materials and working copies require a local MemSearch Python ONNX environment and cached `gpahal/bge-m3-onnx-int8` weights. Related sources, current draft targets and context are grouped for independent review; similarity does not generate QA errors. Embeddings and relations are cached per project locally, without writing to conversation memory, downloading models or using cloud inference. Unavailable retrieval is reported explicitly. Target edits reuse embeddings; only new or changed sources are embedded again.
 - File locks are retained. If a platform export omits locks, supply a complete platform snapshot matched by stable key and current source/target, not display row numbers. Locked segments remain read-only.
 - QA and file checks are not in-game LQA. Exporting does not submit to a customer platform or replace a human decision about scope and delivery.
@@ -44,4 +44,4 @@ Install, update and enable the plugin through the official DSH plugin manager, f
 
 License: **AGPL-3.0-only**. The DSH plugin manager reports the installed version.
 
-Global display and retrieval preferences, the local model check and semantic cache controls are in **DSH Settings → Linguist**. Language, QA, tag and delivery rules remain project-specific. Online review uses a bilingual export or platform snapshot without switching work modes; platform TM/TB and Comments still require verification. No per-segment queries or per-group acknowledgements are added.
+Global display and retrieval preferences, the local model check and semantic cache controls are in **DSH Settings → Linguist**. Language, QA, tag and delivery rules remain project-specific. Online review uses a bilingual export or platform snapshot alongside CAT or local files; platform TM/TB and Comments still require verification. No per-segment queries or per-group acknowledgements are added.

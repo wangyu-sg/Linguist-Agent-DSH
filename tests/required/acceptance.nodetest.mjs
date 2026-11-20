@@ -888,7 +888,7 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     const agent = { id: 'parent-session', model: { current: () => requestedRoute } }
     const bindings = new BindingStore(root)
     bindings.bindProject(project.id, 'workspace')
-    const parentBinding = { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat' }
+    const parentBinding = { workspaceId: 'workspace', projectId: project.id, role: 'general', workMode: 'cat', batchStart: { batchId: segment.assetId, useCat: true } }
     bindings.bindSession(agent.id, parentBinding)
     const intents = new Map()
     const catalog = []
@@ -934,7 +934,6 @@ test('Linguist delegation starts a continuable DSH child and keeps follow-ups wi
     })
     const { tool, messageTool, listTool, interruptTool } = createLinguistDelegationTool({
       service, binding: parentBinding, agent, control, llm: { resolveCallConfig: async value => value },
-      selectWorkMode: async () => 'cat',
       resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
       reserveIntent: (childId, binding) => { intents.set(childId, binding); return () => { intents.delete(childId) } },
       subagents: native,

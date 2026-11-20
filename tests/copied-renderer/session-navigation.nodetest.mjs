@@ -11,7 +11,6 @@ test('native navigation cancels pending LA opens and late session creation', asy
   const registrations = new Map()
   const listeners = new Set()
   const opened = []
-  let mounted
   let navigation = new AbortController()
   let completeCreate
   let pickedDirectory = '/synthetic/workspace/backups/check'
@@ -37,7 +36,7 @@ test('native navigation cancels pending LA opens and late session creation', asy
     uiWorkspace: { openSession: id => { openedSessions.push(id); navigation.abort() }, pickDirectory: async () => pickedDirectory },
     workspaces: { list: { getSnapshot: () => ({ items: [{ workspaceId: 'workspace-A', path: '/synthetic/workspace' }] }) } },
     sidebarRight: {
-      mounted: { getSnapshot: () => mounted, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } },
+      mounted: { getSnapshot: () => undefined, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } },
       openResourceIn: (...args) => opened.push(args),
     },
     sessions: { create: () => new Promise(resolve => { completeCreate = resolve }), refresh: async () => {}, list: { getSnapshot: () => ({ ids: sessionIds }) } },
@@ -85,28 +84,18 @@ test('native navigation cancels pending LA opens and late session creation', asy
   await pending
   assert.equal(listeners.size, 0, 'ordinary bound-Session opening leaves the native rightbar presentation untouched')
   assert.equal(opened.length, 0, 'opening a saved Session must not replace Files or preview with CAT')
-  const revealing = onEnter({ projectId: 'project-A', workspaceId: 'workspace-A', role: 'general', workMode: 'cat' })
+  const newSession = onEnter({ projectId: 'project-A', workspaceId: 'workspace-A', role: 'general', workMode: 'cat' })
   completeCreate('synthetic-A')
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(listeners.size, 1)
-  ctx.layout.selectPanel('another-panel')
-  await revealing
+  await newSession
+  assert.equal(openedSessions.at(-1), binding.sessionId)
   assert.equal(listeners.size, 0)
-  mounted = binding.sessionId
-  listeners.forEach(listener => listener())
-  assert.equal(opened.length, 0)
-  await onOpenSession(binding)
-  assert.equal(opened.length, 0)
-  const explicitEntry = onEnter({ projectId: 'project-A', workspaceId: 'workspace-A', role: 'general', workMode: 'cat' })
-  completeCreate('synthetic-A')
-  await explicitEntry
-  assert.equal(opened.length, 1)
-  assert.equal(opened[0][0], binding.sessionId)
+  assert.equal(opened.length, 0, 'new LA chat waits for the batch question without forcing the CAT pane')
   const entering = onEnter({ projectId: 'project-B', workspaceId: 'workspace-B', role: 'translator', workMode: 'cat' })
   ctx.layout.selectPanel('another-panel')
   completeCreate('synthetic-B')
   await entering
-  assert.equal(opened.length, 1)
+  assert.equal(openedSessions.at(-1), binding.sessionId, 'navigation cancels late Session creation')
+  assert.equal(opened.length, 0)
   assert.equal(listeners.size, 0)
   const executionNavigation = catPane({ sessionId: 'synthetic-A' }).child.child.props.onOpenSession
   await executionNavigation('execution-session')

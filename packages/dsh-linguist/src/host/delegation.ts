@@ -1,6 +1,5 @@
 import type { LinguistProjectService } from '@linguist/domain-service'
 import { stageEvidenceDetails } from '@linguist/cat-store'
-import { routeTask } from './task-routing'
 import type { LinguistRole, SessionBinding } from './bindings'
 
 export interface LinguistDelegationRequest {
@@ -18,7 +17,7 @@ export function freezeLinguistDelegation(
   if (parent.role !== 'general') throw new Error('Only a General Session can delegate a Linguist role')
   if (request.fileMode || !parent.projectId || (!request.scope && !parent.delegatedScope)) {
     const { delegatedScope: _scope, reviewSnapshot: _snapshot, ...binding } = parent
-    const route = request.fileMode ? routeTask({ workMode: request.fileMode }, { online: request.fileMode === 'browser', local: 'working-copy' }) : {}
+    const route = request.fileMode ? { workMode: request.fileMode } : {}
     return { ...binding, ...route, role: request.role ?? parent.role,
       ...(!request.fileMode && parent.projectId && parent.workMode === 'cat' ? { delegatedScope: { assetIds: [], segmentIds: [] } } : {}) }
   }

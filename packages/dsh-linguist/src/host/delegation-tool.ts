@@ -9,7 +9,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { prepareReviewMaterials, workingCopyPath, type LinguistProjectService, type ReviewMaterialsInput } from '@linguist/domain-service'
 import { Type } from 'typebox'
 import { Value } from 'typebox/value'
-import type { LinguistWorkMode, SessionBinding } from './bindings'
+import type { SessionBinding } from './bindings'
 import { resolveExecutionProfile } from './execution-profile'
 import { freezeLinguistDelegation } from './delegation'
 import type { LinguistDelegationControl } from './delegation-control'
@@ -67,12 +67,11 @@ export function createLinguistDelegationTool(input: {
   control: LinguistDelegationControl
   llm?: Pick<LlmRuntime, 'resolveModelInfo' | 'resolveCallConfig'>
   resolveSessionWorkspace: () => Promise<{ workspaceRoot: string }>
-  selectWorkMode: (recommended: LinguistWorkMode, signal: AbortSignal) => Promise<LinguistWorkMode | undefined>
   reserveIntent: (childSessionId: string, binding: SessionBinding) => () => void
 }): { tool: ToolDefinition; messageTool: ToolDefinition; listTool: ToolDefinition; interruptTool: ToolDefinition } {
   const tool: ToolDefinition = {
     name: 'linguist_delegate',
-    description: 'Delegate translation, independent review or proofreading in CAT, working-copy or browser mode. Choose the professional role and objective. For CAT provide batchIds or segmentIds; for a file provide sourcePath, language pair, optional previousResultPath and this task’s TM/TB referenceFiles; for online review provide its export or snapshotPath with online metadata. Include original spreadsheets, presentations or images as inputs or contextFiles. Bilingual materials, selected TM/TB, semantic associations and image locations are prepared once and handed to the child automatically. A question requiring a professional child can omit scope. The host supplies the approved model and effort. Omit model overrides. Starting a child is not review completion.',
+    description: 'Delegate translation, independent review or proofreading using CAT segments, a local file or collected browser evidence. Choose the professional role and objective. For CAT provide batchIds or segmentIds; for a file provide sourcePath, language pair, optional previousResultPath and this task’s TM/TB referenceFiles; for online review provide its export or snapshotPath with online metadata. Include original spreadsheets, presentations or images as inputs or contextFiles. Bilingual materials, selected TM/TB, semantic associations and image locations are prepared once and handed to the child automatically. A question requiring a professional child can omit scope. The host supplies the approved model and effort. Omit model overrides. Starting a child is not review completion.',
     parameters: JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>, output: output(),
     async execute(args, exec) {
       if (!Value.Check(parameters, args)) throw new Error(`Invalid linguist_delegate arguments: ${Value.Errors(parameters, args)[0]?.message}`)
@@ -86,12 +85,6 @@ export function createLinguistDelegationTool(input: {
       const { workspaceRoot } = await input.resolveSessionWorkspace()
       const scope = call.scope ?? {}
       const fileTask = Boolean(scope.sourcePath || scope.snapshotPath)
-      if (fileTask || scope.batchIds?.length || scope.segmentIds?.length) {
-        const requested = fileTask ? scope.online ? 'browser' : 'working-copy' : 'cat'
-        const selected = await input.selectWorkMode(requested, exec.signal)
-        if (!selected) return { status: 'choose-work-mode' }
-        if (selected !== requested) return { status: 'use-selected-work-mode', workMode: selected }
-      }
       const childBinding = freezeLinguistDelegation(input.service, input.binding, {
         role: call.role,
         ...(fileTask ? { fileMode: scope.online ? 'browser' as const : 'working-copy' as const }

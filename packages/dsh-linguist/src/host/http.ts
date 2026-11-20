@@ -84,12 +84,9 @@ async function handle(request: IncomingMessage, response: ServerResponse, deps: 
         deps.service.openProject(projectId).taskGroups.requireActive(taskGroupId)
       }
       const previous = deps.bindings.session(sessionId)
-      const decision = input.workModeDecision === undefined ? undefined : objectField(input, 'workModeDecision').source
-      if (input.workModeDecision !== undefined && decision !== 'user' && decision !== 'automatic') throw new RequestError(400, 'Invalid work mode decision')
-      const binding: SessionBinding = { workspaceId: workspace.id, projectId, taskGroupId, role, workMode,
-        workModeDecision: decision === 'user' || decision === 'automatic' ? { source: decision } : undefined }
+      const binding: SessionBinding = { workspaceId: workspace.id, projectId, taskGroupId, role, workMode }
       const unchanged = previous?.workspaceId === binding.workspaceId && previous.projectId === projectId && previous.taskGroupId === taskGroupId
-        && previous.role === role && previous.workMode === workMode && previous.workModeDecision?.source === decision
+        && previous.role === role && previous.workMode === workMode
       if (unchanged) { sendJson(response, 200, { sessionId, ...previous }); return }
       if (await hasUserRequest(deps.ctx, sessionId)) throw new RequestError(409, 'Linguist binding is fixed after the first user request; create a new DSH Session')
       deps.bindings.bindSession(sessionId, binding)

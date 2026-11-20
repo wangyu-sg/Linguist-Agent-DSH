@@ -8,8 +8,7 @@ LICENSE／NOTICE 为准。本页不是完整的依赖 SBOM。
 
 - **DeepSeek Harness**：提供原生 Host、Client、会话、模型、工具与界面接口。
   LA 原生预设的改编归属及 MIT 许可全文见 [NOTICE.md](NOTICE.md)。
-- **BrowserSkill**：配套浏览器插件基于 Tencent 的 MIT 项目；固定基线、
-  补丁及说明见 [集成目录](integrations/browser-skill/README.md)。
+- **ego lite**：由用户独立安装。LA 通过 DSH 原生 Shell 使用已安装版本的官方 ego-browser 技能和 CLI。
 
 ## 文件与文档处理
 

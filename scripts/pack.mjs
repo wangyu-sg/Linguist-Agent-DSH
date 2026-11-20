@@ -11,7 +11,7 @@ const source = join(root, 'packages/dsh-linguist')
 const artifacts = process.argv[2] === undefined ? join(root, 'artifacts') : resolve(root, process.argv[2])
 const stage = join(artifacts, 'pack-stage')
 const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
-const baseline = JSON.parse(readFileSync(join(root, 'integrations/browser-skill/BASELINE.json'), 'utf8'))
+const baseline = JSON.parse(readFileSync(join(root, 'scripts/dsh-baseline.json'), 'utf8'))
 const tarball = join(artifacts, `linguist-dsh-plugin-${manifest.version}.tgz`)
 if (!process.env.npm_execpath) throw new Error('Run this script with pnpm pack:plugin')
 if (!existsSync(join(source, 'lib/semantic-review.py'))) throw new Error('Build the local semantic retrieval resource before packing')
@@ -33,7 +33,7 @@ for (const required of ['package/lib/index.mjs', 'package/lib/client.cjs', 'pack
 for (const name of ['phrase-platform-review-ops', 'cultural-lqa', 'game-localization', 'localization-readiness', 'release-lqa', 'terminology-candidate-mining', 'translator-brief']) {
   if (!entries.includes(`package/resources/skills/${name}/SKILL.md`)) throw new Error(`Plugin tarball omits bundled skill ${name}`)
 }
-for (const reference of ['cat', 'working-copy', 'browser', 'project-evidence', 'workspace-maintenance', 'delivery']) {
+for (const reference of ['cat', 'working-copy', 'browser', 'weloc', 'project-evidence', 'workspace-maintenance', 'delivery']) {
   if (!entries.includes(`package/resources/skills/game-localization/references/${reference}.md`)) throw new Error(`Plugin tarball omits localization reference ${reference}`)
 }
 for (const kind of ['translation', 'review']) {
