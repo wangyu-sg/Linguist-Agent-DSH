@@ -17,7 +17,7 @@ Organize game localization projects in DeepSeek Harness and carry out translatio
 ## Getting started
 
 1. Open **Linguist** in the sidebar. Use **Add workspace → LA workspace · localization project** to create a workspace and project, or create or open a project in an existing DSH workspace.
-2. Describe the task and supply any files or platform batch identifiers. Ordinary queries and read-only web collection start directly without choosing CAT first; formal batches reuse prior choices or follow the working mode you specify. Browser, CAT and local file work can cooperate on the same batch.
+2. Describe the task and supply any files or platform batch identifiers. Ordinary queries and read-only web collection start directly without choosing CAT first; formal batches reuse prior choices, follow the project's **Default for new local batches** setting (CAT workbench or working copy, configured during project creation or in project settings), or use the mode you specify in chat. Browser, CAT and local file work can cooperate on the same batch.
 3. On the Linguist home page, choose a workspace and role, then click **New LA session** on the project card. The new session is linked to that project and workspace. **Project sessions** follows the workspace filter; use **Open session** to continue an existing task. Describe the scope, style requirements and deliverable in the session.
 4. In CAT, check the source, current target, necessary context and QA before saving, confirming or exporting. Generating a proposal, applying changes, completing review, exporting a file and submitting to a customer platform are separate operations.
 

@@ -176,6 +176,8 @@ export interface LinguistProjectInfo {
   outputStatusPolicy?: LinguistWorkflowOutputStatusPolicy
   /** 旧项目可缺省；Host 响应会提供。 */
   qaProfile?: LinguistQaProfile
+  /** 旧项目可缺省；Host 响应会提供。 */
+  defaultBatchWorkMode?: LinguistDefaultBatchWorkMode
   tagProfile?: LinguistTagProfileInfo
 }
 
@@ -246,6 +248,10 @@ export type LinguistCurrentStageStateCounts = Record<LinguistCurrentStageState, 
 export const LINGUIST_QA_PROFILES = ['general', 'subtitle'] as const
 
 export type LinguistQaProfile = (typeof LINGUIST_QA_PROFILES)[number]
+
+export const LINGUIST_DEFAULT_BATCH_WORK_MODES = ['cat', 'working-copy'] as const
+
+export type LinguistDefaultBatchWorkMode = (typeof LINGUIST_DEFAULT_BATCH_WORK_MODES)[number]
 
 export interface LinguistWorkflowOutputStatusPolicy {
   [formatId: string]: Partial<Record<LinguistWorkflowStage, string>> | undefined

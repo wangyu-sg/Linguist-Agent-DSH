@@ -16,6 +16,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import manifest from '../package.json' with { type: 'json' }
+import { normalizeDefaultBatchWorkMode } from '@linguist/cat-core'
 import { createLinguistCatTools, type CatWorkerJobProgress } from '@linguist/cat-tools'
 import type { ProjectDatabase, StageEvidenceState } from '@linguist/cat-store'
 import { LinguistProjectService, type ContextImageMetadata } from '@linguist/domain-service'
@@ -443,8 +444,13 @@ export function apply(ctx: Context, config: Config): void {
     const workspace = cwd && ctx.workspaceRegistry.list().find(item => item.path === realpathSync(cwd))
     if (!workspace) throw new Error('Linguist mode requires a registered DSH Workspace')
     const projects = service.listProjects().filter(project => bindings.projectWorkspace(project.id) === workspace.id)
-    const projectId = projects.length === 1 ? projects[0]!.id : undefined
-    bindings.bindSession(agent.id, { workspaceId: workspace.id, role, workMode: projectId ? 'cat' : 'working-copy', ...(projectId ? { projectId } : {}) })
+    const project = projects.length === 1 ? projects[0] : undefined
+    bindings.bindSession(agent.id, {
+      workspaceId: workspace.id,
+      role,
+      workMode: project ? normalizeDefaultBatchWorkMode(project.defaultBatchWorkMode) : 'working-copy',
+      ...(project ? { projectId: project.id } : {}),
+    })
   }
   ctx.on('agent/created', ({ agent }) => {
     let inherited = false

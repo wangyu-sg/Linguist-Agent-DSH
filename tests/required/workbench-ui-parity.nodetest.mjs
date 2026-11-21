@@ -523,6 +523,44 @@ test('project archive requires native confirmation, keeps failure visible, and p
   component.dispose()
 })
 
+test('project settings workflow saves defaultBatchWorkMode alongside stage, output status and qa profile', async () => {
+  const writes = []
+  let changed = 0
+  const project = {
+    id: 'project-workflow',
+    name: 'Synthetic workflow',
+    sourceLocale: 'zh-CN',
+    targetLocale: 'en-US',
+    workflowStage: 'translation',
+    qaProfile: 'general',
+    defaultBatchWorkMode: 'cat',
+  }
+  const component = mount('Panels.tsx', 'ProjectSettingsPanel', { project, hasBatches: false, mutation: 0, onChanged() { changed++ }, onOpenHistory() {}, capabilities: null }, {
+    required: async (operation, input) => {
+      if (operation === 'linguistProjectsSetWorkflowConfig') { writes.push(input); return {} }
+      return []
+    },
+  })
+  component.render(); await tick(); component.render()
+  assert.equal(component.button('保存工作流').disabled, true)
+  const batchDefaultSelect = component.nodes().find(node => node.type === 'select' && ['cat', 'working-copy'].includes(node.props.value))
+  assert.ok(batchDefaultSelect)
+  assert.equal(batchDefaultSelect.props.value, 'cat')
+  batchDefaultSelect.props.onChange({ target: { value: 'working-copy' } })
+  component.render()
+  assert.equal(component.button('保存工作流').disabled, false)
+  component.click('保存工作流'); await tick(); component.render()
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{
+    projectId: 'project-workflow',
+    workflowStage: 'translation',
+    outputStatusPolicy: null,
+    qaProfile: 'general',
+    defaultBatchWorkMode: 'working-copy',
+  }])
+  assert.equal(changed, 1)
+  component.dispose()
+})
+
 test('Run panel shows true job progress, reconciles the scoped job, and explicitly cancels the entire Session', async () => {
   let cancelled = 0
   const job = { jobId: 'job-1', sessionId: 's', runId: 'run-1', status: 'running', cursor: 2, total: 5, completed: 2, failed: 0 }
@@ -589,7 +627,7 @@ test('batch preview renders Phrase source and target rich formatting with preser
   }
 })
 
-test('create success resets all five fields while cancel and request failure retain the draft and Workspace', async () => {
+test('create success resets all six fields while cancel and request failure retain the draft and Workspace', async () => {
   const workspace = { workspaceId: 'workspace-create', title: 'Synthetic create', path: '/synthetic/create' }
   const requests = [], opened = []
   let fail = true
@@ -614,16 +652,17 @@ test('create success resets all five fields while cancel and request failure ret
   const locale = label => createForm.nodes().find(node => node.type === 'locale-select' && node.props.label === label).props
   const stage = () => createForm.nodes().find(node => node.type === 'select' && ['translation', 'editing', 'proofreading'].includes(node.props.value)).props
   const profile = () => createForm.nodes().find(node => node.type === 'select' && !node.props['aria-label'] && ['general', 'subtitle'].includes(node.props.value)).props
-  const assertDraft = values => { renderForm(); assert.deepEqual([name().value, locale('源语言').value, locale('目标语言').value, stage().value, profile().value], values) }
+  const batchMode = () => createForm.nodes().find(node => node.type === 'select' && !node.props['aria-label'] && ['cat', 'working-copy'].includes(node.props.value)).props
+  const assertDraft = values => { renderForm(); assert.deepEqual([name().value, locale('源语言').value, locale('目标语言').value, stage().value, profile().value, batchMode().value], values) }
   const submit = () => createForm.nodes().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
   component.render(); await tick(); component.render()
   component.click('新建项目'); component.render()
-  assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general'])
+  assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general', 'cat'])
   name().onChange({ target: { value: 'Synthetic retained draft' } })
   locale('源语言').onValueChange('fr-FR'); locale('目标语言').onValueChange('ja-JP')
-  stage().onChange({ target: { value: 'editing' } }); profile().onChange({ target: { value: 'subtitle' } })
+  stage().onChange({ target: { value: 'editing' } }); profile().onChange({ target: { value: 'subtitle' } }); batchMode().onChange({ target: { value: 'working-copy' } })
   component.render()
-  const draft = ['Synthetic retained draft', 'fr-FR', 'ja-JP', 'editing', 'subtitle']
+  const draft = ['Synthetic retained draft', 'fr-FR', 'ja-JP', 'editing', 'subtitle', 'working-copy']
   assertDraft(draft)
   component.nodes().find(node => node.type === 'modal' && node.props.title === '新建项目').props.onClose()
   createForm.dispose(); createForm = undefined
@@ -634,9 +673,9 @@ test('create success resets all five fields while cancel and request failure ret
   assert.deepEqual(opened, ['project-created'])
   createForm.dispose(); createForm = undefined
   component.click('新建项目'); component.render()
-  assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general'])
+  assertDraft(['', 'zh-CN', 'en-US', 'translation', 'general', 'cat'])
   assert.equal(createForm.nodes().find(node => node.type === 'select' && node.props['aria-label'] === '工作区').props.value, workspace.workspaceId)
-  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [0, 1].map(() => ({ name: draft[0], sourceLocale: draft[1], targetLocale: draft[2], workflowStage: draft[3], qaProfile: draft[4], workspaceId: workspace.workspaceId })))
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [0, 1].map(() => ({ name: draft[0], sourceLocale: draft[1], targetLocale: draft[2], workflowStage: draft[3], qaProfile: draft[4], defaultBatchWorkMode: draft[5], workspaceId: workspace.workspaceId })))
   createForm.dispose()
   component.dispose()
 })
@@ -653,13 +692,13 @@ test('LA Workspace creation passes its controlled draft and retries opening with
   component.render(); component.click('LA 工作区 · 本地化项目'); component.render()
   component.click('选择目录'); await tick(); component.render()
   const form = () => component.nodes().find(node => node.type === 'project-create-form').props
-  assert.deepEqual(JSON.parse(JSON.stringify(form().input)), { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'en-US', workflowStage: 'translation', qaProfile: 'general' })
-  form().onInputChange(current => ({ ...current, targetLocale: 'ja-JP', qaProfile: 'subtitle' }))
+  assert.deepEqual(JSON.parse(JSON.stringify(form().input)), { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'en-US', workflowStage: 'translation', qaProfile: 'general', defaultBatchWorkMode: 'cat' })
+  form().onInputChange(current => ({ ...current, targetLocale: 'ja-JP', qaProfile: 'subtitle', defaultBatchWorkMode: 'working-copy' }))
   component.render()
   await form().onCreate(form().input)
   assert.match(component.render(), /Synthetic open failed/)
   assert.equal(cancelled, 0)
-  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ path: '/synthetic/New LA project', input: { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'ja-JP', workflowStage: 'translation', qaProfile: 'subtitle' } }])
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ path: '/synthetic/New LA project', input: { name: 'New LA project', sourceLocale: 'zh-CN', targetLocale: 'ja-JP', workflowStage: 'translation', qaProfile: 'subtitle', defaultBatchWorkMode: 'working-copy' } }])
   failOpen = false
   component.click('项目已创建，打开会话'); await tick(); component.render()
   assert.deepEqual(opened, ['created-project', 'created-project'])

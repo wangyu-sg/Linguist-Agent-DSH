@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { asAssetId, asSegmentId } from './ids'
-import { createProject } from './project'
+import { createProject, normalizeDefaultBatchWorkMode } from './project'
 import type { Segment } from './segment'
 import {
   confirmCurrentStage,
@@ -120,5 +120,26 @@ describe('本地化工作流状态映射', () => {
       action: 'blocked',
       segmentRevision: 4,
     })
+  })
+
+  test('项目新本地批次默认工作方式缺省或非法时归落 cat，显式值保留', () => {
+    expect(normalizeDefaultBatchWorkMode(undefined)).toBe('cat')
+    expect(normalizeDefaultBatchWorkMode('browser')).toBe('cat')
+    expect(normalizeDefaultBatchWorkMode('working-copy')).toBe('working-copy')
+    const defaultProject = createProject(
+      { name: '默认项目', sourceLocale: 'zh-CN', targetLocale: 'en-US' },
+      { now: '2026-11-21T00:00:00.000Z', entropy: () => new Uint8Array([2]) },
+    )
+    expect(defaultProject.defaultBatchWorkMode).toBe('cat')
+    const workingCopyProject = createProject(
+      {
+        name: '工作副本项目',
+        sourceLocale: 'zh-CN',
+        targetLocale: 'en-US',
+        defaultBatchWorkMode: 'working-copy',
+      },
+      { now: '2026-11-21T00:00:00.000Z', entropy: () => new Uint8Array([3]) },
+    )
+    expect(workingCopyProject.defaultBatchWorkMode).toBe('working-copy')
   })
 })

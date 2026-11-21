@@ -64,10 +64,14 @@ export {
 } from './proposal-issuance'
 
 export {
+  DEFAULT_BATCH_WORK_MODE,
+  DEFAULT_BATCH_WORK_MODES,
   archiveProject,
   createProject,
+  normalizeDefaultBatchWorkMode,
   type CreateProjectDeps,
   type CreateProjectInput,
+  type DefaultBatchWorkMode,
   type LinguistProject,
 } from './project'
 

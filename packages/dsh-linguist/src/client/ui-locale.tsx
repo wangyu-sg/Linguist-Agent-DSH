@@ -419,6 +419,8 @@ const english: Record<string, string> = {
   '归档项目为只读；仍可查看、备份和诊断。': 'Archived projects are read-only; viewing, backups, and diagnostics remain available.',
   '已有批次，不能修改项目语言。': 'Project locales cannot change after a batch has been imported.',
   '保存语言': 'Save languages', 'QA 配置': 'QA profile', '通用': 'General', '字幕': 'Subtitles',
+  '新本地批次默认': 'Default for new local batches',
+  '仅影响未明说方式的新正式本地稿；已有批次保持原方式，临时切换在对话里直接说明即可。': 'Applies only to new formal local files when no mode is specified; existing batches keep their mode, and one-off overrides can be stated in chat.',
   '保存工作流': 'Save workflow', '候选只给软提示；批准后才成为编辑、QA 和导出的硬保护规则。': 'Candidates show soft hints; approval turns them into hard protection for editing, QA, and export.',
   '扫描疑似 Tag': 'Scan suspected Tags', '停用': 'Disable', '启用': 'Enable', '次': 'times',
   '原文/译文原样率': 'Source/target preservation rate', '% · 平衡配对': '% · balanced pairs', '是': 'Yes', '否': 'No',

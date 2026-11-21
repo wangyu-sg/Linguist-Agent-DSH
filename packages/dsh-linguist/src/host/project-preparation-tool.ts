@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
 import { Type, type Static } from 'typebox'
 import { Value } from 'typebox/value'
+import { normalizeDefaultBatchWorkMode } from '@linguist/cat-core'
 import type { LibraryPreparationOffer } from '@linguist/domain-service/contracts'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { prepareCatTask, prepareProjectLibrary, syncProjectLibrary, listProjectLibrary, readPickedFileWithinLimit, workingCopyPath, type LinguistProjectService } from '@linguist/domain-service'
@@ -26,7 +27,7 @@ const Input = Type.Object({
   removeResource: Type.Optional(Type.String({ description: 'Exact resource key from the returned resources list to remove from project use; original files are retained.' })),
   replaceResource: Type.Optional(Type.String({ description: 'Exact resource key to replace after the single new resource reads successfully.' })),
   sourceLocale: Type.Optional(Type.String()), targetLocale: Type.Optional(Type.String()),
-  useCat: Type.Optional(Type.Boolean({ description: 'Set true to import and process this batch in CAT, false for working-copy or browser. Omit to reuse an existing batch choice or current session mode.' })),
+  useCat: Type.Optional(Type.Boolean({ description: 'Set true/false only when the user explicitly chooses CAT or working-copy/browser for this batch. Omit to follow the saved batch choice or the project default batch mode.' })),
   online: Type.Optional(Type.Boolean({ description: 'True when registering or preparing a web platform batch, including read-only collection.' })),
   reportOnly: Type.Optional(Type.Boolean({ description: 'True when the user requests observations only, without changing or confirming targets.' })),
   useRoleDefaults: Type.Optional(Type.Boolean({ description: 'True only if the user expressly chooses LA role defaults. Preserve the current host settings otherwise.' })),
@@ -51,7 +52,7 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
 }>, bind: (projectId: string, binding: SessionBinding) => void, starts: Pick<BindingStore, 'batchStart' | 'saveBatchStart'>, onChanged?: (projectId: string) => void): ToolDefinition {
   return {
     name: 'linguist_prepare_project',
-    description: 'Register or resume formal localization batches and manage project materials. Identify a batch by existing batchId, stable platform batch locator, or local sources; pass useCat when choosing CAT or non-CAT explicitly, or omit it to reuse an existing batch choice or current session mode. Ordinary Q&A, terminology queries and read-only web browsing do not require starting a CAT batch. Use resources to register project material, replaceResource to replace an original, query alone for evidence, and compareGroups to compare groups.',
+    description: 'Register or resume formal localization batches and manage project materials. Identify a batch by existing batchId, stable platform batch locator, or local sources; pass useCat only when the user explicitly requests CAT or non-CAT, or omit it to follow the saved batch choice or project default batch mode. Ordinary Q&A, terminology queries and read-only web browsing do not require starting a CAT batch. Use resources to register project material, replaceResource to replace an original, query alone for evidence, and compareGroups to compare groups.',
     parameters: JSON.parse(JSON.stringify(Input)),
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -164,7 +165,11 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
         const resolvedUseCat = input.useCat
           ?? batchStart?.useCat
           ?? (existingAsset ? true : undefined)
-          ?? (input.online && !input.sources?.length ? false : (input.sources?.length && !reportOnly ? context.binding.workMode === 'cat' : undefined))
+          ?? (input.online && !input.sources?.length
+            ? false
+            : (input.sources?.length && !reportOnly
+              ? normalizeDefaultBatchWorkMode(project.defaultBatchWorkMode) === 'cat'
+              : undefined))
         if (resolvedUseCat !== undefined && (input.useCat !== undefined || !batchStart) && !(reportOnly && input.useCat === undefined && !existingAsset)) {
           batchStart = { ...(batchStart ?? { batchId }), batchId: batchStart?.batchId ?? batchId, useCat: resolvedUseCat }
           starts.saveBatchStart(project.id, batchStart, registeredBatch?.assetId ?? existingAsset?.id ?? undefined)

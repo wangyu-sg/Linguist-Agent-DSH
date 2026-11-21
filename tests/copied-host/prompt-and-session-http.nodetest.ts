@@ -33,11 +33,15 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const service = new LinguistProjectService({ rootDir: join(root, 'linguist'), applicationVersion: 'synthetic' })
   service.init()
   const bindings = new BindingStore(root)
-  const single = WorkspaceId('workspace-single'), multiple = WorkspaceId('workspace-multiple')
+  const single = WorkspaceId('workspace-single'), singleWc = WorkspaceId('workspace-single-wc'), multiple = WorkspaceId('workspace-multiple')
+  const singleWcPath = join(root, 'single-wc')
   const multiplePath = join(root, 'multiple')
+  mkdirSync(singleWcPath)
   mkdirSync(multiplePath)
   const project = await service.createProject({ name: 'Single', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
   bindings.bindProject(project.id, single)
+  const wcProject = await service.createProject({ name: 'SingleWC', sourceLocale: 'zh-CN', targetLocale: 'en-US', defaultBatchWorkMode: 'working-copy' })
+  bindings.bindProject(wcProject.id, singleWc)
   writeFileSync(join(root, 'reference.txt'), 'Synthetic project reference.')
   await syncProjectLibrary(service, project.id, root, [{ path: 'reference.txt', kind: 'context' }])
   for (const name of ['One', 'Two']) {
@@ -45,7 +49,7 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     bindings.bindProject(other.id, multiple)
   }
   service.closeAll()
-  const workspaces = [{ id: single, path: root }, { id: multiple, path: multiplePath }]
+  const workspaces = [{ id: single, path: root }, { id: singleWc, path: singleWcPath }, { id: multiple, path: multiplePath }]
   const ctx = new Context()
   const promptPlugin = ctx.plugin(SystemPrompt, {})
   await promptPlugin.await()
@@ -186,6 +190,13 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     }) }
     await ctx.serial('agent/created', { agent, source: 'create' } as never)
     assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: multiple, role: 'reviewer', workMode: 'working-copy' })
+    await ctx.serial('agent/disposed', { agent } as never)
+    preset = 'linguist'
+    agent = { ...agent, id: SessionId('native-single-wc'), session: Session.create(SessionId('native-single-wc'), undefined, {
+      version: 4, id: SessionId('native-single-wc'), createdAt: Date.now(), isSeeded: false, cwd: singleWcPath,
+    }) }
+    await ctx.serial('agent/created', { agent, source: 'create' } as never)
+    assert.deepEqual(new BindingStore(root).session(agent.id), { workspaceId: singleWc, role: 'general', workMode: 'working-copy', projectId: wcProject.id })
   } finally {
     await host.dispose()
     await executorPlugin.dispose(); await toolsPlugin.dispose(); await promptPlugin.dispose()
@@ -217,13 +228,19 @@ test('native Prompt retains the role and only whole Digest lines within 18k', as
   service.init()
   try {
     const project = await service.createProject({ name: 'Synthetic prompt', sourceLocale: 'zh-CN', targetLocale: 'en-US' })
+    const roles = Object.fromEntries((['general', 'translator', 'reviewer', 'proofreader'] as const).map(role => [
+      role, readFileSync(new URL(`../../packages/dsh-linguist/resources/linguist-roles/${role}.md`, import.meta.url), 'utf8'),
+    ])) as Record<'general' | 'translator' | 'reviewer' | 'proofreader', string>
+    const digestCat = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'cat', projectId: project.id })
+    assert.match(digestCat.taskContext, /- 新本地批次默认：CAT/)
+    service.setWorkflowConfig(project.id, 'translation', undefined, undefined, 'working-copy')
+    const digestWc = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'working-copy', projectId: project.id })
+    assert.match(digestWc.taskContext, /- 新本地批次默认：工作副本/)
+    service.setWorkflowConfig(project.id, 'translation', undefined, undefined, 'cat')
     const db = service.openProject(project.id)
     for (let index = 0; index < 12; index++) db.styleGuideRules.upsert({
       groupKey: '必须', ruleText: `COMPLETE-RULE-${index}:` + `synthetic-${index}-`.repeat(220),
     })
-    const roles = Object.fromEntries((['general', 'translator', 'reviewer', 'proofreader'] as const).map(role => [
-      role, readFileSync(new URL(`../../packages/dsh-linguist/resources/linguist-roles/${role}.md`, import.meta.url), 'utf8'),
-    ])) as Record<'general' | 'translator' | 'reviewer' | 'proofreader', string>
     for (const text of Object.values(roles)) assert.ok(text.length <= 6_000)
     const conversation = buildLinguistPromptSection(service, roles, professional, { role: 'general', workMode: 'working-copy' })
     assert.match(conversation.prompt, /游戏本地化专家/)

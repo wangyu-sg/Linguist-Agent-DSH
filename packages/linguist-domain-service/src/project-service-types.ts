@@ -1,6 +1,7 @@
 import type {
   Asset,
   CurrentStageState,
+  DefaultBatchWorkMode,
   EntropySource,
   LinguistProject,
   LinguistTagProfile,
@@ -122,6 +123,7 @@ export interface CreateLinguistProjectInput {
   workflowStage?: WorkflowStage
   outputStatusPolicy?: WorkflowOutputStatusPolicy
   qaProfile?: QaProfile
+  defaultBatchWorkMode?: DefaultBatchWorkMode
 }
 
 export interface StageMutationItem {

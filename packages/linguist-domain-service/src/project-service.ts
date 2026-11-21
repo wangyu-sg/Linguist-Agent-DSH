@@ -31,6 +31,7 @@ import {
   updateTagProfileEntry,
   validateTagProfileCandidate,
   type CurrentStageState,
+  type DefaultBatchWorkMode,
   type EntropySource,
   type LinguistProject,
   type LinguistWorkbookMappingProfile,
@@ -282,6 +283,9 @@ export class LinguistProjectService {
           ? { outputStatusPolicy: input.outputStatusPolicy }
           : {}),
         ...(input.qaProfile !== undefined ? { qaProfile: input.qaProfile } : {}),
+        ...(input.defaultBatchWorkMode !== undefined
+          ? { defaultBatchWorkMode: input.defaultBatchWorkMode }
+          : {}),
       }),
     )
     // 尽力预建 cat.db（可写打开即建库+迁移）。degraded 模式下跳过——
@@ -872,6 +876,7 @@ export class LinguistProjectService {
     workflowStage: WorkflowStage,
     outputStatusPolicy?: WorkflowOutputStatusPolicy | null,
     qaProfile?: QaProfile,
+    defaultBatchWorkMode?: DefaultBatchWorkMode,
   ): LinguistProject {
     this.assertProjectWritable(projectId)
     const previousStage = this.getProject(projectId).workflowStage ?? 'translation'
@@ -884,6 +889,7 @@ export class LinguistProjectService {
           workflowStage,
           ...(outputStatusPolicy !== undefined ? { outputStatusPolicy } : {}),
           ...(qaProfile !== undefined ? { qaProfile } : {}),
+          ...(defaultBatchWorkMode !== undefined ? { defaultBatchWorkMode } : {}),
         }),
         projectId,
       )

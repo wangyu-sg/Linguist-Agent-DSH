@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import {
   archiveProject as coreArchiveProject,
   createProject as coreCreateProject,
+  normalizeDefaultBatchWorkMode,
   normalizeGlossaryPolicy,
   normalizeQaProfile,
   normalizeTagProfile,
@@ -27,6 +28,7 @@ import {
   normalizeWorkflowStage,
   type CreateProjectDeps,
   type CreateProjectInput,
+  type DefaultBatchWorkMode,
   type LinguistProject,
   type LinguistTagProfile,
   type LinguistWorkbookMappingProfile,
@@ -93,6 +95,7 @@ export interface RemovedProject {
 export interface SetWorkflowConfigInput {
   workflowStage: WorkflowStage
   qaProfile?: QaProfile
+  defaultBatchWorkMode?: DefaultBatchWorkMode
   /** null 表示恢复格式适配器默认映射。 */
   outputStatusPolicy?: WorkflowOutputStatusPolicy | null
 }
@@ -260,6 +263,9 @@ export class ProjectIndex {
       workflowStage: normalizeWorkflowStage(input.workflowStage),
       ...(input.qaProfile !== undefined
         ? { qaProfile: normalizeQaProfile(input.qaProfile) }
+        : {}),
+      ...(input.defaultBatchWorkMode !== undefined
+        ? { defaultBatchWorkMode: normalizeDefaultBatchWorkMode(input.defaultBatchWorkMode) }
         : {}),
       updatedAt: this.now(),
     }
@@ -514,6 +520,7 @@ function normalizeProjectPolicies(project: LinguistProject): void {
   else project.tagProfile = tagProfile
   project.workflowStage = normalizeWorkflowStage(project.workflowStage)
   project.qaProfile = normalizeQaProfile(project.qaProfile)
+  project.defaultBatchWorkMode = normalizeDefaultBatchWorkMode(project.defaultBatchWorkMode)
   const workbookMappings = normalizeWorkbookMappingProfiles(project.workbookMappings)
   if (workbookMappings.length === 0) delete project.workbookMappings
   else project.workbookMappings = workbookMappings

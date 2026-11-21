@@ -7,6 +7,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { sha256Hex } from '@linguist/cat-core'
+import { readProjectManifestFile } from '@linguist/cat-store'
 import type { LinguistProjectImportResult, LinguistReferenceImportResult, LinguistReferenceQueryResult, LinguistTmReferenceInfo } from '@linguist/domain-service/contracts'
 import test from 'node:test'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
@@ -467,5 +468,67 @@ test('group-bound CAT pages, totals and concordance use the same batch membershi
       const matches = await dispatchOperation({ ...deps, operation: 'linguistCatConcordance', payload: { projectId: id, query: 'Potion', sourceAssetId: assets[index] } }) as { segments: { segment: { assetId: string } }[] }
       assert.deepEqual(matches.segments.map(row => row.segment.assetId), [assets[index]])
     }
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('linguistProjectsCreate and linguistProjectsSetWorkflowConfig persist and validate defaultBatchWorkMode', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-default-workmode-ops-')))
+  const service = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+  service.init()
+  try {
+    const knownWorkspace = WorkspaceId('synthetic-workspace')
+    const deps: Omit<DispatchOperationInput, 'operation' | 'payload'> = {
+      service, bindings: new BindingStore(root), files: new ManagedFiles(root), mutations: new MutationBus(),
+      workspaceRegistry: { get: id => id === knownWorkspace ? { id, path: root } : undefined },
+      assertProjectSession: async () => {}, resolveSessionWorkspace: async () => ({ workspaceRoot: root }),
+    }
+    const createdDefault = await dispatchOperation({
+      ...deps, operation: 'linguistProjectsCreate',
+      payload: { workspaceId: knownWorkspace, name: 'Default mode', sourceLocale: 'zh-CN', targetLocale: 'en-US' },
+    }) as { id: string; defaultBatchWorkMode: string }
+    assert.equal(createdDefault.defaultBatchWorkMode, 'cat')
+
+    const createdWc = await dispatchOperation({
+      ...deps, operation: 'linguistProjectsCreate',
+      payload: { workspaceId: knownWorkspace, name: 'WC mode', sourceLocale: 'zh-CN', targetLocale: 'en-US', defaultBatchWorkMode: 'working-copy' },
+    }) as { id: string; defaultBatchWorkMode: string }
+    assert.equal(createdWc.defaultBatchWorkMode, 'working-copy')
+
+    const stageOnlyUpdate = await dispatchOperation({
+      ...deps, operation: 'linguistProjectsSetWorkflowConfig',
+      payload: { projectId: createdWc.id, workflowStage: 'editing' },
+    }) as { workflowStage: string; defaultBatchWorkMode: string }
+    assert.equal(stageOnlyUpdate.workflowStage, 'editing')
+    assert.equal(stageOnlyUpdate.defaultBatchWorkMode, 'working-copy', 'omitting defaultBatchWorkMode preserves existing setting')
+
+    const switchedBack = await dispatchOperation({
+      ...deps, operation: 'linguistProjectsSetWorkflowConfig',
+      payload: { projectId: createdWc.id, workflowStage: 'editing', qaProfile: 'subtitle', defaultBatchWorkMode: 'cat' },
+    }) as { workflowStage: string; qaProfile: string; defaultBatchWorkMode: string }
+    assert.deepEqual([switchedBack.workflowStage, switchedBack.qaProfile, switchedBack.defaultBatchWorkMode], ['editing', 'subtitle', 'cat'])
+
+    await assert.rejects(dispatchOperation({
+      ...deps, operation: 'linguistProjectsSetWorkflowConfig',
+      payload: { projectId: createdWc.id, workflowStage: 'editing', defaultBatchWorkMode: 'browser' },
+    }), /defaultBatchWorkMode/)
+
+    service.closeAll()
+    const indexPath = join(root, 'projects.json')
+    const rawIndex = JSON.parse(readFileSync(indexPath, 'utf8')) as { schemaVersion: number; projects: Array<Record<string, unknown>> }
+    delete rawIndex.projects.find(entry => entry.id === createdWc.id)!.defaultBatchWorkMode
+    writeFileSync(indexPath, JSON.stringify(rawIndex, null, 2))
+    const metaPath = service.getProjectPaths(createdWc.id).projectJsonPath
+    const rawMeta = JSON.parse(readFileSync(metaPath, 'utf8')) as Record<string, unknown>
+    rawMeta.defaultBatchWorkMode = 'browser'
+    writeFileSync(metaPath, JSON.stringify(rawMeta, null, 2))
+
+    const reloaded = new LinguistProjectService({ rootDir: root, applicationVersion: 'synthetic-test' })
+    reloaded.init()
+    const summary = await dispatchOperation({
+      ...deps, service: reloaded, operation: 'linguistProjectsGetSummary', payload: { projectId: createdWc.id },
+    }) as { project: { defaultBatchWorkMode: string } }
+    assert.equal(summary.project.defaultBatchWorkMode, 'cat')
+    assert.equal(readProjectManifestFile(metaPath).defaultBatchWorkMode, 'cat')
+    reloaded.closeAll()
   } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
 })

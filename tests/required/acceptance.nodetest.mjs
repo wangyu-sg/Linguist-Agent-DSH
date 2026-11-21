@@ -98,7 +98,7 @@ test('Host schedule callbacks use Sessions through the real Cordis injection bou
   } finally { await plugin.dispose(); await providers.dispose(); rmSync(root, { recursive: true, force: true }) }
 })
 
-test('seven packaged skills use the real native registry, bundled precedence, resources and disposal', async () => {
+test('eight packaged skills use the real native registry, bundled precedence, resources and disposal', async () => {
   const { SkillRegistry, BUNDLED_SKILL_RANK } = requireDsh('@deepseek-ai/dsh-skill')
   const { FileSystemSkillProvider } = requireDsh('@deepseek-ai/dsh-skill-filesystem')
   const ctx = new Context()
@@ -114,7 +114,7 @@ test('seven packaged skills use the real native registry, bundled precedence, re
   await plugin.await()
   try {
     const catalog = await native.list()
-    assert.deepEqual(catalog.map(skill => skill.name), ['cultural-lqa', 'game-localization', 'localization-readiness', 'phrase-platform-review-ops', 'release-lqa', 'terminology-candidate-mining', 'translator-brief'])
+    assert.deepEqual(catalog.map(skill => skill.name), ['cultural-lqa', 'game-localization', 'localization-readiness', 'phrase-platform-review-ops', 'release-lqa', 'terminology-candidate-mining', 'translator-brief', 'weloc-platform-ops'])
     for (const skill of catalog) {
       assert.equal(skill.source, 'bundled')
       assert.equal(skill.provider, 'linguist')

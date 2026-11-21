@@ -10,6 +10,8 @@ import { basename, extname, isAbsolute, join, relative } from 'node:path'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  DEFAULT_BATCH_WORK_MODES,
+  normalizeDefaultBatchWorkMode,
   normalizeQaProfile,
   normalizeWorkflowStage,
   sha256Hex,
@@ -203,6 +205,7 @@ function publicProject(project: LinguistProject, bindings: BindingStore): Lingui
     workflowStage: normalizeWorkflowStage(project.workflowStage),
     outputStatusPolicy: project.outputStatusPolicy,
     qaProfile: normalizeQaProfile(project.qaProfile),
+    defaultBatchWorkMode: normalizeDefaultBatchWorkMode(project.defaultBatchWorkMode),
     ...(project.tagProfile === undefined ? {} : { tagProfile: project.tagProfile }),
     ...(workspaceId === undefined ? {} : { workspaceId }),
   }
@@ -442,6 +445,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
         targetLocale: string(payload.targetLocale, 'targetLocale', LOCALE_MAX_LENGTH, LOCALE_PATTERN),
         workflowStage: stage(payload.workflowStage, 'translation'),
         ...(payload.qaProfile === undefined ? {} : { qaProfile: oneOf(payload.qaProfile, 'qaProfile', ['general', 'subtitle'] as const) }),
+        ...(payload.defaultBatchWorkMode === undefined ? {} : { defaultBatchWorkMode: oneOf(payload.defaultBatchWorkMode, 'defaultBatchWorkMode', DEFAULT_BATCH_WORK_MODES) }),
         ...(payload.outputStatusPolicy === undefined ? {} : { outputStatusPolicy: outputStatusPolicy(payload.outputStatusPolicy) }),
       })
       bindings.bindProject(created.id, workspaceId)
@@ -491,7 +495,7 @@ async function dispatch(input: DispatchOperationInput): Promise<unknown> {
     }
     case 'linguistProjectsSetWorkflowConfig': {
       const id = projectId(payload)
-      const result = service.setWorkflowConfig(id, stage(payload.workflowStage), payload.outputStatusPolicy === undefined ? undefined : payload.outputStatusPolicy === null ? null : outputStatusPolicy(payload.outputStatusPolicy), payload.qaProfile === undefined ? undefined : oneOf(payload.qaProfile, 'qaProfile', ['general', 'subtitle'] as const))
+      const result = service.setWorkflowConfig(id, stage(payload.workflowStage), payload.outputStatusPolicy === undefined ? undefined : payload.outputStatusPolicy === null ? null : outputStatusPolicy(payload.outputStatusPolicy), payload.qaProfile === undefined ? undefined : oneOf(payload.qaProfile, 'qaProfile', ['general', 'subtitle'] as const), payload.defaultBatchWorkMode === undefined ? undefined : oneOf(payload.defaultBatchWorkMode, 'defaultBatchWorkMode', DEFAULT_BATCH_WORK_MODES))
       notify(mutations, id, 'project-updated')
       return publicProject(result, bindings)
     }

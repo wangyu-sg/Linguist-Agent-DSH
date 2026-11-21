@@ -174,3 +174,51 @@ test('a session default cannot authorize work and a saved batch choice survives 
     assert.equal(reopened.batchStart('another-project', '32.2'), undefined)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('project defaultBatchWorkMode determines omitted useCat while honoring explicit overrides and saved batch choices', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-default-batch-mode-')))
+  const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
+  service.init()
+  const exec = {} as Parameters<ReturnType<typeof createProjectPreparationTool>['execute']>[1]
+  try {
+    const catProject = await service.createProject({
+      name: 'CAT default', sourceLocale: 'en', targetLocale: 'zh-CN', defaultBatchWorkMode: 'cat',
+    })
+    let binding: SessionBinding = { workspaceId: 'synthetic', projectId: catProject.id, role: 'general', workMode: 'working-copy' }
+    const starts = new BindingStore(join(root, 'data'))
+    const tool = createProjectPreparationTool(service,
+      async () => ({ workspaceRoot: root, sessionId: 'default-cat', binding }),
+      (_id, next) => { binding = next }, starts)
+
+    writeFileSync(join(root, 'report-only.xliff'), '<xliff version="1.2"><file><body><trans-unit id="r1"><source>Shield</source><target>盾牌</target></trans-unit></body></file></xliff>')
+    const reported = await tool.execute({ sources: [{ path: 'report-only.xliff' }], reportOnly: true }, exec) as { batchId: string; workMode: string; prepared: unknown[]; batchStart?: { useCat: boolean } }
+    assert.equal(reported.workMode, 'working-copy')
+    assert.deepEqual(reported.prepared, [])
+    assert.equal(reported.batchStart, undefined)
+    assert.equal(starts.batchStart(catProject.id, reported.batchId), undefined)
+
+    writeFileSync(join(root, 'auto-cat.xliff'), '<xliff version="1.2"><file><body><trans-unit id="c1"><source>Potion</source><target>药水</target></trans-unit></body></file></xliff>')
+    const autoCat = await tool.execute({ sources: [{ path: 'auto-cat.xliff' }] }, exec) as { batchId: string; workMode: string; prepared: unknown[]; batchStart: { useCat: boolean } }
+    assert.equal(autoCat.workMode, 'cat', 'project default cat wins even when session started in working-copy')
+    assert.equal(autoCat.batchStart.useCat, true)
+    assert.equal(autoCat.prepared.length, 1)
+
+    service.setWorkflowConfig(catProject.id, 'translation', undefined, undefined, 'working-copy')
+    const reopenedSavedCat = await tool.execute({ batchId: autoCat.batchId }, exec) as { workMode: string; batchStart: { useCat: boolean } }
+    assert.equal(reopenedSavedCat.workMode, 'cat', 'saved batchStart wins over subsequent project default change')
+    assert.equal(reopenedSavedCat.batchStart.useCat, true)
+
+    writeFileSync(join(root, 'auto-wc.xliff'), '<xliff version="1.2"><file><body><trans-unit id="w1"><source>Elixir</source><target>灵药</target></trans-unit></body></file></xliff>')
+    binding = { workspaceId: 'synthetic', projectId: catProject.id, role: 'general', workMode: 'cat' }
+    const autoWc = await tool.execute({ sources: [{ path: 'auto-wc.xliff' }] }, exec) as { batchId: string; workMode: string; prepared: unknown[]; batchStart: { useCat: boolean } }
+    assert.equal(autoWc.workMode, 'working-copy', 'project default working-copy wins even when session started in cat')
+    assert.equal(autoWc.batchStart.useCat, false)
+    assert.deepEqual(autoWc.prepared, [])
+
+    writeFileSync(join(root, 'explicit-cat.xliff'), '<xliff version="1.2"><file><body><trans-unit id="e1"><source>Scroll</source><target>卷轴</target></trans-unit></body></file></xliff>')
+    const explicitCat = await tool.execute({ sources: [{ path: 'explicit-cat.xliff' }], useCat: true }, exec) as { batchId: string; workMode: string; prepared: unknown[]; batchStart: { useCat: boolean } }
+    assert.equal(explicitCat.workMode, 'cat', 'explicit useCat overrides project default')
+    assert.equal(explicitCat.batchStart.useCat, true)
+    assert.equal(explicitCat.prepared.length, 1)
+  } finally { service.closeAll(); rmSync(root, { recursive: true, force: true }) }
+})

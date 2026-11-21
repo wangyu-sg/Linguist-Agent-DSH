@@ -103,7 +103,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
     if (!targetWorkspace) { showMessage(t("请选择工作区，或先为项目建立关联。")); return }
     setBusy(true)
     showMessage('')
-    try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project ? 'cat' : 'working-copy' }); showMessage(t("会话已打开")) }
+    try { await onEnter({ projectId: project?.id, workspaceId: targetWorkspace as WorkspaceId, role, workMode: project ? (project.defaultBatchWorkMode ?? 'cat') : 'working-copy' }); showMessage(t("会话已打开")) }
     catch (error) { showMessage(describeProjectError(error, t), true) }
     finally { setBusy(false) }
   }
@@ -169,7 +169,7 @@ export function ProjectsPage({ workspaces, sessions, onEnter, onOpenProject, onO
   if (groupsProject) return <TaskGroupsPage project={groupsProject} initialGroup={libraryGroup} onBack={() => { setLibraryGroup(undefined); setGroupsProjectId(undefined) }}
     onOpenBatch={(group, assetId) => onOpenProject(groupsProject.id, undefined, group.id, assetId)}
     onLibrary={group => { setLibraryGroup(group); setLibraryProjectId(groupsProject.id) }}
-    onSession={group => onEnter({ projectId: groupsProject.id, workspaceId: groupsProject.workspaceId as WorkspaceId, role, workMode: 'cat', taskGroupId: group.id })} />
+    onSession={group => onEnter({ projectId: groupsProject.id, workspaceId: groupsProject.workspaceId as WorkspaceId, role, workMode: groupsProject.defaultBatchWorkMode ?? 'cat', taskGroupId: group.id })} />
   return <main className={styles.page} aria-label={t("Linguist 项目")}>
     <header className={styles.heading}>
       <div className={styles.title}><h1>{t('本地化工作台')}</h1><p>{t("项目与岗位")}</p></div>

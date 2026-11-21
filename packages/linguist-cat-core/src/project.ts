@@ -14,6 +14,19 @@ import {
   type WorkflowStage,
 } from './workflow'
 
+/** 项目级新正式本地文件批次的默认工作方式；旧项目读取为 cat。 */
+export const DEFAULT_BATCH_WORK_MODES = ['cat', 'working-copy'] as const
+
+export type DefaultBatchWorkMode = (typeof DEFAULT_BATCH_WORK_MODES)[number]
+
+export const DEFAULT_BATCH_WORK_MODE: DefaultBatchWorkMode = 'cat'
+
+export function normalizeDefaultBatchWorkMode(value: unknown): DefaultBatchWorkMode {
+  return DEFAULT_BATCH_WORK_MODES.includes(value as DefaultBatchWorkMode)
+    ? (value as DefaultBatchWorkMode)
+    : DEFAULT_BATCH_WORK_MODE
+}
+
 interface ProjectFields {
   id: ProjectId
   name: string
@@ -39,6 +52,8 @@ interface ProjectFields {
   outputStatusPolicy?: WorkflowOutputStatusPolicy
   /** 确定性 QA 的项目预设；旧项目读取为 general。 */
   qaProfile?: QaProfile
+  /** 新正式本地文件批次的默认工作方式；旧项目读取为 cat。 */
+  defaultBatchWorkMode?: DefaultBatchWorkMode
   /** Agent/用户确认过的轻量 XLSX 映射；不含主机路径或源文件内容。 */
   workbookMappings?: LinguistWorkbookMappingProfile[]
   /** 按语言保存的项目拼写词典；仅显式加入的词，不改变术语约束。 */
@@ -56,6 +71,7 @@ export interface CreateProjectInput {
   workflowStage?: WorkflowStage
   outputStatusPolicy?: WorkflowOutputStatusPolicy
   qaProfile?: QaProfile
+  defaultBatchWorkMode?: DefaultBatchWorkMode
 }
 
 export interface CreateProjectDeps {
@@ -74,6 +90,7 @@ export function createProject(input: CreateProjectInput, deps: CreateProjectDeps
     targetLocale: input.targetLocale,
     workflowStage: normalizeWorkflowStage(input.workflowStage),
     qaProfile: normalizeQaProfile(input.qaProfile),
+    defaultBatchWorkMode: normalizeDefaultBatchWorkMode(input.defaultBatchWorkMode),
     ...(input.outputStatusPolicy !== undefined
       ? { outputStatusPolicy: input.outputStatusPolicy }
       : {}),
