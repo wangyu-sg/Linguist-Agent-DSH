@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fillDeliveryWorkbook, parseXlsxWorkbook, sha256Hex } from '@linguist/cat-formats'
+import { diffArrays } from 'diff'
 import { z } from 'zod'
 import { writeFileAtomic } from './safe-file'
 import { readWorkingJson, workingCopyPath } from './working-copy'
@@ -41,6 +42,26 @@ const cell = z.string().max(32767)
 const required = cell.refine(value => value.trim().length > 0, '必须填写')
 const translationStatuses = ['定稿', '保留原文', '待确认', '待核术语', '待验结构'] as const
 const reviewStatuses = ['采用终稿', '保留原译', '待确认', '待验结构'] as const
+const words = new Intl.Segmenter('en', { granularity: 'word' })
+
+function reviewTokens(text: string): string[] {
+  // Keep literal Excel escape sequences within one run so the writer can escape them.
+  return text.split(/(_x[0-9a-fA-F]{4}_)/g).flatMap((part, index) => index % 2 ? [part] :
+    Array.from(words.segment(part)).flatMap(({ segment }) => /^\s+$/u.test(segment) ? [...segment] : [segment]))
+}
+
+function reviewText(draft: string, final: string) {
+  if (draft === final) return [draft, final]
+  const before = []
+  const after = []
+  for (const { value, added, removed } of diffArrays(reviewTokens(draft), reviewTokens(final))) {
+    const text = value.join('')
+    if (!added) before.push({ text, changed: removed })
+    if (!removed) after.push({ text, changed: added })
+  }
+  return [before, after]
+}
+
 const report = z.object({
   task: required, languagePair: required, baseline: required, version: required, scope: required,
   collection: z.enum(['仅决定项与未决', '仅改项与未决', '逐段全量', '指定范围']),
@@ -92,8 +113,9 @@ export async function writeDeliveryReport(workspaceRoot: string, dataPath: strin
     const question = item.questionId?.trim() ?? ''
     if (question && !questionIds.has(question)) throw new Error(`明细第 ${row} 行引用了不存在的问题号：${question}`)
     const note = [item.reason ?? '', item.evidence ?? '', question]
-    return translation ? [location, item.source, final, item.status, ...note, item.note ?? '']
-      : [location, item.source, item.draft!, final, item.status, ...note]
+    if (translation) return [location, item.source, final, item.status, ...note, item.note ?? '']
+    const compared = item.status === '采用终稿' ? reviewText(item.draft!, final) : [item.draft!, final]
+    return [location, item.source, ...compared, item.status, ...note]
   })
   const header = `${task} / ${languagePair}`
   if (header.length > 32767) throw new Error('任务和语对合并后超出 Excel 单元格限制')

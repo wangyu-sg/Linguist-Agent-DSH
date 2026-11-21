@@ -20,6 +20,7 @@ LICENSE／NOTICE 为准。本页不是完整的依赖 SBOM。
 | officeparser | MIT | Office 参考正文抽取 |
 | pdfjs-dist | Apache-2.0 | PDF 正文和预览 |
 | file-type | MIT | 文件类型识别 |
+| diff | BSD-3-Clause | 审校交付表的译文差异 |
 
 PDF.js 的许可全文随插件保存在
 `resources/third-party/pdfjs-dist-LICENSE`；源文件位于

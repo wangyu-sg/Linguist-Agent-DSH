@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -50,13 +51,47 @@ test('formal translation and review produce the correct template, and inconsiste
   const empty = await generate('review', review)
   assert.equal(empty.detailRows, 0)
   assert.notEqual(empty.path, translation.path)
-  const changed = await generate('review', { ...review,
-    items: [{ location: 'test.key.1', source: '按钮', draft: 'Old', final: 'Button', status: '采用终稿', ...evidence },
-      { location: 'test.key.2', source: '关闭', draft: 'Close', status: '保留原译' }] })
-  const reviewSheet = (await parseXlsxWorkbook(readFileSync(join(workspaceRoot, changed.path)))).sheets[0]!
+  const reviewItems = [
+    { draft: 'Old', final: 'Button', status: '采用终稿' },
+    { draft: 'Close', status: '保留原译' },
+    { draft: '  Open  menu, then close.', final: ' Open menu! then save. ', status: '采用终稿' },
+    { draft: 'A B\tC\r\nD\u3000E', final: 'A\u00a0B C\nD E', status: '采用终稿' },
+    { draft: 'Same', final: 'Same', status: '采用终稿' },
+    { draft: 'Check this', status: '待确认' },
+    { draft: '', final: '=A1 & <b> _x0001_ 👩🏽‍💻', status: '采用终稿' },
+    { draft: 'Use _x0001_ & {0}', final: 'Use _x0002_ & {0}', status: '采用终稿' },
+  ].map((item, index) => ({ location: `test.key.${index + 1}`, source: '原句', ...evidence, ...item }))
+  const changed = await generate('review', { ...review, items: reviewItems })
+  const reviewBytes = readFileSync(join(workspaceRoot, changed.path))
+  const reviewSheet = (await parseXlsxWorkbook(reviewBytes)).sheets[0]!
   assert.equal(reviewSheet.name, '审校明细')
-  assert.deepEqual(reviewSheet.rows.find(row => row.rowNo === 6)!.cells.slice(2, 5).map(cell => cell.value), ['Old', 'Button', '采用终稿'])
-  assert.deepEqual(reviewSheet.rows.find(row => row.rowNo === 7)!.cells.slice(2, 5).map(cell => cell.value), ['Close', '', '保留原译'])
+  for (const [index, item] of reviewItems.entries()) {
+    assert.deepEqual(reviewSheet.rows.find(row => row.rowNo === index + 6)!.cells.slice(2, 5).map(cell => cell.value),
+      [item.draft, item.final ?? '', item.status])
+  }
+  const JSZip = createRequire(new URL('../../../linguist-cat-formats/package.json', import.meta.url))('jszip')
+  const translationZip = await JSZip.loadAsync(readFileSync(join(workspaceRoot, translation.path)))
+  const reviewZip = await JSZip.loadAsync(reviewBytes)
+  for (const zip of [translationZip, reviewZip]) {
+    for (const index of [1, 2, 3]) {
+      assert.doesNotMatch(await zip.file(`xl/worksheets/sheet${index}.xml`).async('string'), /<autoFilter\b/)
+      assert.match(await zip.file(`xl/tables/table${index}.xml`).async('string'), /<autoFilter\b/)
+    }
+  }
+  assert.match(await translationZip.file('xl/tables/table1.xml').async('string'), /<tableColumn id="3" name="译文"\/>/)
+  const xml: string = await reviewZip.file('xl/worksheets/sheet1.xml').async('string')
+  const redRuns = (address: string) => {
+    const cell = new RegExp(`<c r="${address}"[^>]*>([\\s\\S]*?)</c>`).exec(xml)![1]!
+    return [...cell.matchAll(/<r><rPr><rFont val="Aptos"\/><color rgb="FFB91C1C"\/><sz val="11"\/><\/rPr><t xml:space="preserve">([\s\S]*?)<\/t><\/r>/g)]
+      .map(match => match[1])
+  }
+  assert.deepEqual([redRuns('C6'), redRuns('D6')], [['Old'], ['Button']])
+  assert.deepEqual([redRuns('C8'), redRuns('D8')], [[' ', ' ', ',', 'close'], ['!', 'save', ' ']])
+  assert.deepEqual([redRuns('C9'), redRuns('D9')], [[' ', '\t', '&#xD;', '\u3000'], ['\u00a0', ' ', ' ']])
+  assert.deepEqual([redRuns('C12'), redRuns('D12')], [[], ['=A1 &amp; &lt;b&gt; _x005F_x0001_ 👩🏽‍💻']])
+  assert.deepEqual([redRuns('C13'), redRuns('D13')], [['_x005F_x0001_'], ['_x005F_x0002_']])
+  for (const address of ['B8', 'C7', 'D7', 'C10', 'D10', 'C11', 'D11']) assert.deepEqual(redRuns(address), [])
+  assert.doesNotMatch(await translationZip.file('xl/worksheets/sheet1.xml').async('string'), /FFB91C1C/)
 
   const reader = createInspectDeliveryReportTool(async () => ({ workspaceRoot }))
   const inspect = (path: string, batch?: string) => reader.execute({ path, ...(batch && { batch }) }, {} as never)

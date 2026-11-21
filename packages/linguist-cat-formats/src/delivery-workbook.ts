@@ -1,14 +1,20 @@
 import JSZip from 'jszip'
 import { columnLettersFromIndex, escapeCellText, scanElements } from './adapters/xlsx'
 
-function cell(reference: string, style: string, value: string): string {
-  return value === '' ? `<c r="${reference}" s="${style}" t="n"></c>`
-    : `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${escapeCellText(value)}</t></is></c>`
+type DeliveryCell = string | readonly { text: string; changed: boolean }[]
+
+function cell(reference: string, style: string, value: DeliveryCell): string {
+  if (value.length === 0) return `<c r="${reference}" s="${style}" t="n"></c>`
+  const text = (part: string) => `<t xml:space="preserve">${escapeCellText(part)}</t>`
+  // Match the review template's detail font on every run. Excel can use a different font when run properties are incomplete.
+  const content = typeof value === 'string' ? text(value) : value.map(run =>
+    `<r><rPr><rFont val="Aptos"/><color rgb="${run.changed ? 'FFB91C1C' : 'FF173247'}"/><sz val="11"/></rPr>${text(run.text)}</r>`).join('')
+  return `<c r="${reference}" s="${style}" t="inlineStr"><is>${content}</is></c>`
 }
 
 /** Fill only the input cells of the bundled templates. Keep Excel's native table, formatting and validation. */
 export async function fillDeliveryWorkbook(template: Uint8Array, header: readonly [string, string, string, string, string],
-  tables: readonly [string[][], string[][], string[][]]): Promise<Uint8Array> {
+  tables: readonly [DeliveryCell[][], string[][], string[][]]): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(template)
   const headerCells = new Map(['B2', 'E2', 'H2', 'B3', 'E3'].map((reference, index) => [reference, header[index]!]))
   const fail = (detail: string): never => { throw new Error(`交付模板结构无效：${detail}`) }

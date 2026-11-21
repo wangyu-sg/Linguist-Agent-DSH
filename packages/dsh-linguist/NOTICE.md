@@ -31,6 +31,11 @@ PDF.js 4.10.38, Copyright Mozilla Foundation and contributors, is used for
 original PDF previews. Its unmodified Apache License 2.0 is included in
 `resources/third-party/pdfjs-dist-LICENSE`. Source: https://github.com/mozilla/pdf.js.
 
+## jsdiff
+
+jsdiff (the `diff` package) compares draft and final translations in review
+workbooks. See `resources/third-party/diff-LICENSE` for its BSD 3-Clause license.
+
 ## Offline spelling
 
 The optional editor spelling checks use nspell 2.1.5 (MIT) with the en_US

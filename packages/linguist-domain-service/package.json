@@ -21,6 +21,7 @@
     "@linguist/cat-store": "workspace:*",
     "@linguist/cat-tools": "workspace:*",
     "@linguist/legacy-migration": "workspace:*",
+    "diff": "9.0.0",
     "mammoth": "1.12.2",
     "officeparser": "4.2.0",
     "pdfjs-dist": "4.10.38",
