@@ -54,27 +54,12 @@ test('native Linguist preset binds General, removes blank-session binding on exi
   const executorPlugin = ctx.plugin(NativeToolExecutor)
   await executorPlugin.await()
   let preset = 'standard'
-  const questionsAsked: string[] = []
-  let catChoice: string | undefined
-  let adjustOrder: string | undefined
   let agent = { id: SessionId('native-one'), model: { current: () => undefined }, session: Session.create(SessionId('native-one'), undefined, { version: 4, id: SessionId('native-one'), createdAt: Date.now(), isSeeded: false, cwd: root }), options: {}, ctx }
   const services = {
     agents: { list: () => [], get: () => agent }, agentPresets: { composedPreset: () => preset },
     schedule: { catalog: async () => [] },
     sessionPersistence: { stat: async () => ({ header: agent.session.header }) },
     sessionQuery: { observeSession: async (id: string) => ({ header: { id }, events: [], inheritedEventCount: 0, [Symbol.dispose]() {} }) },
-    userQuestions: { ask: async ({ questions }: { questions: Array<{ id: string; question: string; detail?: string; options: Array<{ label: string }> }> }) => {
-      const question = questions[0]!
-      questionsAsked.push(question.id)
-      if (question.id === 'linguist-batch-cat') {
-        assert.equal(question.question, '这批要进 CAT 工作台逐段处理、留修订记录吗？')
-        assert.deepEqual(question.options.map(option => option.label), ['进 CAT 工作台', '本批不进 CAT'])
-        return { answers: [{ id: question.id, selected: catChoice ? [catChoice] : [] }] }
-      }
-      assert.equal(question.id, 'linguist-batch-order')
-      assert.match(question.detail!, /先审.*本地副本，再按本批批准的范围回填平台/)
-      return { answers: [{ id: question.id, selected: adjustOrder ? [] : ['按这个顺序开工'], ...(adjustOrder ? { custom: adjustOrder } : {}) }] }
-    } },
     skills: { registerProvider: () => () => {} }, webServer: { register: () => () => {} },
     workspaceRegistry: { list: () => workspaces, get: (id: string) => workspaces.find(row => row.id === id) },
   }
@@ -133,15 +118,16 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     const opening = await ctx.waterfall('agent/pre-step', { agent, turn: 4, step: 0, messages: [text], signal: new AbortController().signal } as never,
       async () => ({ kind: 'enter' as const, messages: [text] }))
     assert.equal(opening.messages.at(-1), text)
-    const waiting = await prepare(collect)
-    assert.equal(waiting.status, 'awaiting-batch-cat')
+    const collected = await prepare(collect)
+    assert.equal(collected.reportOnly, true)
+    assert.equal(collected.workMode, 'browser')
+    assert.equal(collected.batchStart, undefined)
+    assert.deepEqual(collected.prepared, [])
     assert.equal(new BindingStore(root).session(agent.id)?.batchStart, undefined)
-    catChoice = '进 CAT 工作台'
-    const start = await prepare(collect)
-    assert.equal(start.batchId, waiting.batchId)
-    assert.equal(start.reportOnly, true)
+    const start = await prepare({ batchId: collected.batchId, online: true, reportOnly: false, useCat: true })
+    assert.equal(start.batchId, collected.batchId)
+    assert.equal(start.reportOnly, false)
     assert.deepEqual(start.batchStart, { batchId: start.batchId, useCat: true })
-    assert.deepEqual(questionsAsked, ['linguist-batch-cat', 'linguist-batch-cat'], 'chat prose and session default never count as a click')
     assert.deepEqual(start.prepared, [])
     assert.deepEqual(start, JSON.parse(JSON.stringify(start)))
     writeFileSync(join(root, 'downloaded.csv'), 'key,source,target\na,开始,Begin\n')
@@ -150,7 +136,6 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     const joined = await prepare({ batchId: start.batchId, online: true, reportOnly: false, sources: [{ path: 'downloaded.csv' }] })
     assert.equal(joined.batchId, start.batchId)
     assert.ok(joined.prepared[0]?.assetId)
-    assert.equal(questionsAsked.length, 2, 'adding a downloaded file to CAT retains the web batch choice')
     const joinedRow = (await call('cat_get_segments', { batchId: joined.prepared[0]!.assetId, limit: 1 })) as { content: unknown }
     assert.match(JSON.stringify(joinedRow), /Begin/)
     const inherited = agent
@@ -164,26 +149,18 @@ test('native Linguist preset binds General, removes blank-session binding on exi
     assert.deepEqual((await prepare({ online: true, batch: browserBatch('32.2') })).batchStart, start.batchStart)
     assert.deepEqual((await prepare({ batchId: start.batchId })).batchStart, start.batchStart)
     assert.deepEqual((await prepare({ batchId: joined.prepared[0]!.assetId })).batchStart, start.batchStart)
-    assert.equal(questionsAsked.length, 2, 'new Session reuses the same platform and CAT batch decision')
-    catChoice = '本批不进 CAT'
-    adjustOrder = '先查平台现译，再审本地副本，按批准内容回填。'
-    const other = await prepare({ online: true, batch: browserBatch('32.3'), sources: [{ path: 'downloaded.csv' }] })
+    const other = await prepare({ online: true, batch: browserBatch('32.3'), sources: [{ path: 'downloaded.csv' }], useCat: false })
     assert.notEqual(other.batchId, start.batchId)
-    assert.deepEqual(other.batchStart, { batchId: other.batchId, useCat: false, order: adjustOrder })
+    assert.deepEqual(other.batchStart, { batchId: other.batchId, useCat: false })
     assert.deepEqual(other.prepared, [])
-    assert.deepEqual(questionsAsked.slice(2), ['linguist-batch-cat', 'linguist-batch-order'])
     assert.deepEqual((await prepare({ batchId: other.batchId })).batchStart, other.batchStart)
-    assert.equal(questionsAsked.length, 4)
-    catChoice = '进 CAT 工作台'
     writeFileSync(join(root, 'local-first.csv'), 'key,source,target\nlocal,Next,下一步\n')
-    const fromLocal = await prepare({ sources: [{ path: 'local-first.csv' }] })
+    const fromLocal = await prepare({ sources: [{ path: 'local-first.csv' }], useCat: true })
     assert.ok(fromLocal.prepared[0]?.assetId)
-    assert.equal(questionsAsked.length, 5)
     await blocked('linguist_prepare_project', { batchId: fromLocal.batchId, batch: browserBatch('32.2'), online: true }, /已属于.*另一批次/)
     const onlineBatch = browserBatch('local-first')
     assert.deepEqual((await prepare({ batchId: fromLocal.batchId, batch: onlineBatch, online: true })).batchStart, fromLocal.batchStart)
     assert.deepEqual((await prepare({ batch: onlineBatch, online: true })).batchStart, fromLocal.batchStart)
-    assert.equal(questionsAsked.length, 5, 'adding the platform identity retains the local decision')
     preset = 'standard'
     await ctx.serial('agent-preset/selected', agent.id, preset)
     assert.equal(new BindingStore(root).session(agent.id), undefined)

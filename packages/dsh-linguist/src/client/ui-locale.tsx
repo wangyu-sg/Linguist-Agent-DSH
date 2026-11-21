@@ -447,7 +447,7 @@ const english: Record<string, string> = {
   '· 已归档': '· archived', ' · 已归档': ' · archived',
   '新建 LA 会话': 'New LA session', '新建项目': 'New project', '当前工作阶段': 'Current workflow stage',
   '翻译': 'Translation', '编辑审校': 'Editing / review', '校对': 'Proofreading', '创建': 'Create',
-  '本批进 CAT': 'CAT for this batch', '本批不进 CAT': 'Outside CAT for this batch', '批次开工待确认': 'Batch start pending', '进入会话': 'Open session',
+  '进入会话': 'Open session',
   '岗位决定默认职责。DSH 的通用工具和权限仍由宿主管理。': 'The role sets default responsibilities. DSH continues to manage general tools and permissions.',
   '岗位': 'Role', '译者': 'Translator', '审校': 'Reviewer', '工作方式': 'Work mode',
   '工作副本': 'Working copies', '浏览器': 'Browser', '新建无项目会话': 'Create session without project',

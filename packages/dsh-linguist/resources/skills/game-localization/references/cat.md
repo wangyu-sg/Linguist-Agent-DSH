@@ -1,6 +1,6 @@
 # CAT 作业
 
-正式本地文件任务调用 `linguist_prepare_project`，传原稿和已知语言对。已有 CAT 批次时传其 `batchId`。从平台取稿后沿用采集时返回的 `batchId`，并带上 `sources`。每批第一次由用户在 DSH 问题中选择是否进 CAT。返回的 `files` 会标明已准备的 CAT 批次、可继续的文件和需要澄清的局部问题。XLSX 使用已保存或唯一明确的映射，无法确定时问清具体工作表和列。Phrase split 使用对应 master。核对稳定 ID、锁定和标签边界。
+正式本地文件任务调用 `linguist_prepare_project`，传原稿和已知语言对；在工作副本会话中要进 CAT 时传 `useCat: true`，在已有 CAT 会话或已有 CAT 批次中自动沿用。已有 CAT 批次时传其 `batchId`。从平台取稿后沿用采集时返回的 `batchId`，并带上 `sources`。返回的 `files` 会标明已准备的 CAT 批次、可继续的文件和需要澄清的局部问题。XLSX 使用已保存或唯一明确的映射，无法确定时问清具体工作表和列。Phrase split 使用对应 master。核对稳定 ID、锁定和标签边界。
 
 General 用 `linguist_delegate` 将当前批次或指定句段交给专业岗位。正常材料带完整源译文及适用依据；直接阅读内联首组，然后沿 `continuationPaths` 续读。缺少必要来源时按出处补查。读完后按已授权范围集中保存或确认，锁定、版本与原件保护继续有效。只做报告时传 `reportOnly: true`，并仅交付判断。
 

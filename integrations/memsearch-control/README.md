@@ -6,4 +6,4 @@ DSH 独立插件，为已安装的官方 `@zilliz/memsearch-dsh` 增加设置入
 
 本插件使用 MemSearch 自带的 `memsearch config` 命令管理整理选项。官方插件的记录与召回开关仍由官方插件管理，不会被本插件替换。保存模型只更新 headless profile 中的 `agent-default-model`，保留其他条目；如果文件在页面打开后被修改，需要刷新后再保存。
 
-依赖 DSH 0.2.2-rc.2、官方 MemSearch DSH 插件、`memsearch` 和 `dsh` 命令。退出或关闭 LA Studio 不会影响本插件。首次安装后请在 DSH 桌面端确认设置页可见，并验证浅色、深色和窄窗显示。
+依赖 DSH 0.2.2-rc.2、官方 MemSearch DSH 插件、`memsearch` 和 `dsh` 命令。退出或关闭 Linguist Agent 或 DSH 桌面会话不会影响本插件配置。首次安装后请在 DSH 桌面端确认设置页可见，并验证浅色、深色和窄窗显示。

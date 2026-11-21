@@ -162,7 +162,7 @@ function SessionBadge({ sessionId, preset, openCat, openWorkingCopy, openCopy, o
     } catch (cause) { setActionError(String(cause)) }
     finally { setDetachBusy(false) }
   }
-  const modeLabel = t(binding.batchStart ? (binding.batchStart.useCat ? '本批进 CAT' : '本批不进 CAT') : '批次开工待确认')
+  const modeLabel = t({ cat: 'CAT', 'working-copy': '工作副本', browser: '浏览器' }[binding.workMode])
   const projectLabel = binding.projectId && projectName?.projectId === binding.projectId ? [projectName.name, projectName.taskGroupName].filter(Boolean).join(' / ') : binding.projectId?.slice(0, 12)
   const identity = `${roleLabel} · ${modeLabel}${projectLabel ? ` · ${projectLabel}` : ''}`
   const openAction = binding.projectId && binding.workMode === 'cat'

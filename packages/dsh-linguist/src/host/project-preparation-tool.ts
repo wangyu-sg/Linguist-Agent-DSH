@@ -26,7 +26,8 @@ const Input = Type.Object({
   removeResource: Type.Optional(Type.String({ description: 'Exact resource key from the returned resources list to remove from project use; original files are retained.' })),
   replaceResource: Type.Optional(Type.String({ description: 'Exact resource key to replace after the single new resource reads successfully.' })),
   sourceLocale: Type.Optional(Type.String()), targetLocale: Type.Optional(Type.String()),
-  online: Type.Optional(Type.Boolean({ description: 'True for this batch’s web work, including read-only evidence gathering. Provide batch or batchId before opening the platform.' })),
+  useCat: Type.Optional(Type.Boolean({ description: 'Set true to import and process this batch in CAT, false for working-copy or browser. Omit to reuse an existing batch choice or current session mode.' })),
+  online: Type.Optional(Type.Boolean({ description: 'True when registering or preparing a web platform batch, including read-only collection.' })),
   reportOnly: Type.Optional(Type.Boolean({ description: 'True when the user requests observations only, without changing or confirming targets.' })),
   useRoleDefaults: Type.Optional(Type.Boolean({ description: 'True only if the user expressly chooses LA role defaults. Preserve the current host settings otherwise.' })),
   sources: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1 }), platformSnapshotPath: Type.Optional(Type.String()), phraseMasterPath: Type.Optional(Type.String()),
@@ -47,12 +48,10 @@ function jsonOutput<T>(value: T): T {
 
 export function createProjectPreparationTool(service: LinguistProjectService, resolve: (callId: string, useTurnQuestion: boolean) => Promise<{
   workspaceRoot: string; sessionId: string; binding: SessionBinding; segmentIds?: string[]; question?: string; selectedBatchId?: string
-  askBatchCat: (name: string, signal: AbortSignal) => Promise<boolean | undefined>
-  askBatchOrder: (name: string, recommendation: string, signal: AbortSignal) => Promise<string | undefined>
 }>, bind: (projectId: string, binding: SessionBinding) => void, starts: Pick<BindingStore, 'batchStart' | 'saveBatchStart'>, onChanged?: (projectId: string) => void): ToolDefinition {
   return {
     name: 'linguist_prepare_project',
-    description: 'Call before working on each batch, including read-only online collection. Identify it by existing batchId, stable platform batch locator, or local sources. DSH asks whether to use CAT for the batch and, outside CAT, to confirm or adjust the sequence. No work starts while the tool is waiting. Reuse the batchId for later downloads, CAT intake and new sessions. To attach the platform identity to an existing CAT-backed batch provide its batchId together with batch.kind=browser and its known native locator. This decision grants no platform permissions. Use resources to register project material, replaceResource to replace an original, query alone for evidence, and compareGroups to compare groups.',
+    description: 'Register or resume formal localization batches and manage project materials. Identify a batch by existing batchId, stable platform batch locator, or local sources; pass useCat when choosing CAT or non-CAT explicitly, or omit it to reuse an existing batch choice or current session mode. Ordinary Q&A, terminology queries and read-only web browsing do not require starting a CAT batch. Use resources to register project material, replaceResource to replace an original, query alone for evidence, and compareGroups to compare groups.',
     parameters: JSON.parse(JSON.stringify(Input)),
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -68,7 +67,7 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
       if (input.semantic && !input.query && !input.compareGroups) throw new Error('语义检索需要查询问题')
       const context = await resolve(String(exec.rootCallId ?? exec.callId), !!input.compareGroups && !input.query)
       if (context.binding.delegatedScope && (input.listBatches || input.groupChange || input.moveResources || input.compareGroups || input.sources || input.batch || input.batchId
-        || input.resources || input.online || input.reportOnly !== undefined || input.useRoleDefaults !== undefined || input.prepareInBackground || input.removeResource || input.replaceResource || input.taskGroupId !== undefined && input.taskGroupId !== context.binding.taskGroupId)) throw new Error('子任务已冻结范围，项目或任务组维护请交由 General')
+        || input.resources || input.online || input.useCat !== undefined || input.reportOnly !== undefined || input.useRoleDefaults !== undefined || input.prepareInBackground || input.removeResource || input.replaceResource || input.taskGroupId !== undefined && input.taskGroupId !== context.binding.taskGroupId)) throw new Error('子任务已冻结范围，项目或任务组维护请交由 General')
       if (input.listBatches) {
         if (Object.keys(input).length !== 1) throw new Error('盘点工作批次请单独调用')
         const { projectId, taskGroupId } = context.binding
@@ -161,34 +160,23 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
           ?? (registeredBatch?.assetId ? starts.batchStart(project.id, registeredBatch.assetId) : undefined)
         if (batchStart) registeredBatch = db.taskGroups.registeredBatch(batchStart.batchId) ?? registeredBatch
         reportOnly = input.reportOnly ?? (context.binding.batchStart?.batchId === (batchStart?.batchId ?? batchId) ? context.binding.reportOnly : undefined)
-        const name = registeredBatch?.name ?? db.assets.get(batchId)?.originalFilename ?? batchId
-        if (!batchStart) {
-          const useCat = await context.askBatchCat(name, exec.signal)
-          if (useCat === undefined) return { status: 'awaiting-batch-cat', projectId: project.id, batchId }
-          batchStart = starts.batchStart(project.id, batchId) ?? { batchId, useCat }
-          starts.saveBatchStart(project.id, batchStart, registeredBatch?.assetId ?? undefined)
+        const existingAsset = db.assets.get(batchId) ?? (registeredBatch?.assetId ? db.assets.get(registeredBatch.assetId) : undefined)
+        const resolvedUseCat = input.useCat
+          ?? batchStart?.useCat
+          ?? (existingAsset ? true : undefined)
+          ?? (input.online && !input.sources?.length ? false : (input.sources?.length && !reportOnly ? context.binding.workMode === 'cat' : undefined))
+        if (resolvedUseCat !== undefined && (input.useCat !== undefined || !batchStart) && !(reportOnly && input.useCat === undefined && !existingAsset)) {
+          batchStart = { ...(batchStart ?? { batchId }), batchId: batchStart?.batchId ?? batchId, useCat: resolvedUseCat }
+          starts.saveBatchStart(project.id, batchStart, registeredBatch?.assetId ?? existingAsset?.id ?? undefined)
         }
-        if (!batchStart.useCat && !batchStart.order) {
-          const web = input.online || registeredBatch?.kind === 'browser'
-          const local = Boolean(input.sources?.length || registeredBatch?.kind === 'working-copy')
-          const file = input.sources?.[0]?.path
-          const manuscript = file ? ` ${basename(file)} 的` : ''
-          const recommendation = reportOnly && web ? '先从平台采集本批资料，再整理证据和缺口。'
-            : web && local ? `先审${manuscript}本地副本，再按本批批准的范围回填平台。`
-            : web ? '先核对平台稿件和资料，再按本批批准的范围处理。'
-            : '先准备并审读本地工作副本，再按本批要求核对交付。'
-          const order = await context.askBatchOrder(name, recommendation, exec.signal)
-          if (!order) return { status: 'awaiting-batch-order', projectId: project.id, batchId }
-          batchStart = { ...batchStart, order: starts.batchStart(project.id, batchId)?.order ?? order }
-          starts.saveBatchStart(project.id, batchStart, registeredBatch?.assetId ?? undefined)
-        }
+        const activeBatchId = batchStart?.batchId ?? batchId
         const onlineBatch = input.batch
         if (input.batchId && onlineBatch?.kind === 'browser') {
           const identity = browserBatchIdentity(onlineBatch.locator)
           if (!identity) throw new Error('请提供平台站点与本批原生文件或作业 ID')
           const [origin, ...nativeIds] = identity
           const group = taskGroupId ?? 'ungrouped'
-          const linked = db.taskGroups.browserBatchesFor(group, batchStart.batchId)
+          const linked = db.taskGroups.browserBatchesFor(group, activeBatchId)
           const otherOwner = db.taskGroups.externalBatches(true).some(batch => {
             if (batch.kind !== 'browser' || linked.some(item => item.id === batch.id)) return false
             const registered = browserBatchIdentity(batch.locator)
@@ -202,10 +190,15 @@ export function createProjectPreparationTool(service: LinguistProjectService, re
             db.taskGroups.registerBatch(group, 'browser', onlineBatch.locator, onlineBatch.name, assetId)
           }
         }
-        batchId = batchStart.batchId
+        batchId = activeBatchId
       }
+      const nextWorkMode = !formal
+        ? context.binding.workMode
+        : batchStart
+          ? (batchStart.useCat ? 'cat' as const : ((input.online || registeredBatch?.kind === 'browser') && !input.sources?.length ? 'browser' as const : 'working-copy' as const))
+          : (input.online && !input.sources?.length ? 'browser' as const : context.binding.workMode)
       const binding = { ...context.binding, taskGroupId, projectId: project.id, batchStart,
-        workMode: batchStart ? (batchStart.useCat ? 'cat' as const : 'working-copy' as const) : context.binding.workMode,
+        workMode: nextWorkMode,
         reportOnly, useRoleDefaults: input.useRoleDefaults ?? context.binding.useRoleDefaults,
       }
       bind(project.id, binding)

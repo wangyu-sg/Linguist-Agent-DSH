@@ -10,7 +10,6 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-schedule'
 import type {} from '@deepseek-ai/dsh-skill'
-import type {} from '@deepseek-ai/dsh-user-questions'
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
 import Schema from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -52,7 +51,7 @@ import { createProjectPreparationTool } from './host/project-preparation-tool'
 import { settingsOperation, SETTINGS_OPERATIONS } from './host/settings'
 
 export const name = '@linguist/dsh-plugin'
-export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'userQuestions', 'webServer', 'workspaceRegistry']
+export const inject = ['agents', 'agentPresets', 'attachments', 'llm', 'schedule', 'sessionController', 'sessionPersistence', 'sessionQuery', 'sessions', 'skills', 'subagents', 'systemPrompt', 'tools', 'webServer', 'workspaceRegistry']
 export const Config = Schema.object({ dataRoot: Schema.string().default(DEFAULT_DATA_ROOT), installationId: Schema.string().default(''),
   notificationDestinations: Schema.array(Schema.object({ id: Schema.string().required(), label: Schema.string().required(),
     appId: Schema.string().required(), appSecret: Schema.string().role('secret').required(), chatId: Schema.string().required(),
@@ -154,25 +153,6 @@ export function apply(ctx: Context, config: Config): void {
     let reviewScope = (): readonly string[] | undefined => bindings.session(agent.id)?.delegatedScope?.segmentIds
     const userText = () => agent.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'user')
       ?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
-    const askBatchCat = async (name: string, signal: AbortSignal) => {
-      const yes = '进 CAT 工作台'
-      const no = '本批不进 CAT'
-      const { answers } = await ctx.userQuestions.ask({ agent, signal, questions: [{
-        id: 'linguist-batch-cat', header: '批次开工', question: '这批要进 CAT 工作台逐段处理、留修订记录吗？',
-        detail: name, options: [{ label: yes }, { label: no }],
-      }] })
-      const selected = answers.find(item => item.id === 'linguist-batch-cat')?.selected[0]
-      return selected === yes ? true : selected === no ? false : undefined
-    }
-    const askBatchOrder = async (name: string, recommendation: string, signal: AbortSignal) => {
-      const accept = '按这个顺序开工'
-      const { answers } = await ctx.userQuestions.ask({ agent, signal, questions: [{
-        id: 'linguist-batch-order', header: '处理顺序', question: '按建议顺序开工，还是调整顺序？',
-        detail: `${name}\n\n${recommendation}\n\n如需调整，请在「其他」填写顺序。`, options: [{ label: accept }],
-      }] })
-      const answer = answers.find(item => item.id === 'linguist-batch-order')
-      return answer?.custom?.trim() || (answer?.selected[0] === accept ? recommendation : undefined)
-    }
     const modelProvenance = new ModelCallProvenance()
     const fixedPrompt = buildFixedLinguistPrompt(roleText, professional, binding.role)
     let expectedContextHash: string | undefined
@@ -260,7 +240,7 @@ export function apply(ctx: Context, config: Config): void {
         const segmentIds = selection && [...new Set([...selection.selectedSegmentIds, ...(selection.activeSegmentId ? [selection.activeSegmentId] : [])])]
         const currentUserText = userText()
         return { workspaceRoot, sessionId: agent.id, binding: currentBinding(), segmentIds,
-          question: useTurnQuestion ? currentUserText : undefined, selectedBatchId: selectedAssetId, askBatchCat, askBatchOrder }
+          question: useTurnQuestion ? currentUserText : undefined, selectedBatchId: selectedAssetId }
       }, (projectId, nextBinding) => {
         const previousProject = bindings.session(agent.id)?.projectId
         bindings.bindProject(projectId, workspace.id)

@@ -16,13 +16,11 @@ test('on-demand project questions, chosen CAT preparation and independent childr
   const service = new LinguistProjectService({ rootDir: join(root, 'data'), applicationVersion: 'synthetic' })
   service.init()
   let binding: SessionBinding = { workspaceId: 'synthetic', role: 'general', workMode: 'working-copy' }
-  let answer: boolean | undefined
   let segmentIds: string[] = []
   try {
     writeFileSync(join(root, 'rules.txt'), 'Use sentence case.\n')
     const tool = createProjectPreparationTool(service,
-      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds,
-        askBatchCat: async () => answer, askBatchOrder: async (_name, recommendation) => recommendation }),
+      async () => ({ workspaceRoot: root, sessionId: 'parent', binding, segmentIds }),
       (_id, next) => { binding = next }, new BindingStore(join(root, 'data')))
     const exec = {} as Parameters<typeof tool.execute>[1]
     const prepared = await tool.execute({ query: 'What are the project rules?', resources: [{ path: 'rules.txt', kind: 'rules' }] }, exec) as { materials: string }
@@ -66,12 +64,12 @@ test('on-demand project questions, chosen CAT preparation and independent childr
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
     writeFileSync(join(root, 'task.xliff'), '<xliff version="1.2"><file><body><trans-unit id="one"><source>Use potion</source><target>使用药水</target></trans-unit></body></file></xliff>')
     const sources = [{ path: 'task.xliff' }]
-    const pending = await tool.execute({ sources, sourceLocale: 'en', targetLocale: 'zh-CN' }, exec) as { status: string; batchId: string }
-    assert.equal(pending.status, 'awaiting-batch-cat')
+    const ready = await tool.execute({ sources, sourceLocale: 'en', targetLocale: 'zh-CN', useCat: false }, exec) as { batchId: string; workMode: string; prepared: unknown[] }
+    assert.equal(ready.workMode, 'working-copy')
+    assert.deepEqual(ready.prepared, [])
     assert.equal(service.openProject(projectId).assets.countByProject(), 0)
-    answer = true
     writeFileSync(join(root, 'terms.csv'), 'source,target\nPotion,药剂\n')
-    const withTerms = await tool.execute({ batchId: pending.batchId, sources, resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec) as { preparationOffer: LibraryPreparationOffer }
+    const withTerms = await tool.execute({ batchId: ready.batchId, sources, useCat: true, resources: [{ path: 'terms.csv', kind: 'terms' }] }, exec) as { preparationOffer: LibraryPreparationOffer }
     assert.deepEqual(withTerms.preparationOffer.groups, [], 'term matching is ready without a semantic preparation job')
     const meta = tool.output.presentationMeta?.({}, JSON.parse(JSON.stringify(withTerms)))
     assert.deepEqual(libraryPreparationTurn.match({ type: 'tool/result', data: { turn: 1, message: { isError: false }, meta } } as never),
@@ -115,8 +113,7 @@ test('workspace maintenance verifies moved files in project and group layouts wi
       const from = 'original.txt', to = join(layout.directory, from)
       writeFileSync(join(workspaceRoot, from), layout.text)
       let binding: SessionBinding = { workspaceId: layout.name, role: 'general', workMode: 'working-copy' }
-      const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot, sessionId: layout.name, binding,
-        askBatchCat: async () => undefined, askBatchOrder: async () => undefined }),
+      const tool = createProjectPreparationTool(service, async () => ({ workspaceRoot, sessionId: layout.name, binding }),
         (_id, next) => { binding = next }, new BindingStore(join(root, 'data')))
       const exec = {} as Parameters<typeof tool.execute>[1]
       const inspect = (taskGroupId: string) => tool.execute({ listResourceFiles: true, taskGroupId }, exec) as Promise<ReturnType<typeof service.inspectProjectResourceFiles>>
